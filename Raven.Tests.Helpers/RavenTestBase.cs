@@ -78,6 +78,18 @@ namespace Raven.Tests.Helpers
             pathsToDelete.Add(dataFolder);
         }
 
+        public static IEnumerable<object[]> Storages
+        {
+            get
+            {
+                return new[]
+                {
+                    new object[] {"voron"},
+                    new object[] {"esent"}
+                };
+            }
+        }
+
         private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
         {
             if (assembly == null) throw new ArgumentNullException("assembly");
@@ -367,7 +379,7 @@ namespace Raven.Tests.Helpers
             return servers.First(x => x.SystemDatabase.Configuration.Port == port);
         }
 
-        private static string GetServerUrl(bool fiddler, string serverUrl)
+        public static string GetServerUrl(bool fiddler, string serverUrl)
         {
             if (fiddler)
             {
