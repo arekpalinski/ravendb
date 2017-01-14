@@ -803,5 +803,39 @@ namespace Raven.Database.Storage.Esent.StorageActions
 
             return true;
         }
+
+        public void SetEtag(string key, Etag etag)
+        {
+            Api.JetSetCurrentIndex(session, Documents, "by_key");
+            Api.MakeKey(session, Documents, key, Encoding.Unicode, MakeKeyGrbit.NewKey);
+            var isUpdate = Api.TrySeek(session, Documents, SeekGrbit.SeekEQ);
+            if (isUpdate == false)
+            {
+                throw new InvalidOperationException("Doc was not found: " + key);
+            }
+
+            var preTouchEtag = Etag.Parse(Api.RetrieveColumn(session, Documents, tableColumnsCache.DocumentsColumns["etag"]));
+            try
+            {
+                using (var update = new Update(session, Documents, JET_prep.Replace))
+                {
+                    Api.SetColumn(session, Documents, tableColumnsCache.DocumentsColumns["etag"], etag.TransformToValueForEsentSorting());
+                    update.Save();
+                }
+            }
+            catch (EsentErrorException e)
+            {
+                switch (e.Error)
+                {
+                    case JET_err.WriteConflict:
+                    case JET_err.WriteConflictPrimaryIndex:
+                        throw new ConcurrencyException("Cannot touch document " + key + " because it is already modified");
+                    default:
+                        throw;
+                }
+            }
+
+            cacher.RemoveCachedDocument(key, preTouchEtag);
+        }
     }
 }

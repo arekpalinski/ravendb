@@ -14,6 +14,11 @@ namespace Raven.StorageExporter
         public bool HasCompression { get; set; }
         public EncryptionConfiguration Encryption { get; set; }
 
+        public bool ExportKeysAndEtags { get; set; }
+
+        public bool SetEtags { get; set; }
+
+
         public Etag DocumentsStartEtag { get { return documentsStartEtag; } set { documentsStartEtag = value; } }
         private Etag documentsStartEtag = Etag.Empty;
 
@@ -30,7 +35,19 @@ namespace Raven.StorageExporter
             {
                 int batchSize = BatchSize == 0 ? DefaultBatchSize : BatchSize;
                 var storageExporter = new StorageExporter(DatabaseDataDir, OutputDumpPath, batchSize, DocumentsStartEtag, HasCompression, Encryption);
-                storageExporter.ExportDatabase();
+
+                if (ExportKeysAndEtags)
+                {
+                    storageExporter.ExportKeysAndEtags();
+                }
+                else if (SetEtags)
+                {
+                    storageExporter.SetEtags();
+                }
+                else
+                {
+                    storageExporter.ExportDatabase();
+                }
             }
         }
     }

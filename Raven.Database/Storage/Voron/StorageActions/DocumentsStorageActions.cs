@@ -561,6 +561,37 @@ namespace Raven.Database.Storage.Voron.StorageActions
             if (logger.IsDebugEnabled) { logger.Debug("TouchDocument() - document with key = '{0}'", key); }
         }
 
+        public void SetEtag(string key, Etag etag)
+        {
+            if (string.IsNullOrEmpty(key))
+                throw new ArgumentNullException("key");
+
+            var normalizedKey = CreateKey(key);
+            var normalizedKeySlice = (Slice)normalizedKey;
+
+            if (!tableStorage.Documents.Contains(Snapshot, normalizedKeySlice, writeBatch.Value))
+            {
+                throw new InvalidOperationException(string.Format("Document with dataKey='{0}' was not found", key));
+            }
+
+            int _;
+            var metadata = ReadDocumentMetadata(normalizedKey, normalizedKeySlice, out _);
+
+            var preTouchEtag = metadata.Etag;
+            metadata.Etag = etag;
+
+            WriteDocumentMetadata(metadata, normalizedKeySlice, shouldIgnoreConcurrencyExceptions: true);
+
+            var keyByEtagIndex = tableStorage.Documents.GetIndex(Tables.Documents.Indices.KeyByEtag);
+
+            keyByEtagIndex.Delete(writeBatch.Value, preTouchEtag);
+            keyByEtagIndex.Add(writeBatch.Value, etag, normalizedKey);
+
+            documentCacher.RemoveCachedDocument(normalizedKey, preTouchEtag);
+
+            if (logger.IsDebugEnabled) { logger.Debug("TouchDocument() - document with key = '{0}'", key); }
+        }
+
         public Etag GetBestNextDocumentEtag(Etag etag)
         {
             if (etag == null) throw new ArgumentNullException("etag");

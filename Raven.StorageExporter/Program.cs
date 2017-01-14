@@ -24,6 +24,8 @@ namespace Raven.StorageExporter
 
         private static bool ValidateArgs(string[] args, out StorgaeExporterConfiguration configuration)
         {
+            Console.WriteLine(args.Count());
+
             configuration = null;
             if (args.Count() < 2)
             {
@@ -125,6 +127,14 @@ namespace Raven.StorageExporter
 
                         configuration.Encryption = encryption;
                         currArgPos += 4;
+                        break;
+                    case "--ExportKeysAndEtags":
+                        configuration.ExportKeysAndEtags = true;
+                        currArgPos += 1;
+                        break;
+                    case "--SetEtags":
+                        configuration.SetEtags = true;
+                        currArgPos += 1;
                         break;
                     default:
                         ConsoleUtils.ConsoleWriteLineWithColor(ConsoleColor.Red, "Unidentified argument {0}.\n");

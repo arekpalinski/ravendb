@@ -31,6 +31,7 @@ namespace Raven.Database.Storage
             Reference<bool> earlyExit = null);
         IEnumerable<JsonDocument> GetDocumentsAfterWithIdStartingWith(Etag etag, string idPrefix, int take, CancellationToken cancellationToken, long? maxSize = null, Etag untilEtag = null, TimeSpan? timeout = null, Action<Etag> lastProcessedDocument = null,
             Reference<bool> earlyExit = null);
+
         IEnumerable<JsonDocument> GetDocumentsWithIdStartingWith(string idPrefix, int start, int take, string skipAfter);
         Etag GetEtagAfterSkip(Etag etag, int skip, CancellationToken cancellationToken, out int skipped);
 
@@ -51,6 +52,8 @@ namespace Raven.Database.Storage
         AddDocumentResult InsertDocument(string key, RavenJObject data, RavenJObject metadata, bool overwriteExisting);
 
         void TouchDocument(string key, out Etag preTouchEtag, out Etag afterTouchEtag);
+
+        void SetEtag(string key, Etag etag);
         Etag GetBestNextDocumentEtag(Etag etag);
         DebugDocumentStats GetDocumentStatsVerySlowly();
     }

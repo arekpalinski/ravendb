@@ -435,5 +435,88 @@ namespace Raven.StorageExporter
         private readonly string outputDirectory;
         private ITransactionalStorage storage;
         private readonly int batchSize;
+
+        public void ExportKeysAndEtags()
+        {
+            long totalDocsCount = 0;
+
+            storage.Batch(accsesor => totalDocsCount = accsesor.Documents.GetDocumentsCount());
+
+            using (var file = File.Create(outputDirectory))
+            using (var streamWriter = new StreamWriter(file))
+            {
+                long currentDocsCount = 0;
+                do
+                {
+                    var previousDocsCount = currentDocsCount;
+
+                    try
+                    {
+                        storage.Batch(accsesor =>
+                        {
+                            var docs = accsesor.Documents.GetDocuments(start: (int)currentDocsCount);
+                            foreach (var doc in docs)
+                            {
+                                streamWriter.WriteLine("{0},{1}", doc.Key, doc.Etag);
+
+                                currentDocsCount++;
+
+                                if (currentDocsCount % batchSize == 0)
+                                    ReportProgress("keys and etags", currentDocsCount, totalDocsCount);
+                            }
+                        });
+                    }
+                    catch (Exception e)
+                    {
+                        currentDocsCount++;
+                        ReportCorrupted("keys and etags", currentDocsCount, e.Message);
+                    }
+                    finally
+                    {
+                        if (currentDocsCount > previousDocsCount)
+                            ReportProgress("keys and etags", currentDocsCount, totalDocsCount);
+                    }
+                } while (currentDocsCount < totalDocsCount);
+
+                streamWriter.Flush();
+                file.Flush(flushToDisk: true);
+            }
+        }
+
+        public void SetEtags()
+        {
+            long totalDocsCount = 0;
+
+            storage.Batch(accsesor => totalDocsCount = accsesor.Documents.GetDocumentsCount());
+
+            using (var file = File.Open(outputDirectory, FileMode.Open))
+            using (var reader = new StreamReader(file))
+            {
+                long currentDocsCount = 0;
+                do
+                {
+                    try
+                    {
+                        var strings = reader.ReadLine().Split(',');
+
+                        var key = strings[0];
+                        var etag = Etag.Parse(strings[1]);
+
+                        storage.Batch(accessor => accessor.Documents.SetEtag(key, etag));
+
+
+                        currentDocsCount++;
+
+                        if (currentDocsCount % batchSize == 0)
+                            ReportProgress("set etags", currentDocsCount, totalDocsCount);
+                    }
+                    catch (Exception e)
+                    {
+                        currentDocsCount++;
+                        ReportCorrupted("set etags", currentDocsCount, e.Message);
+                    }
+                } while (reader.EndOfStream == false);
+            }
+        }
     }
 }
