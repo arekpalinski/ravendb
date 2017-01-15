@@ -53,7 +53,7 @@ namespace Raven.Database.Storage
 
         void TouchDocument(string key, out Etag preTouchEtag, out Etag afterTouchEtag);
 
-        void SetEtag(string key, Etag etag);
+        void SetEtag(string key, Etag etag, HashSet<Etag> alreadySetEtags);
         Etag GetBestNextDocumentEtag(Etag etag);
         DebugDocumentStats GetDocumentStatsVerySlowly();
     }

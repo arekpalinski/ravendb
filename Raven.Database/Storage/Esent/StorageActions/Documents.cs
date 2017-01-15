@@ -804,7 +804,7 @@ namespace Raven.Database.Storage.Esent.StorageActions
             return true;
         }
 
-        public void SetEtag(string key, Etag etag)
+        public void SetEtag(string key, Etag etag, HashSet<Etag> alreadySetEtags)
         {
             Api.JetSetCurrentIndex(session, Documents, "by_key");
             Api.MakeKey(session, Documents, key, Encoding.Unicode, MakeKeyGrbit.NewKey);

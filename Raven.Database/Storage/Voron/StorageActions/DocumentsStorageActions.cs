@@ -561,7 +561,7 @@ namespace Raven.Database.Storage.Voron.StorageActions
             if (logger.IsDebugEnabled) { logger.Debug("TouchDocument() - document with key = '{0}'", key); }
         }
 
-        public void SetEtag(string key, Etag etag)
+        public void SetEtag(string key, Etag etag, HashSet<Etag> alreadySetEtags)
         {
             if (string.IsNullOrEmpty(key))
                 throw new ArgumentNullException("key");
@@ -584,8 +584,12 @@ namespace Raven.Database.Storage.Voron.StorageActions
 
             var keyByEtagIndex = tableStorage.Documents.GetIndex(Tables.Documents.Indices.KeyByEtag);
 
-            keyByEtagIndex.Delete(writeBatch.Value, preTouchEtag);
+            if (alreadySetEtags.Contains(preTouchEtag) == false)
+                keyByEtagIndex.Delete(writeBatch.Value, preTouchEtag);
+
             keyByEtagIndex.Add(writeBatch.Value, etag, normalizedKey);
+
+            alreadySetEtags.Add(etag);
 
             documentCacher.RemoveCachedDocument(normalizedKey, preTouchEtag);
 

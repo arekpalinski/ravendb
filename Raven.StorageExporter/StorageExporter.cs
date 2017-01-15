@@ -490,38 +490,60 @@ namespace Raven.StorageExporter
 
             storage.Batch(accsesor => totalDocsCount = accsesor.Documents.GetDocumentsCount());
 
-            Etag lastEtag = null;
+            Etag maxEtag = Etag.Empty;
+
+            var alreadySetEtags = new HashSet<Etag>();
 
             using (var file = File.Open(outputDirectory, FileMode.Open))
             using (var reader = new StreamReader(file))
             {
-                long currentDocsCount = 0;
+                long setEtags = 0;
+
                 do
                 {
-                    try
+                    storage.Batch(accessor =>
                     {
-                        var strings = reader.ReadLine().Split(',');
+                        for (int i = 0; i < batchSize; i++)
+                        {
+                            if (reader.EndOfStream)
+                                break;
 
-                        var key = strings[0];
-                        var etag = Etag.Parse(strings[1]);
+                            try
+                            {
+                                var strings = reader.ReadLine().Split(',');
 
-                        storage.Batch(accessor => accessor.Documents.SetEtag(key, etag));
+                                var key = strings[0];
+                                var etag = Etag.Parse(strings[1]);
 
-                        currentDocsCount++;
+                                accessor.Documents.SetEtag(key, etag, alreadySetEtags);
 
-                        if (currentDocsCount % batchSize == 0)
-                            ReportProgress("set etags", currentDocsCount, totalDocsCount);
+                                setEtags++;
 
-                        lastEtag = etag;
-                    }
-                    catch (Exception e)
-                    {
-                        currentDocsCount++;
-                        ReportCorrupted("set etags", currentDocsCount, e.Message);
-                    }
+                                if (setEtags % batchSize == 0)
+                                    ReportProgress("set etags", setEtags, totalDocsCount);
+
+                                if (etag.CompareTo(maxEtag) > 0)
+                                    maxEtag = etag;
+                            }
+                            catch (Exception e)
+                            {
+                                setEtags++;
+                                ReportCorrupted("set etags", setEtags, e.Message);
+                            }
+                        }
+                    });                    
                 } while (reader.EndOfStream == false);
 
-                storage.Batch(accessor => accessor.General.SetIdentityValue("Raven/Etag", lastEtag.Restarts)); // TODO arek: test this
+                storage.Batch(accessor =>
+                {
+                    var serverRestarts = ((long)UuidType.Documents << 56) ^ maxEtag.Restarts;
+
+                    accessor.General.SetIdentityValue("Raven/Etag", serverRestarts);
+
+                    Console.WriteLine("Raven/Etag identity (number of server restarts) set to: " + serverRestarts);
+                });
+
+                Console.WriteLine("Please reset indexes in your database!");
             }
         }
     }

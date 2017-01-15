@@ -24,8 +24,6 @@ namespace Raven.StorageExporter
 
         private static bool ValidateArgs(string[] args, out StorgaeExporterConfiguration configuration)
         {
-            Console.WriteLine(args.Count());
-
             configuration = null;
             if (args.Count() < 2)
             {
