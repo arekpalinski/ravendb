@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -489,6 +490,8 @@ namespace Raven.StorageExporter
 
             storage.Batch(accsesor => totalDocsCount = accsesor.Documents.GetDocumentsCount());
 
+            Etag lastEtag = null;
+
             using (var file = File.Open(outputDirectory, FileMode.Open))
             using (var reader = new StreamReader(file))
             {
@@ -504,11 +507,12 @@ namespace Raven.StorageExporter
 
                         storage.Batch(accessor => accessor.Documents.SetEtag(key, etag));
 
-
                         currentDocsCount++;
 
                         if (currentDocsCount % batchSize == 0)
                             ReportProgress("set etags", currentDocsCount, totalDocsCount);
+
+                        lastEtag = etag;
                     }
                     catch (Exception e)
                     {
@@ -516,6 +520,8 @@ namespace Raven.StorageExporter
                         ReportCorrupted("set etags", currentDocsCount, e.Message);
                     }
                 } while (reader.EndOfStream == false);
+
+                storage.Batch(accessor => accessor.General.SetIdentityValue("Raven/Etag", lastEtag.Restarts)); // TODO arek: test this
             }
         }
     }
