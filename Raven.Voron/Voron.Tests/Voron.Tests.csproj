@@ -88,6 +88,7 @@
     <Compile Include="Backups\RavenDB_3115.cs" />
     <Compile Include="Bugs\AccessViolationWithIteratorUsage.cs" />
     <Compile Include="Bugs\ChecksumMismatchAfterRecovery.cs" />
+    <Compile Include="Bugs\CorruptionRepro.cs" />
     <Compile Include="Bugs\DataInconsistencyRepro.cs" />
     <Compile Include="Bugs\DeleteCurrentAndMoveNextShouldWorkWithKeysWithNulls.cs" />
     <Compile Include="Bugs\MemoryAccess.cs" />
@@ -188,6 +189,12 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Bugs\Data\mapped.djrs">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Bugs\Data\VoronTestAfter.CSV">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Bugs\Data\VoronTestBefore.CSV">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <None Include="packages.config" />
