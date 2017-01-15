@@ -3,7 +3,6 @@
 //      Copyright (c) Hibernating Rhinos LTD. All rights reserved.
 //  </copyright>
 // -----------------------------------------------------------------------
-using System;
 using System.Collections.Generic;
 using System.IO;
 using Xunit;
@@ -42,6 +41,8 @@ namespace Voron.Tests.Bugs
                 }
             }
 
+            var alreadyAddedEtags = new HashSet<string>();
+
             using (var reader1 = new StreamReader("Bugs/Data/VoronTestBefore.CSV"))
             using (var reader2 = new StreamReader("Bugs/Data/VoronTestAfter.CSV"))
             {
@@ -56,14 +57,14 @@ namespace Voron.Tests.Bugs
 
                         var oldEtag = existingEntry[1];
 
-                        tree.Delete(oldEtag);
+                        if (alreadyAddedEtags.Contains(oldEtag) == false)
+                            tree.Delete(oldEtag);
 
                         var etag = newEntry[1];
                         var key = newEntry[0];
                         tree.Add(etag, key);
 
-                       // Assert.Equal(numberOfEntries, tree.State.EntriesCount); it fails already here
-
+                        alreadyAddedEtags.Add(etag);
                     } while (reader1.EndOfStream == false && reader2.EndOfStream == false);
 
                     tx.Commit();
