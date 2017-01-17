@@ -134,9 +134,20 @@ namespace Raven.StorageExporter
                         configuration.SetEtags = true;
                         currArgPos += 1;
                         break;
-                    default:
-                        ConsoleUtils.ConsoleWriteLineWithColor(ConsoleColor.Red, "Unidentified argument {0}.\n");
+                    case "-JournalsPath":
+                        if (Directory.Exists(args[currArgPos + 1]) == false)
+                        {
+                            ConsoleUtils.ConsoleWriteLineWithColor(ConsoleColor.Red, "Specfied journals directory does not exist: {0}).\n", args[currArgPos + 1]);
+                            return false;
+                        }
+
+                        configuration.JournalsPath = args[currArgPos + 1];
+                        currArgPos += 2;
+
                         break;
+                    default:
+                        ConsoleUtils.ConsoleWriteLineWithColor(ConsoleColor.Red, "Unidentified argument {0}.\n", args[currArgPos]);
+                        return false;
                 }
             }
             return true;
