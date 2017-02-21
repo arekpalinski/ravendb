@@ -201,7 +201,10 @@ namespace Voron.Data.Fixed
                     pos = AddEmbeddedEntry(key, out isNew);
                     break;
                 case RootObjectType.FixedSizeTree:
-                    pos = AddLargeEntry(key, out isNew);
+                    using (var headerAccessor = new LargeFixedSizeTreeHeaderAccessor(this))
+                    {
+                        pos = AddLargeEntry(key, headerAccessor, out isNew);
+                    }
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(_type.ToString());
@@ -209,70 +212,67 @@ namespace Voron.Data.Fixed
             return pos;
         }
 
-        private byte* AddLargeEntry(long key, out bool isNew)
+        private byte* AddLargeEntry(long key, LargeFixedSizeTreeHeaderAccessor headerAccessor, out bool isNew)
         {
-            var page = FindPageFor(key);
+            FixedSizeTreePage page;
+
+            page = FindPageFor(key, headerAccessor);
 
             page = ModifyPage(page);
 
             if (_lastMatch == 0) // update
             {
+                headerAccessor.SkipUpdate = true;
                 isNew = false;
                 return page.Pointer + page.StartPosition + (page.LastSearchPosition * _entrySize) + sizeof(long);
             }
-
 
             if (page.LastMatch > 0)
                 page.LastSearchPosition++; // after the last one
 
             if ((page.NumberOfEntries + 1) * _entrySize > page.PageMaxSpace)
             {
-                using (var headerAccessor = new LargeFixedSizeTreeHeaderAccessor(this))
-                {
-                    PageSplit(page, key, headerAccessor);
-                }
+                PageSplit(page, key, headerAccessor);
 
                 // now we know we have enough space, or we need to split the parent pageNum
-                var addLargeEntry = AddLargeEntry(key, out isNew);
+                var addLargeEntry = AddLargeEntry(key, headerAccessor, out isNew);
                 isNew = true;
-                ValidateTree();
+                ValidateTree(headerAccessor);
                 return addLargeEntry;
             }
 
-            using (var headerAccessor = new LargeFixedSizeTreeHeaderAccessor(this))
+            page.ResetStartPosition();
+
+            var entriesToMove = page.NumberOfEntries - page.LastSearchPosition;
+            if (entriesToMove > 0)
             {
-                page.ResetStartPosition();
-
-                var entriesToMove = page.NumberOfEntries - page.LastSearchPosition;
-                if (entriesToMove > 0)
-                {
-                    UnmanagedMemory.Move(page.Pointer + page.StartPosition + ((page.LastSearchPosition + 1) * _entrySize),
-                        page.Pointer + page.StartPosition + (page.LastSearchPosition * _entrySize),
-                        entriesToMove * _entrySize);
-                }
-
-                page.NumberOfEntries++;
-                headerAccessor.Header.NumberOfEntries++;
-
-                isNew = true;
-                *((long*)(page.Pointer + page.StartPosition + (page.LastSearchPosition * _entrySize))) = key;
-
-                ValidateTree();
-
-                return (page.Pointer + page.StartPosition + (page.LastSearchPosition * _entrySize) + sizeof(long));
+                UnmanagedMemory.Move(
+                    page.Pointer + page.StartPosition + ((page.LastSearchPosition + 1) * _entrySize),
+                    page.Pointer + page.StartPosition + (page.LastSearchPosition * _entrySize),
+                    entriesToMove * _entrySize);
             }
+
+            page.NumberOfEntries++;
+            headerAccessor.Header.NumberOfEntries++;
+
+            isNew = true;
+            *((long*)(page.Pointer + page.StartPosition + (page.LastSearchPosition * _entrySize))) = key;
+
+            ValidateTree(headerAccessor);
+
+            return (page.Pointer + page.StartPosition + (page.LastSearchPosition * _entrySize) + sizeof(long));
         }
 
         [Conditional("VALIDATE")]
-        private void ValidateTree()
+        private void ValidateTree(LargeFixedSizeTreeHeaderAccessor headerAccessor)
         {
             if (_type != RootObjectType.FixedSizeTree)
                 return;
 
-            var header = (FixedSizeTreeHeader.Large*)_parent.DirectRead(_treeName);
+            var header = headerAccessor.Header;
 
             var stack = new Stack<FixedSizeTreePage>();
-            stack.Push(GetReadOnlyPage(header->RootPageNumber));
+            stack.Push(GetReadOnlyPage(header.RootPageNumber));
 
             var numberOfEntriesInTree = 0;
 
@@ -302,9 +302,9 @@ namespace Voron.Data.Fixed
                 }
             }
 
-            if (numberOfEntriesInTree != header->NumberOfEntries)
+            if (numberOfEntriesInTree != header.NumberOfEntries)
             {
-                throw new InvalidOperationException($"Expected number of entries {header->NumberOfEntries}, actual {numberOfEntriesInTree}");
+                throw new InvalidOperationException($"Expected number of entries {header.NumberOfEntries}, actual {numberOfEntriesInTree}");
             }
         }
 
@@ -314,10 +314,9 @@ namespace Voron.Data.Fixed
             return new FixedSizeTreePage(readOnlyPage.Pointer, _entrySize, Constants.Storage.PageSize);
         }
 
-        private FixedSizeTreePage FindPageFor(long key)
+        private FixedSizeTreePage FindPageFor(long key, LargeFixedSizeTreeHeaderAccessor headerAccessor)
         {
-            var header = (FixedSizeTreeHeader.Large*)_parent.DirectRead(_treeName);
-            var page = GetReadOnlyPage(header->RootPageNumber);
+            var page = GetReadOnlyPage(headerAccessor.Header.RootPageNumber);
             if (_cursor == null)
                 _cursor = new Stack<FixedSizeTreePage>();
             else
@@ -867,13 +866,13 @@ namespace Voron.Data.Fixed
              */
             long entriesDeleted = 0;
 
-            using (var updateHeader = new LargeFixedSizeTreeHeaderAccessor(this))
+            using (var headerAccessor = new LargeFixedSizeTreeHeaderAccessor(this))
             {
                 FixedSizeTreePage page;
 
                 while (true)
                 {
-                    page = FindPageFor(start);
+                    page = FindPageFor(start, headerAccessor);
                     if (page.LastMatch > 0)
                         page.LastSearchPosition++;
                     if (page.LastSearchPosition < page.NumberOfEntries)
@@ -894,9 +893,9 @@ namespace Voron.Data.Fixed
 
                     entriesDeleted += nextPage.NumberOfEntries;
 
-                    updateHeader.Header.NumberOfEntries -= nextPage.NumberOfEntries;
+                    headerAccessor.Header.NumberOfEntries -= nextPage.NumberOfEntries;
 
-                    var treeDeleted = RemoveEntirePage(nextPage, updateHeader); // this will rebalance the tree if needed
+                    var treeDeleted = RemoveEntirePage(nextPage, headerAccessor); // this will rebalance the tree if needed
                     System.Diagnostics.Debug.Assert(treeDeleted == false);
                 }
 
@@ -909,7 +908,7 @@ namespace Voron.Data.Fixed
                        _type == RootObjectType.FixedSizeTree // we may revert to embedded by the deletions, or remove entirely
                 )
                 {
-                    page = FindPageFor(start);
+                    page = FindPageFor(start, headerAccessor);
                     if (page.LastMatch > 0)
                         page.LastSearchPosition++;
                     if (page.LastSearchPosition < page.NumberOfEntries)
@@ -925,7 +924,7 @@ namespace Voron.Data.Fixed
                             break;
                     }
 
-                    rangeRemoved = RemoveRangeFromPage(page, end, updateHeader);
+                    rangeRemoved = RemoveRangeFromPage(page, end, headerAccessor);
 
                     entriesDeleted += rangeRemoved;
                 }
@@ -1032,6 +1031,7 @@ namespace Voron.Data.Fixed
             {
                 _parent.Delete(_treeName);
                 _type = null;
+                headerAccessor.SkipUpdate = true;
                 return true;
             }
             var parentPage = _cursor.Pop();
@@ -1047,12 +1047,15 @@ namespace Voron.Data.Fixed
 
         private DeletionResult RemoveLargeEntry(long key)
         {
-            var page = FindPageFor(key);
-            if (page.LastMatch != 0)
-                return new DeletionResult();
-
             using (var headerAccessor = new LargeFixedSizeTreeHeaderAccessor(this))
             {
+                var page = FindPageFor(key, headerAccessor);
+                if (page.LastMatch != 0)
+                {
+                    headerAccessor.SkipUpdate = true;
+                    return new DeletionResult();
+                }
+
                 headerAccessor.Header.NumberOfEntries--;
 
                 page = ModifyPage(page);
@@ -1063,10 +1066,10 @@ namespace Voron.Data.Fixed
                 {
                     page = RebalancePage(page, headerAccessor);
                 }
+
+                ValidateTree(headerAccessor);
             }
-
-            ValidateTree();
-
+            
             return new DeletionResult { NumberOfEntriesDeleted = 1 };
         }
 
@@ -1109,7 +1112,7 @@ namespace Voron.Data.Fixed
                             (_entrySize * page.NumberOfEntries));
                     }
 
-                    headerAccessor.SkipHeaderWrite = true; // because we converted to embedded, large header is no longer valid
+                    headerAccessor.SkipUpdate = true; // because we converted to embedded, large header is no longer valid
 
                     FreePage(page.PageNumber);
                 }
@@ -1458,20 +1461,22 @@ namespace Voron.Data.Fixed
         private class LargeFixedSizeTreeHeaderAccessor : IDisposable
         {
             private readonly FixedSizeTree _fst;
+            private readonly bool _readOnly;
 
-            public LargeFixedSizeTreeHeaderAccessor(FixedSizeTree fst)
+            public LargeFixedSizeTreeHeaderAccessor(FixedSizeTree fst, bool readOnly = false)
             {
-                if (fst._largeHeaderAccessorUsages++ > 0)
+                if (readOnly == false && fst._largeHeaderAccessorUsages++ > 0)
                     ThrowAccessorAlreadyInUse(fst._treeName);
 
                 _fst = fst;
+                _readOnly = readOnly;
 
-                Header = *(FixedSizeTreeHeader.Large*) _fst._parent.DirectRead(_fst._treeName);
+                Header = *(FixedSizeTreeHeader.Large*)_fst._parent.DirectRead(_fst._treeName);
             }
 
             public FixedSizeTreeHeader.Large Header;
 
-            public bool SkipHeaderWrite;
+            public bool SkipUpdate;
 
             private static void ThrowAccessorAlreadyInUse(Slice treeName)
             {
@@ -1480,10 +1485,17 @@ namespace Voron.Data.Fixed
 
             public void Dispose()
             {
+                if (_readOnly)
+                    return;
+
+                System.Diagnostics.Debug.Assert(_fst._tx.Flags == TransactionFlags.ReadWrite);
+
                 _fst._largeHeaderAccessorUsages--;
 
-                if (SkipHeaderWrite)
+                if (SkipUpdate)
                     return;
+
+                System.Diagnostics.Debug.Assert(_fst._type == RootObjectType.FixedSizeTree);
 
                 using (var header = _fst._parent.DirectAdd(_fst._treeName, sizeof(FixedSizeTreeHeader.Large)))
                 {

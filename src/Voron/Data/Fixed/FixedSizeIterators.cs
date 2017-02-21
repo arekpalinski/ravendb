@@ -190,13 +190,13 @@ namespace Voron.Data.Fixed
 
             public bool Seek(long key)
             {
-                _currentPage = _parent.FindPageFor(key);
+                _currentPage = _parent.FindPageFor(key, new LargeFixedSizeTreeHeaderAccessor(_parent, readOnly: true));
                 return _currentPage.LastMatch <= 0 || MoveNext();
             }
 
             public bool SeekToLast()
             {
-                _currentPage = _parent.FindPageFor(long.MaxValue);
+                _currentPage = _parent.FindPageFor(long.MaxValue, new LargeFixedSizeTreeHeaderAccessor(_parent, readOnly: true));
                 return true;
             }
 
