@@ -227,7 +227,10 @@ namespace Voron.Data.Fixed
 
             if ((page.NumberOfEntries + 1) * _entrySize > page.PageMaxSpace)
             {
-                PageSplit(page, key);
+                using (var headerAccessor = new LargeFixedSizeTreeHeaderAccessor(this))
+                {
+                    PageSplit(page, key, headerAccessor);
+                }
 
                 // now we know we have enough space, or we need to split the parent pageNum
                 var addLargeEntry = AddLargeEntry(key, out isNew);
@@ -236,10 +239,8 @@ namespace Voron.Data.Fixed
                 return addLargeEntry;
             }
 
-            using (var add = _parent.DirectAdd(_treeName, sizeof(FixedSizeTreeHeader.Large)))
+            using (var headerAccessor = new LargeFixedSizeTreeHeaderAccessor(this))
             {
-                var headerToWrite = (FixedSizeTreeHeader.Large*)add.Ptr;
-
                 page.ResetStartPosition();
 
                 var entriesToMove = page.NumberOfEntries - page.LastSearchPosition;
@@ -251,7 +252,7 @@ namespace Voron.Data.Fixed
                 }
 
                 page.NumberOfEntries++;
-                headerToWrite->NumberOfEntries++;
+                headerAccessor.Header.NumberOfEntries++;
 
                 isNew = true;
                 *((long*)(page.Pointer + page.StartPosition + (page.LastSearchPosition * _entrySize))) = key;
@@ -391,9 +392,10 @@ namespace Voron.Data.Fixed
             return newPage;
         }
 
-        private FixedSizeTreePage PageSplit(FixedSizeTreePage page, long key)
+        private FixedSizeTreePage PageSplit(FixedSizeTreePage page, long key, LargeFixedSizeTreeHeaderAccessor headerAccessor)
         {
             FixedSizeTreePage parentPage = _cursor.Count > 0 ? _cursor.Pop() : null;
+
             if (parentPage == null) // root split
             {
                 parentPage = NewPage(FixedSizeTreePageFlags.Branch, page.PageNumber);
@@ -401,13 +403,9 @@ namespace Voron.Data.Fixed
                 parentPage.StartPosition = (ushort)Constants.FixedSizeTree.PageHeaderSize;
                 parentPage.ValueSize = _valSize;
 
-                using (var largeFstHeader = _parent.DirectAdd(_treeName, sizeof(FixedSizeTreeHeader.Large)))
-                {
-                    var largePtr = (FixedSizeTreeHeader.Large*)largeFstHeader.Ptr;
-                    largePtr->RootPageNumber = parentPage.PageNumber;
-                    largePtr->Depth++;
-                    largePtr->PageCount++;
-                }
+                headerAccessor.Header.RootPageNumber = parentPage.PageNumber;
+                headerAccessor.Header.Depth++;
+                headerAccessor.Header.PageCount++;
 
                 var entry = parentPage.GetEntry(0);
                 entry->Key = long.MinValue;
@@ -423,34 +421,30 @@ namespace Voron.Data.Fixed
                 newPage.NumberOfEntries = 0;
 
                 long separatorKey;
-                using (var largeFstHeader = _parent.DirectAdd(_treeName, sizeof(FixedSizeTreeHeader.Large)))
+                headerAccessor.Header.PageCount++;
+
+                // need to add past end of pageNum, optimized
+                if (page.LastSearchPosition >= page.NumberOfEntries)
                 {
-                    var largePtr = (FixedSizeTreeHeader.Large*)largeFstHeader.Ptr;
-                    largePtr->PageCount++;
+                    AddLeafKey(newPage, 0, key);
+                    headerAccessor.Header.NumberOfEntries++;
 
-                    // need to add past end of pageNum, optimized
-                    if (page.LastSearchPosition >= page.NumberOfEntries)
-                    {
-                        AddLeafKey(newPage, 0, key);
-                        largePtr->NumberOfEntries++;
+                    separatorKey = key;
+                }
+                else // not at end, random inserts, split page 3/4 to 1/4
+                {
+                    var entriesToMove = (ushort)(page.NumberOfEntries / 4);
+                    newPage.NumberOfEntries = entriesToMove;
+                    page.NumberOfEntries -= entriesToMove;
+                    Memory.Copy(newPage.Pointer + newPage.StartPosition,
+                        page.Pointer + page.StartPosition + (page.NumberOfEntries * _entrySize),
+                        newPage.NumberOfEntries * _entrySize
+                    );
 
-                        separatorKey = key;
-                    }
-                    else // not at end, random inserts, split page 3/4 to 1/4
-                    {
-                        var entriesToMove = (ushort)(page.NumberOfEntries / 4);
-                        newPage.NumberOfEntries = entriesToMove;
-                        page.NumberOfEntries -= entriesToMove;
-                        Memory.Copy(newPage.Pointer + newPage.StartPosition,
-                            page.Pointer + page.StartPosition + (page.NumberOfEntries * _entrySize),
-                            newPage.NumberOfEntries * _entrySize
-                        );
-
-                        separatorKey = newPage.GetKey(0);
-                    }
+                    separatorKey = newPage.GetKey(0);
                 }
 
-                AddSeparatorToParentPage(parentPage, parentPage.LastSearchPosition + 1, separatorKey, newPage.PageNumber);
+                AddSeparatorToParentPage(parentPage, parentPage.LastSearchPosition + 1, separatorKey, newPage.PageNumber, headerAccessor);
                 return null; // we don't care about it for leaf pages
             }
             else // branch page
@@ -460,8 +454,7 @@ namespace Voron.Data.Fixed
                 newPage.ValueSize = _valSize;
                 newPage.NumberOfEntries = 0;
 
-                using (var largeFstHeader = _parent.DirectAdd(_treeName, sizeof(FixedSizeTreeHeader.Large)))
-                    ((FixedSizeTreeHeader.Large*) largeFstHeader.Ptr)->PageCount++;
+                headerAccessor.Header.PageCount++;
 
                 if (page.LastMatch > 0)
                     page.LastSearchPosition++;
@@ -477,7 +470,7 @@ namespace Voron.Data.Fixed
                     page.NumberOfEntries--;
 
                     AddSeparatorToParentPage(parentPage, parentPage.LastSearchPosition + 1, entry->Key,
-                        newPage.PageNumber);
+                        newPage.PageNumber, headerAccessor);
 
                     return newPage; // this is where the new entry needs to go
                 }
@@ -489,11 +482,11 @@ namespace Voron.Data.Fixed
                 Memory.Copy(newPage.Pointer + newPage.StartPosition,
                     page.Pointer + page.StartPosition + (page.NumberOfEntries * BranchEntrySize),
                     newPage.NumberOfEntries * BranchEntrySize
-                    );
+                );
 
                 var newKey = newPage.GetKey(0);
 
-                AddSeparatorToParentPage(parentPage, parentPage.LastSearchPosition + 1, newKey, newPage.PageNumber);
+                AddSeparatorToParentPage(parentPage, parentPage.LastSearchPosition + 1, newKey, newPage.PageNumber, headerAccessor);
 
                 return (newKey > key) ? page : newPage;
             }
@@ -505,11 +498,11 @@ namespace Voron.Data.Fixed
             page.NumberOfEntries++;
         }
 
-        private void AddSeparatorToParentPage(FixedSizeTreePage parentPage, int position, long key, long pageNum)
+        private void AddSeparatorToParentPage(FixedSizeTreePage parentPage, int position, long key, long pageNum, LargeFixedSizeTreeHeaderAccessor headerAccessor)
         {
             if ((parentPage.NumberOfEntries + 1) * BranchEntrySize > parentPage.PageMaxSpace)
             {
-                parentPage = PageSplit(parentPage, key);
+                parentPage = PageSplit(parentPage, key, headerAccessor);
                 System.Diagnostics.Debug.Assert(parentPage != null);
                 BinarySearch(parentPage, key);
                 position = parentPage.LastSearchPosition;
