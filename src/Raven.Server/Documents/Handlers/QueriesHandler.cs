@@ -58,7 +58,7 @@ namespace Raven.Server.Documents.Handlers
             }
         }
 
-        [RavenAction("/databases/*/queries/$", "GET", AuthorizationStatus.ValidUser)]
+        [RavenAction("/databases/*/queries", "GET", AuthorizationStatus.ValidUser)]
         public async Task Get()
         {
             DocumentsOperationContext context;
@@ -164,10 +164,7 @@ namespace Raven.Server.Documents.Handlers
         private async Task<IndexQueryServerSide> GetIndexQuery(JsonOperationContext context, HttpMethod method)
         {
             if (method == HttpMethod.Get)
-            {
-                //IndexQueryServerSide.Create(HttpContext, GetStart(), GetPageSize(), context);
-                throw new NotImplementedException();
-            }
+                return IndexQueryServerSide.Create(HttpContext, GetStart(), GetPageSize(), context);
 
             var indexQueryJson = await context.ReadForMemoryAsync(RequestBodyStream(), "index/query");
 
