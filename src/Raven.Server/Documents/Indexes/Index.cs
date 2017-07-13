@@ -28,6 +28,7 @@ using Raven.Server.Documents.Indexes.Persistence.Lucene;
 using Raven.Server.Documents.Indexes.Static;
 using Raven.Server.Documents.Indexes.Workers;
 using Raven.Server.Documents.Queries;
+using Raven.Server.Documents.Queries.Faceted;
 using Raven.Server.Documents.Queries.MoreLikeThis;
 using Raven.Server.Documents.Queries.Parse;
 using Raven.Server.Documents.Queries.Results;
@@ -1757,7 +1758,7 @@ namespace Raven.Server.Documents.Indexes
             }
         }
 
-        public virtual async Task<FacetedQueryResult> FacetedQuery(FacetQuery query, long facetSetupEtag,
+        public virtual async Task<FacetedQueryResult> FacetedQuery(FacetQueryServerSide query, long facetSetupEtag,
             DocumentsOperationContext documentsContext, OperationCancelToken token)
         {
             AssertIndexState();
@@ -1767,8 +1768,7 @@ namespace Raven.Server.Documents.Indexes
 
             MarkQueried(DocumentDatabase.Time.GetUtcNow());
 
-            //AssertQueryDoesNotContainFieldsThatAreNotIndexed(query, null);
-            await Task.Delay(0);
+            AssertQueryDoesNotContainFieldsThatAreNotIndexed(query, null);
 
             using (var marker = MarkQueryAsRunning(query, token))
 
@@ -1776,7 +1776,7 @@ namespace Raven.Server.Documents.Indexes
                 var result = new FacetedQueryResult();
 
                 var queryDuration = Stopwatch.StartNew();
-                //AsyncWaitForIndexing wait = null;
+                AsyncWaitForIndexing wait = null;
 
                 while (true)
                 {
@@ -1803,7 +1803,7 @@ namespace Raven.Server.Documents.Indexes
 
                             var isStale = IsStale(documentsContext, indexContext, query.CutoffEtag);
 
-                            /*
+                            
                             if (WillResultBeAcceptable(isStale, query, wait) == false)
                             {
                                 documentsContext.CloseTransaction();
@@ -1818,7 +1818,7 @@ namespace Raven.Server.Documents.Indexes
                                 await wait.WaitForIndexingAsync(frozenAwaiter).ConfigureAwait(false);
                                 continue;
                             }
-                            */
+                            
 
                             FillFacetedQueryResult(result, IsStale(documentsContext, indexContext), facetSetupEtag,
                                 documentsContext, indexContext);
