@@ -1767,9 +1767,8 @@ namespace Raven.Server.Documents.Indexes
 
             MarkQueried(DocumentDatabase.Time.GetUtcNow());
 
-            AssertQueryDoesNotContainFieldsThatAreNotIndexed(query, null);
-
-
+            //AssertQueryDoesNotContainFieldsThatAreNotIndexed(query, null);
+            await Task.Delay(0);
 
             using (var marker = MarkQueryAsRunning(query, token))
 
@@ -1777,7 +1776,7 @@ namespace Raven.Server.Documents.Indexes
                 var result = new FacetedQueryResult();
 
                 var queryDuration = Stopwatch.StartNew();
-                AsyncWaitForIndexing wait = null;
+                //AsyncWaitForIndexing wait = null;
 
                 while (true)
                 {
@@ -1804,6 +1803,7 @@ namespace Raven.Server.Documents.Indexes
 
                             var isStale = IsStale(documentsContext, indexContext, query.CutoffEtag);
 
+                            /*
                             if (WillResultBeAcceptable(isStale, query, wait) == false)
                             {
                                 documentsContext.CloseTransaction();
@@ -1818,6 +1818,7 @@ namespace Raven.Server.Documents.Indexes
                                 await wait.WaitForIndexingAsync(frozenAwaiter).ConfigureAwait(false);
                                 continue;
                             }
+                            */
 
                             FillFacetedQueryResult(result, IsStale(documentsContext, indexContext), facetSetupEtag,
                                 documentsContext, indexContext);
@@ -2061,7 +2062,7 @@ namespace Raven.Server.Documents.Indexes
             throw new InvalidOperationException($"Index '{Name} ({Etag})' is currently being compacted.");
         }
 
-        private void AssertQueryDoesNotContainFieldsThatAreNotIndexed(IndexQueryBase query, SortedField[] sortedFields)
+        private void AssertQueryDoesNotContainFieldsThatAreNotIndexed(IndexQueryBase<BlittableJsonReaderObject> query, SortedField[] sortedFields)
         {
             if (string.IsNullOrWhiteSpace(query.Query) == false)
             {
@@ -2146,7 +2147,7 @@ namespace Raven.Server.Documents.Indexes
             return new QueryDoneRunning(this, executingQueryInfo);
         }
 
-        private static bool WillResultBeAcceptable(bool isStale, IndexQueryBase query, AsyncWaitForIndexing wait)
+        private static bool WillResultBeAcceptable(bool isStale, IndexQueryBase<BlittableJsonReaderObject> query, AsyncWaitForIndexing wait)
         {
             if (isStale == false)
                 return true;
