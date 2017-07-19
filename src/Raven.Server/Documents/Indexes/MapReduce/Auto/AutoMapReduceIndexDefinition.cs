@@ -46,7 +46,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Auto
 
         protected internal override IndexDefinition GetOrCreateIndexDefinitionInternal()
         {
-            var map = $"{Collections.First()}:[{string.Join(";", MapFields.Select(x => $"<Name:{x.Value.Name},Sort:{x.Value.Sort},Operation:{x.Value.MapReduceOperation}>"))}]";
+            var map = $"{Collections.First()}:[{string.Join(";", MapFields.Select(x => $"<Name:{x.Value.Name},Sort:{x.Value.Sort},Operation:{x.Value.Aggregation}>"))}]";
             var reduce = $"{Collections.First()}:[{string.Join(";", GroupByFields.Select(x => $"<Name:{x.Value.Name},Sort:{x.Value.Sort}>"))}]";
 
             var indexDefinition = new IndexDefinition();
@@ -167,7 +167,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Auto
                 json.TryGet(nameof(IndexField.Sort), out sortOptionAsInt);
 
                 int mapReduceOperationAsInt;
-                json.TryGet(nameof(IndexField.MapReduceOperation), out mapReduceOperationAsInt);
+                json.TryGet(nameof(IndexField.Aggregation), out mapReduceOperationAsInt);
 
                 var field = new IndexField
                 {
@@ -175,7 +175,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Auto
                     Storage = FieldStorage.Yes,
                     Sort = (SortOptions?)sortOptionAsInt,
                     Indexing = FieldIndexing.Default,
-                    MapReduceOperation = (FieldMapReduceOperation)mapReduceOperationAsInt
+                    Aggregation = (AggregationOperation)mapReduceOperationAsInt
                 };
 
                 mapFields[i] = field;

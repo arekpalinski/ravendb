@@ -37,10 +37,10 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Auto
                         IndexField indexField;
                         if (_indexDefinition.TryGetField(propertyName, out indexField))
                         {
-                            switch (indexField.MapReduceOperation)
+                            switch (indexField.Aggregation)
                             {
-                                case FieldMapReduceOperation.Count:
-                                case FieldMapReduceOperation.Sum:
+                                case AggregationOperation.Count:
+                                case AggregationOperation.Sum:
 
                                     object value;
                                     if (obj.TryGetMember(propertyName, out value) == false)
@@ -69,7 +69,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Auto
                                     break;
                                 //case FieldMapReduceOperation.None:
                                 default:
-                                    throw new ArgumentOutOfRangeException($"Unhandled field type '{indexField.MapReduceOperation}' to aggregate on");
+                                    throw new ArgumentOutOfRangeException($"Unhandled field type '{indexField.Aggregation}' to aggregate on");
                             }
                         }
                         else if (obj.TryGet(propertyName, out stringValue))
