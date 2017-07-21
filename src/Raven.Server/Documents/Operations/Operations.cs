@@ -68,13 +68,13 @@ namespace Raven.Server.Documents.Operations
             Operation operation;
             if (_active.TryGetValue(id, out operation) == false)
                 throw new ArgumentException($"Operation {id} was not registered");
-      
+
             if (operation?.Token != null && operation.Task.IsCompleted == false)
             {
                 operation.Token.Cancel();
             }
 
-            if(operation?.Killable == false)
+            if (operation?.Killable == false)
                 throw new ArgumentException($"Operation {id} is unkillable");
         }
 
@@ -95,11 +95,11 @@ namespace Raven.Server.Documents.Operations
         }
 
         public Task<IOperationResult> AddOperation(
-            DocumentDatabase db,
-            string description, 
-            OperationType operationType, 
+            DocumentDatabase database,
+            string description,
+            OperationType operationType,
             Func<Action<IOperationProgress>, Task<IOperationResult>> taskFactory,
-            long id, 
+            long id,
             OperationCancelToken token = null)
         {
 
@@ -123,7 +123,7 @@ namespace Raven.Server.Documents.Operations
 
             var operation = new Operation
             {
-                Database = db,
+                Database = database,
                 Id = id,
                 Description = operationDescription,
                 Token = token,
@@ -137,7 +137,7 @@ namespace Raven.Server.Documents.Operations
             }
 
             operation.Task = taskFactory(ProgressNotification);
-            
+
             operation.Task.ContinueWith(taskResult =>
             {
                 operationDescription.EndTime = SystemTime.UtcNow;
@@ -181,7 +181,7 @@ namespace Raven.Server.Documents.Operations
                     _completed.TryAdd(id, completed);
                     _active.TryRemove(id, out completed);
                 }
-                
+
                 RaiseNotifications(notification, operation);
             });
 
@@ -268,7 +268,7 @@ namespace Raven.Server.Documents.Operations
             public OperationDescription Description;
 
             public OperationState State;
-            
+
             [JsonIgnore]
             public DocumentDatabase Database;
 

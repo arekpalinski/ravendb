@@ -96,7 +96,7 @@ namespace Raven.Server.Documents.Handlers
                     return;
 
                 }
-                
+
                 await Query(context, token, HttpMethod.Get).ConfigureAwait(false);
             }
         }
@@ -336,7 +336,7 @@ namespace Raven.Server.Documents.Handlers
 
             var operationId = Database.Operations.GetNextOperationId();
 
-            var task = Database.Operations.AddOperation(indexName, operationType, onProgress => operation(queryRunner, options, onProgress, token), operationId, token);
+            var task = Database.Operations.AddOperation(Database, indexName, operationType, onProgress => operation(queryRunner, options, onProgress, token), operationId, token);
 
             task.ContinueWith(_ =>
             {
