@@ -136,7 +136,7 @@ namespace Raven.Server.Documents.Queries.Dynamic
             foreach (var field in query.MapFields)
             {
                 IndexField indexField;
-                if (definition.TryGetField(index.Type.IsAuto() ? field.Name : field.NormalizedName, out indexField))
+                if (definition.TryGetField(field.Name, out indexField))
                 {
                     if (string.IsNullOrWhiteSpace(indexField.Analyzer) == false)
                     {
@@ -161,7 +161,7 @@ namespace Raven.Server.Documents.Queries.Dynamic
 
             foreach (var sortInfo in query.SortDescriptors) // with matching sort options
             {
-                var sortFieldName = index.Type.IsAuto() ? sortInfo.Name : sortInfo.NormalizedName;
+                var sortFieldName = sortInfo.Name;
 
                 if (sortFieldName.StartsWith(Constants.Documents.Indexing.Fields.RandomFieldName) ||
                     sortFieldName.StartsWith(Constants.Documents.Indexing.Fields.CustomSortFieldName))
