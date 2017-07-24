@@ -5,9 +5,29 @@ using FastTests.Voron.Storage;
 using SlowTests.Cluster;
 using Raven.Server.Documents.Replication;
 using Raven.Client.Documents;
+using Raven.Client.Documents.Subscriptions;
+using System.Collections.Generic;
 
 namespace Tryouts
 {
+    public class Customer
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+    }
+
+    public class SupportCall
+    {
+        public string Id { get; set; }
+        public string CustomerId { get; set; }
+        public DateTime Started { get; set; }
+        public DateTime? Ended { get; set; }
+        public string Issue { get; set; }
+        public int Votes { get; set; }
+        public List<string> Comments { get; set; }
+        public bool Survey { get; set; }
+    }
+
     public class Program
     {
         public static void Main(string[] args)
@@ -18,14 +38,26 @@ namespace Tryouts
                 Database = "test"
             }.Initialize())
             {
-                var sub = store.Subscriptions.Open(new Raven.Client.Documents.Subscriptions.SubscriptionConnectionOptions(11));
-                sub.Run(batch =>
+                var options = new SubscriptionCreationOptions<SupportCall>
                 {
-                    foreach (var item in batch.Items)
-                    {
-                        Console.WriteLine(item.Id);
-                    }
-                }).Wait();
+                    Criteria = new SubscriptionCriteria<SupportCall>(
+                        call =>
+            call.Comments.Count > 25 &&
+            call.Votes > 10 &&
+            !call.Survey 
+                        )
+                };
+                store.Subscriptions.Create(options);
+
+
+                //var sub = store.Subscriptions.Open(new Raven.Client.Documents.Subscriptions.SubscriptionConnectionOptions("AllCustomers"));
+                //sub.Run(batch =>
+                //{
+                //    foreach (var item in batch.Items)
+                //    {
+                //        Console.WriteLine(item.Id);
+                //    }
+                //}).Wait();
             }
         }
 
