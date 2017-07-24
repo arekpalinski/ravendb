@@ -32,33 +32,34 @@ namespace Tryouts
     {
         public static void Main(string[] args)
         {
-            using (var store = new DocumentStore
-            {
-                Urls = new string[] { "http://127.0.0.1:8080" },
-                Database = "test"
-            }.Initialize())
-            {
-                var options = new SubscriptionCreationOptions<SupportCall>
-                {
-                    Criteria = new SubscriptionCriteria<SupportCall>(
-                        call =>
-            call.Comments.Count > 25 &&
-            call.Votes > 10 &&
-            !call.Survey 
-                        )
-                };
-                store.Subscriptions.Create(options);
+            RunTest();
+            //using (var store = new DocumentStore
+            //{
+            //    Urls = new string[] { "http://127.0.0.1:8080" },
+            //    Database = "test"
+            //}.Initialize())
+            //{
+            //    var options = new SubscriptionCreationOptions<SupportCall>
+            //    {
+            //        Criteria = new SubscriptionCriteria<SupportCall>(
+            //            call =>
+            //call.Comments.Count > 25 &&
+            //call.Votes > 10 &&
+            //!call.Survey 
+            //            )
+            //    };
+            //    store.Subscriptions.Create(options);
 
 
-                //var sub = store.Subscriptions.Open(new Raven.Client.Documents.Subscriptions.SubscriptionConnectionOptions("AllCustomers"));
-                //sub.Run(batch =>
-                //{
-                //    foreach (var item in batch.Items)
-                //    {
-                //        Console.WriteLine(item.Id);
-                //    }
-                //}).Wait();
-            }
+            //    //var sub = store.Subscriptions.Open(new Raven.Client.Documents.Subscriptions.SubscriptionConnectionOptions("AllCustomers"));
+            //    //sub.Run(batch =>
+            //    //{
+            //    //    foreach (var item in batch.Items)
+            //    //    {
+            //    //        Console.WriteLine(item.Id);
+            //    //    }
+            //    //}).Wait();
+            //}
         }
 
         private static void RunTest()
@@ -67,11 +68,11 @@ namespace Tryouts
             {
                 Console.Clear();
                 Console.WriteLine(i);
-                using (var test = new FastTests.Server.Documents.Revisions.RevisionsReplication())
+                using (var test = new FastTests.Client.Query())
                 {
                     try
                     {
-                        test.RevisionsOrder().Wait();
+                        test.Query_By_Index();
                     }
                     catch (Exception e)
                     {
