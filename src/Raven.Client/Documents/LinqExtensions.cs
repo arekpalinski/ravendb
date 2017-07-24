@@ -19,7 +19,6 @@ using Raven.Client.Documents.Queries.Suggestion;
 using Raven.Client.Documents.Session;
 using Raven.Client.Documents.Session.Operations;
 using Raven.Client.Documents.Session.Operations.Lazy;
-using Raven.Client.Http;
 using Raven.Client.Util;
 
 namespace Raven.Client.Documents
@@ -104,7 +103,7 @@ namespace Raven.Client.Documents
         {
             var ravenQueryInspector = (IRavenQueryInspector)queryable;
             var q = ravenQueryInspector.GetIndexQuery(false);
-            var query = FacetQuery.Create(ravenQueryInspector.IndexQueried, q, facetSetupDoc, null, start, pageSize, ravenQueryInspector.Session.Conventions);
+            var query = FacetQuery.Create(q, facetSetupDoc, null, start, pageSize, ravenQueryInspector.Session.Conventions);
 
             return query;
         }
@@ -144,7 +143,7 @@ namespace Raven.Client.Documents
 
             var ravenQueryInspector = (IRavenQueryInspector)queryable;
             var q = ravenQueryInspector.GetIndexQuery(false);
-            var query = FacetQuery.Create(ravenQueryInspector.IndexQueried, q, null, facetsList, start, pageSize, ravenQueryInspector.Session.Conventions);
+            var query = FacetQuery.Create(q, null, facetsList, start, pageSize, ravenQueryInspector.Session.Conventions);
 
             return query;
         }
@@ -192,8 +191,8 @@ namespace Raven.Client.Documents
         {
             var ravenQueryInspector = ((IRavenQueryInspector)queryable);
             var q = ravenQueryInspector.GetIndexQuery(isAsync: false);
-            var query = FacetQuery.Create(ravenQueryInspector.IndexQueried, q, facetSetupDoc, null, start, pageSize, ravenQueryInspector.Session.Conventions);
-            var lazyOperation = new LazyFacetsOperation(query);
+            var query = FacetQuery.Create(q, facetSetupDoc, null, start, pageSize, ravenQueryInspector.Session.Conventions);
+            var lazyOperation = new LazyFacetsOperation(ravenQueryInspector.Session.Conventions, query);
 
             var documentSession = ((DocumentSession)ravenQueryInspector.Session);
             return documentSession.AddLazyOperation<FacetedQueryResult>(lazyOperation, null);
@@ -212,8 +211,8 @@ namespace Raven.Client.Documents
         {
             var ravenQueryInspector = ((IRavenQueryInspector)queryable);
             var q = ravenQueryInspector.GetIndexQuery(true);
-            var query = FacetQuery.Create(ravenQueryInspector.AsyncIndexQueried, q, facetSetupDoc, null, start, pageSize, ravenQueryInspector.Session.Conventions);
-            var lazyOperation = new LazyFacetsOperation(query);
+            var query = FacetQuery.Create(q, facetSetupDoc, null, start, pageSize, ravenQueryInspector.Session.Conventions);
+            var lazyOperation = new LazyFacetsOperation(ravenQueryInspector.Session.Conventions, query);
 
             var documentSession = ((AsyncDocumentSession)ravenQueryInspector.Session);
             return documentSession.AddLazyOperation<FacetedQueryResult>(lazyOperation, null);
@@ -231,8 +230,8 @@ namespace Raven.Client.Documents
 
             var ravenQueryInspector = ((IRavenQueryInspector)queryable);
             var q = ravenQueryInspector.GetIndexQuery(isAsync: false);
-            var query = FacetQuery.Create(ravenQueryInspector.IndexQueried, q, null, facetsList, start, pageSize, ravenQueryInspector.Session.Conventions);
-            var lazyOperation = new LazyFacetsOperation(query);
+            var query = FacetQuery.Create(q, null, facetsList, start, pageSize, ravenQueryInspector.Session.Conventions);
+            var lazyOperation = new LazyFacetsOperation(ravenQueryInspector.Session.Conventions, query);
 
             var documentSession = ((DocumentSession)ravenQueryInspector.Session);
             return documentSession.AddLazyOperation<FacetedQueryResult>(lazyOperation, null);
@@ -249,8 +248,8 @@ namespace Raven.Client.Documents
         {
             var indexQuery = query.GetIndexQuery();
             var documentQuery = ((DocumentQuery<T>)query);
-            var facetQuery = FacetQuery.Create(documentQuery.IndexName, indexQuery, facetSetupDoc, null, start, pageSize, documentQuery.Conventions);
-            var lazyOperation = new LazyFacetsOperation(facetQuery);
+            var facetQuery = FacetQuery.Create(indexQuery, facetSetupDoc, null, start, pageSize, documentQuery.Conventions);
+            var lazyOperation = new LazyFacetsOperation(documentQuery.Conventions, facetQuery);
 
             var documentSession = ((DocumentSession)documentQuery.Session);
             return documentSession.AddLazyOperation<FacetedQueryResult>(lazyOperation, null);
@@ -272,8 +271,8 @@ namespace Raven.Client.Documents
 
             var indexQuery = query.GetIndexQuery();
             var documentQuery = (DocumentQuery<T>)query;
-            var facetQuery = FacetQuery.Create(documentQuery.IndexName, indexQuery, null, facetsList, start, pageSize, documentQuery.Conventions);
-            var lazyOperation = new LazyFacetsOperation(facetQuery);
+            var facetQuery = FacetQuery.Create(indexQuery, null, facetsList, start, pageSize, documentQuery.Conventions);
+            var lazyOperation = new LazyFacetsOperation(documentQuery.Conventions, facetQuery);
 
             var documentSession = ((DocumentSession)documentQuery.Session);
             return documentSession.AddLazyOperation<FacetedQueryResult>(lazyOperation, null);
@@ -427,9 +426,9 @@ namespace Raven.Client.Documents
             var inspector = source as IRavenQueryInspector;
             if (inspector == null)
                 throw new ArgumentException("You can only use Raven Queryable with suggests");
-           
+
             SetSuggestionQueryParameters(inspector, query);
-            
+
             var lazyOperation = new LazySuggestionOperation(inspector.Session, query);
 
             var documentSession = ((DocumentSession)inspector.Session);
@@ -438,7 +437,7 @@ namespace Raven.Client.Documents
 
         private static void SetSuggestionQueryParameters(IRavenQueryInspector inspector, SuggestionQuery query, bool isAsync = false)
         {
-            query.IndexName = isAsync ? inspector.AsyncIndexQueried : inspector.IndexQueried;
+            query.IndexName = inspector.IndexName;
 
             if (string.IsNullOrEmpty(query.Field) == false && string.IsNullOrEmpty(query.Term) == false)
                 return;
@@ -448,7 +447,7 @@ namespace Raven.Client.Documents
                 throw new InvalidOperationException("Could not suggest on a query that doesn't have a single equality check");
 
             query.Field = lastEqualityTerm.Key;
-            query.Term = lastEqualityTerm.Value;
+            query.Term = lastEqualityTerm.Value.ToString();
         }
 
         /// <summary>

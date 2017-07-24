@@ -136,7 +136,7 @@ namespace Raven.Server.Documents.Queries.Dynamic
             foreach (var field in query.MapFields)
             {
                 IndexField indexField;
-                if (definition.TryGetField(index.Type.IsAuto() ? field.Name : field.NormalizedName, out indexField))
+                if (definition.TryGetField(field.Name, out indexField))
                 {
                     if (string.IsNullOrWhiteSpace(indexField.Analyzer) == false)
                     {
@@ -161,10 +161,9 @@ namespace Raven.Server.Documents.Queries.Dynamic
 
             foreach (var sortInfo in query.SortDescriptors) // with matching sort options
             {
-                var sortFieldName = index.Type.IsAuto() ? sortInfo.Name : sortInfo.NormalizedName;
+                var sortFieldName = sortInfo.Name;
 
-                if (sortFieldName.StartsWith(Constants.Documents.Indexing.Fields.AlphaNumericFieldName) ||
-                    sortFieldName.StartsWith(Constants.Documents.Indexing.Fields.RandomFieldName) ||
+                if (sortFieldName.StartsWith(Constants.Documents.Indexing.Fields.RandomFieldName) ||
                     sortFieldName.StartsWith(Constants.Documents.Indexing.Fields.CustomSortFieldName))
                 {
                     sortFieldName = SortFieldHelper.ExtractName(sortFieldName);
@@ -266,9 +265,9 @@ namespace Raven.Server.Documents.Queries.Dynamic
 
                 var field = definition.GetField(mapField.Name);
 
-                if (field.MapReduceOperation != mapField.MapReduceOperation)
+                if (field.Aggregation != mapField.AggregationOperation)
                 {
-                    explanations?.Add(new Explanation(indexName, $"The following field {field.Name} has {field.MapReduceOperation} operation defined, while query required {mapField.MapReduceOperation}"));
+                    explanations?.Add(new Explanation(indexName, $"The following field {field.Name} has {field.Aggregation} operation defined, while query required {mapField.AggregationOperation}"));
 
                     return false;
                 }

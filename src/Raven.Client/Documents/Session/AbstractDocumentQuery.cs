@@ -8,7 +8,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -21,8 +20,8 @@ using Raven.Client.Documents.Linq;
 using Raven.Client.Documents.Queries;
 using Raven.Client.Documents.Queries.Spatial;
 using Raven.Client.Documents.Session.Operations;
+using Raven.Client.Documents.Session.Tokens;
 using Raven.Client.Extensions;
-using Sparrow.Extensions;
 using Sparrow.Json;
 
 namespace Raven.Client.Documents.Session
@@ -33,6 +32,12 @@ namespace Raven.Client.Documents.Session
     public abstract class AbstractDocumentQuery<T, TSelf> : IDocumentQueryCustomization, IAbstractDocumentQuery<T>
                                                             where TSelf : AbstractDocumentQuery<T, TSelf>
     {
+        private static readonly Regex EscapePostfixWildcard = new Regex(@"\\\*(\s|$)", RegexOptions.Compiled);
+        private readonly Dictionary<string, string> _aliasToGroupByFieldName = new Dictionary<string, string>();
+
+        protected QueryOperator DefaultOperator;
+        protected bool AllowMultipleIndexEntriesForSameDocumentToResultTransformer;
+
         protected bool IsSpatialQuery;
         protected string SpatialFieldName, QueryShape;
         protected SpatialUnits? SpatialUnits;
@@ -58,41 +63,23 @@ namespace Raven.Client.Documents.Session
         /// </summary>
         public string IndexName { get; }
 
-        protected Func<IndexQuery, IEnumerable<object>, IEnumerable<object>> TransformResultsFunc;
+        public string CollectionName { get; }
 
-        protected string DefaultField;
+        protected Func<IndexQuery, IEnumerable<object>, IEnumerable<object>> TransformResultsFunc;
 
         private int _currentClauseDepth;
 
-        protected KeyValuePair<string, string> LastEquality;
+        protected KeyValuePair<string, object> LastEquality;
 
         protected Dictionary<string, object> TransformerParameters = new Dictionary<string, object>();
 
-        /// <summary>
-        ///   The list of fields to project directly from the results
-        /// </summary>
-        protected internal readonly string[] ProjectionFields;
+        protected Dictionary<string, object> QueryParameters = new Dictionary<string, object>();
 
-        /// <summary>
-        ///   The list of fields to project directly from the index on the server
-        /// </summary>
-        protected readonly string[] FieldsToFetch;
-
-        protected bool IsMapReduce;
+        protected bool IsGroupBy;
         /// <summary>
         /// The session for this query
         /// </summary>
         protected readonly InMemoryDocumentSessionOperations TheSession;
-
-        /// <summary>
-        ///   The fields to order the results by
-        /// </summary>
-        protected string[] OrderByFields = new string[0];
-
-        /// <summary>
-        /// The fields of dynamic map-reduce query
-        /// </summary>
-        protected DynamicMapReduceField[] DynamicMapReduceFields = new DynamicMapReduceField[0];
 
         /// <summary>
         ///   The fields to highlight
@@ -121,10 +108,17 @@ namespace Raven.Client.Documents.Session
 
         protected QueryOperation QueryOperation;
 
-        /// <summary>
-        /// The query to use
-        /// </summary>
-        protected StringBuilder QueryText = new StringBuilder();
+        protected LinkedList<QueryToken> SelectTokens = new LinkedList<QueryToken>();
+
+        protected readonly FromToken FromToken;
+
+        protected internal FieldsToFetchToken FieldsToFetchToken;
+
+        protected LinkedList<QueryToken> WhereTokens = new LinkedList<QueryToken>();
+
+        protected LinkedList<QueryToken> GroupByTokens = new LinkedList<QueryToken>();
+
+        protected LinkedList<QueryToken> OrderByTokens = new LinkedList<QueryToken>();
 
         /// <summary>
         ///   which record to start reading from
@@ -184,7 +178,7 @@ namespace Raven.Client.Documents.Session
         /// </summary>
         protected bool ShouldExplainScores;
 
-        public bool IsDistinct => _isDistinct;
+        public bool IsDistinct => SelectTokens.First?.Value is DistinctToken;
 
         /// <summary>
         /// Gets the document convention from the query session
@@ -197,13 +191,13 @@ namespace Raven.Client.Documents.Session
         public IDocumentSession Session => (IDocumentSession)TheSession;
         public IAsyncDocumentSession AsyncSession => (IAsyncDocumentSession)TheSession;
 
-        public bool IsDynamicMapReduce => DynamicMapReduceFields.Length > 0;
+        public bool IsDynamicMapReduce => GroupByTokens.Count > 0;
 
         protected Action<QueryResult> AfterQueryExecutedCallback;
         protected AfterStreamExecutedDelegate AfterStreamExecutedCallback;
         protected long? CutoffEtag;
 
-        private TimeSpan DefaultTimeout
+        private static TimeSpan DefaultTimeout
         {
             get
             {
@@ -217,64 +211,22 @@ namespace Raven.Client.Documents.Session
         /// <summary>
         /// Initializes a new instance of the <see cref="AbstractDocumentQuery{T, TSelf}"/> class.
         /// </summary>
-        protected AbstractDocumentQuery(InMemoryDocumentSessionOperations theSession,
+        protected AbstractDocumentQuery(InMemoryDocumentSessionOperations session,
                                      string indexName,
-                                     string[] fieldsToFetch,
-                                     string[] projectionFields,
-                                     bool isMapReduce)
+                                     string collectionName,
+                                     bool isGroupBy)
         {
-            ProjectionFields = projectionFields;
-            FieldsToFetch = fieldsToFetch;
-            IsMapReduce = isMapReduce;
+            IsGroupBy = isGroupBy;
             IndexName = indexName;
-            TheSession = theSession;
+            CollectionName = collectionName;
+
+            FromToken = FromToken.Create(indexName, collectionName);
+
+            TheSession = session;
             AfterQueryExecuted(UpdateStatsAndHighlightings);
 
-            _conventions = theSession == null ? new DocumentConventions() : theSession.Conventions;
+            _conventions = session == null ? new DocumentConventions() : session.Conventions;
             _linqPathProvider = new LinqPathProvider(_conventions);
-        }
-
-        private void UpdateStatsAndHighlightings(QueryResult queryResult)
-        {
-            QueryStats.UpdateQueryStats(queryResult);
-            Highlightings.Update(queryResult);
-        }
-
-        /// <summary>
-        ///   Initializes a new instance of the <see cref = "IDocumentQuery{T}" /> class.
-        /// </summary>
-        /// <param name = "other">The other.</param>
-        protected AbstractDocumentQuery(AbstractDocumentQuery<T, TSelf> other)
-        {
-            IndexName = other.IndexName;
-            _linqPathProvider = other._linqPathProvider;
-            AllowMultipleIndexEntriesForSameDocumentToResultTransformer =
-                other.AllowMultipleIndexEntriesForSameDocumentToResultTransformer;
-            ProjectionFields = other.ProjectionFields;
-            TheSession = other.TheSession;
-            _conventions = other._conventions;
-            OrderByFields = other.OrderByFields;
-            DynamicMapReduceFields = other.DynamicMapReduceFields;
-            PageSize = other.PageSize;
-            QueryText = other.QueryText;
-            Start = other.Start;
-            Timeout = other.Timeout;
-            TheWaitForNonStaleResults = other.TheWaitForNonStaleResults;
-            TheWaitForNonStaleResultsAsOfNow = other.TheWaitForNonStaleResultsAsOfNow;
-            Includes = other.Includes;
-            QueryStats = other.QueryStats;
-            DefaultOperator = other.DefaultOperator;
-            DefaultField = other.DefaultField;
-            HighlightedFields = other.HighlightedFields;
-            HighlighterPreTags = other.HighlighterPreTags;
-            HighlighterPostTags = other.HighlighterPostTags;
-            TransformerParameters = other.TransformerParameters;
-            DisableEntitiesTracking = other.DisableEntitiesTracking;
-            DisableCaching = other.DisableCaching;
-            ShowQueryTimings = other.ShowQueryTimings;
-            ShouldExplainScores = other.ShouldExplainScores;
-
-            AfterQueryExecuted(UpdateStatsAndHighlightings);
         }
 
         #region TSelf Members
@@ -445,11 +397,6 @@ namespace Raven.Client.Documents.Session
             return this;
         }
 
-        public void UsingDefaultField(string field)
-        {
-            DefaultField = field;
-        }
-
         public void UsingDefaultOperator(QueryOperator @operator)
         {
             DefaultOperator = @operator;
@@ -508,8 +455,9 @@ namespace Raven.Client.Documents.Session
 
             return new QueryOperation(TheSession,
                 IndexName,
+                CollectionName,
                 indexQuery,
-                ProjectionFields,
+                FieldsToFetchToken?.Projections,
                 TheWaitForNonStaleResults,
                 Timeout,
                 TransformResultsFunc,
@@ -519,7 +467,7 @@ namespace Raven.Client.Documents.Session
 
         public IndexQuery GetIndexQuery()
         {
-            var query = QueryText.ToString();
+            var query = ToString();
             var indexQuery = GenerateIndexQuery(query);
             BeforeQueryExecutionAction?.Invoke(indexQuery);
 
@@ -532,15 +480,7 @@ namespace Raven.Client.Documents.Session
         /// <returns></returns>
         public IEnumerable<string> GetProjectionFields()
         {
-            return ProjectionFields ?? Enumerable.Empty<string>();
-        }
-
-        /// <summary>
-        /// Order the search results in alphanumeric order
-        /// </summary>
-        public void AlphaNumericOrdering(string fieldName, bool descending)
-        {
-            AddOrder(Constants.Documents.Indexing.Fields.AlphaNumericFieldName + ";" + fieldName, descending);
+            return FieldsToFetchToken?.Projections ?? Enumerable.Empty<string>();
         }
 
         /// <summary>
@@ -577,22 +517,19 @@ namespace Raven.Client.Documents.Session
             return this;
         }
 
-        IDocumentQueryCustomization IDocumentQueryCustomization.Highlight(
-            string fieldName, int fragmentLength, int fragmentCount, string fragmentsField)
+        IDocumentQueryCustomization IDocumentQueryCustomization.Highlight(string fieldName, int fragmentLength, int fragmentCount, string fragmentsField)
         {
             Highlight(fieldName, fragmentLength, fragmentCount, fragmentsField);
             return this;
         }
 
-        IDocumentQueryCustomization IDocumentQueryCustomization.Highlight(
-            string fieldName, int fragmentLength, int fragmentCount, out FieldHighlightings fieldHighlightings)
+        IDocumentQueryCustomization IDocumentQueryCustomization.Highlight(string fieldName, int fragmentLength, int fragmentCount, out FieldHighlightings fieldHighlightings)
         {
             Highlight(fieldName, fragmentLength, fragmentCount, out fieldHighlightings);
             return this;
         }
 
-        IDocumentQueryCustomization IDocumentQueryCustomization.Highlight(
-            string fieldName, string fieldKeyName, int fragmentLength, int fragmentCount, out FieldHighlightings fieldHighlightings)
+        IDocumentQueryCustomization IDocumentQueryCustomization.Highlight(string fieldName, string fieldKeyName, int fragmentLength, int fragmentCount, out FieldHighlightings fieldHighlightings)
         {
             Highlight(fieldName, fieldKeyName, fragmentLength, fragmentCount, out fieldHighlightings);
             return this;
@@ -603,17 +540,69 @@ namespace Raven.Client.Documents.Session
             SetAllowMultipleIndexEntriesForSameDocumentToResultTransformer(val);
             return this;
         }
-
-        public void AddMapReduceField(DynamicMapReduceField field)
+        
+        internal void AddGroupByAlias(string fieldName, string projectedName)
         {
-            IsMapReduce = true;
-
-            DynamicMapReduceFields = DynamicMapReduceFields.Concat(new[] { field }).ToArray();
+            _aliasToGroupByFieldName[projectedName] = fieldName;
         }
 
-        public DynamicMapReduceField[] GetGroupByFields()
+        public void GroupBy(string fieldName, params string[] fieldNames)
         {
-            return DynamicMapReduceFields.Where(x => x.IsGroupBy).ToArray();
+            if (FromToken.IsDynamic == false)
+                throw new InvalidOperationException("GroupBy only works with dynamic queries.");
+
+            IsGroupBy = true;
+
+            fieldName = EnsureValidFieldName(fieldName, isNestedPath: false);
+
+            GroupByTokens.AddLast(GroupByToken.Create(fieldName));
+
+            if (fieldNames == null || fieldNames.Length <= 0)
+                return;
+
+            foreach (var name in fieldNames)
+            {
+                fieldName = EnsureValidFieldName(name, isNestedPath: false);
+
+                GroupByTokens.AddLast(GroupByToken.Create(fieldName));
+            }
+        }
+
+        public void GroupByKey(string fieldName = null, string projectedName = null)
+        {
+            IsGroupBy = true;
+
+            if (projectedName != null && _aliasToGroupByFieldName.TryGetValue(projectedName, out var aliasedFieldName))
+            {
+                if (fieldName == null || fieldName.Equals(projectedName, StringComparison.Ordinal))
+                    fieldName = aliasedFieldName;
+            }
+
+            SelectTokens.AddLast(GroupByKeyToken.Create(fieldName, projectedName));
+        }
+
+        public void GroupBySum(string fieldName, string projectedName = null)
+        {
+            IsGroupBy = true;
+
+            fieldName = EnsureValidFieldName(fieldName, isNestedPath: false);
+
+            SelectTokens.AddLast(GroupBySumToken.Create(fieldName, projectedName));
+        }
+
+        public void GroupByCount(string projectedName = null)
+        {
+            IsGroupBy = true;
+
+            SelectTokens.AddLast(GroupByCountToken.Create(projectedName));
+        }
+
+        public void WhereTrue()
+        {
+            AppendOperatorIfNeeded(WhereTokens);
+            NegateIfNeeded();
+
+            WhereTokens.AddLast(TrueToken.Instance);
         }
 
         IDocumentQueryCustomization IDocumentQueryCustomization.SetHighlighterTags(string preTag, string postTag)
@@ -656,14 +645,11 @@ namespace Raven.Client.Documents.Session
         /// </summary>
         /// <param name = "fieldName">Name of the field.</param>
         /// <param name = "descending">if set to <c>true</c> [descending].</param>
-        public void AddOrder(string fieldName, bool descending)
+        /// <param name = "ordering">ordering type.</param>
+        public void AddOrder(string fieldName, bool descending, OrderingType ordering = OrderingType.String)
         {
-            fieldName = EnsureValidFieldName(new WhereParams
-            {
-                FieldName = fieldName
-            });
-            fieldName = descending ? "-" + fieldName : fieldName;
-            OrderByFields = OrderByFields.Concat(new[] { fieldName }).ToArray();
+            fieldName = EnsureValidFieldName(fieldName, isNestedPath: false);
+            OrderByTokens.AddLast(descending ? OrderByToken.CreateDescending(fieldName, ordering) : OrderByToken.CreateAscending(fieldName, ordering));
         }
 
         public void Highlight(string fieldName, int fragmentLength, int fragmentCount, string fragmentsField)
@@ -770,19 +756,13 @@ If you really want to do in memory filtering on the data returned from the query
         /// <summary>
         ///   Filter the results from the index using the specified where clause.
         /// </summary>
-        /// <param name = "whereClause">The where clause.</param>
-        public void Where(string whereClause)
+        public void Where(string fieldName, string whereClause)
         {
-            AppendSpaceIfNeeded(QueryText.Length > 0 && QueryText[QueryText.Length - 1] != '(');
-            QueryText.Append(whereClause);
-        }
+            fieldName = EnsureValidFieldName(fieldName, isNestedPath: false);
 
-        private void AppendSpaceIfNeeded(bool shouldAppendSpace)
-        {
-            if (shouldAppendSpace)
-            {
-                QueryText.Append(" ");
-            }
+            AppendOperatorIfNeeded(WhereTokens);
+
+            WhereTokens.AddLast(WhereToken.Lucene(fieldName, AddQueryParameter(fieldName, whereClause)));
         }
 
         /// <summary>
@@ -825,9 +805,11 @@ If you really want to do in memory filtering on the data returned from the query
         public void OpenSubclause()
         {
             _currentClauseDepth++;
-            AppendSpaceIfNeeded(QueryText.Length > 0 && QueryText[QueryText.Length - 1] != '(');
+
+            AppendOperatorIfNeeded(WhereTokens);
             NegateIfNeeded();
-            QueryText.Append("(");
+
+            WhereTokens.AddLast(OpenSubclauseToken.Instance);
         }
 
         /// <summary>
@@ -837,7 +819,8 @@ If you really want to do in memory filtering on the data returned from the query
         public void CloseSubclause()
         {
             _currentClauseDepth--;
-            QueryText.Append(")");
+
+            WhereTokens.AddLast(CloseSubclauseToken.Instance);
         }
 
         /// <summary>
@@ -845,50 +828,15 @@ If you really want to do in memory filtering on the data returned from the query
         /// </summary>
         public void WhereEquals(WhereParams whereParams)
         {
-            EnsureValidFieldName(whereParams);
+            whereParams.FieldName = EnsureValidFieldName(whereParams.FieldName, whereParams.IsNestedPath);
 
-            var transformToEqualValue = TransformToEqualValue(whereParams);
-            LastEquality = new KeyValuePair<string, string>(whereParams.FieldName, transformToEqualValue);
+            var transformToEqualValue = TransformValue(whereParams);
+            LastEquality = new KeyValuePair<string, object>(whereParams.FieldName, transformToEqualValue);
 
-            AppendSpaceIfNeeded(QueryText.Length > 0 && QueryText[QueryText.Length - 1] != '(');
+            AppendOperatorIfNeeded(WhereTokens);
             NegateIfNeeded();
 
-            QueryText.Append(RavenQuery.EscapeField(whereParams.FieldName));
-            QueryText.Append(":");
-            QueryText.Append(transformToEqualValue);
-        }
-
-        private string EnsureValidFieldName(WhereParams whereParams)
-        {
-            if (TheSession?.Conventions == null || whereParams.IsNestedPath)
-                return whereParams.FieldName;
-
-            if (IsMapReduce)
-            {
-                if (IsDynamicMapReduce)
-                {
-                    string name;
-                    var rangeType = FieldUtil.GetRangeTypeFromFieldName(whereParams.FieldName, out name);
-
-                    var renamedField = DynamicMapReduceFields.FirstOrDefault(x => x.ClientSideName == name);
-
-                    if (renamedField != null)
-                        return whereParams.FieldName = FieldUtil.ApplyRangeSuffixIfNecessary(renamedField.Name, rangeType);
-                }
-
-                return whereParams.FieldName;
-            }
-
-            foreach (var rootType in RootTypes)
-            {
-                var identityProperty = TheSession.Conventions.GetIdentityProperty(rootType);
-                if (identityProperty != null && identityProperty.Name == whereParams.FieldName)
-                {
-                    return whereParams.FieldName = Constants.Documents.Indexing.Fields.DocumentIdFieldName;
-                }
-            }
-
-            return whereParams.FieldName;
+            WhereTokens.AddLast(WhereToken.Equals(whereParams.FieldName, AddQueryParameter(whereParams.FieldName, transformToEqualValue)));
         }
 
         ///<summary>
@@ -899,89 +847,17 @@ If you really want to do in memory filtering on the data returned from the query
             Negate = !Negate;
         }
 
-        private void NegateIfNeeded()
-        {
-            if (Negate == false)
-                return;
-            Negate = false;
-            QueryText.Append("-");
-        }
-
-        private IEnumerable<object> UnpackEnumerable(IEnumerable items)
-        {
-            foreach (var item in items)
-            {
-                var enumerable = item as IEnumerable;
-                if (enumerable != null && item is string == false)
-                {
-                    foreach (var nested in UnpackEnumerable(enumerable))
-                    {
-                        yield return nested;
-                    }
-                }
-                else
-                {
-                    yield return item;
-                }
-            }
-        }
-
         /// <summary>
         /// Check that the field has one of the specified value
         /// </summary>
         public void WhereIn(string fieldName, IEnumerable<object> values)
         {
-            AppendSpaceIfNeeded(QueryText.Length > 0 && char.IsWhiteSpace(QueryText[QueryText.Length - 1]) == false);
+            AppendOperatorIfNeeded(WhereTokens);
             NegateIfNeeded();
 
-            var whereParams = new WhereParams
-            {
-                FieldName = fieldName
-            };
-            fieldName = EnsureValidFieldName(whereParams);
+            fieldName = EnsureValidFieldName(fieldName, isNestedPath: false);
 
-            var list = UnpackEnumerable(values).ToList();
-
-            if (list.Count == 0)
-            {
-                QueryText.Append("@emptyIn<")
-                    .Append(RavenQuery.EscapeField(fieldName))
-                    .Append(">:(no-results)");
-                return;
-            }
-
-            QueryText.Append("@in<")
-                .Append(RavenQuery.EscapeField(fieldName))
-                .Append(">:(");
-
-            AddItemToInClause(whereParams, list, first: true);
-            QueryText.Append(") ");
-        }
-
-        private void AddItemToInClause(WhereParams whereParams, IEnumerable<object> list, bool first)
-        {
-            foreach (var value in list)
-            {
-                var enumerable = value as IEnumerable;
-                if (enumerable != null && value is string == false)
-                {
-                    AddItemToInClause(whereParams, enumerable.Cast<object>(), first);
-                    return;
-                }
-                if (first == false)
-                {
-                    QueryText.Append(" , ");
-                }
-                first = false;
-                var nestedWhereParams = new WhereParams
-                {
-                    AllowWildcards = true,
-                    IsAnalyzed = true,
-                    FieldName = whereParams.FieldName,
-                    Value = value
-                };
-                QueryText.Append(TransformToEqualValue(nestedWhereParams).Replace(",", "`,`"));
-            }
+            WhereTokens.AddLast(WhereToken.In(fieldName, AddQueryParameter(fieldName, TransformEnumerable(fieldName, UnpackEnumerable(values)).ToArray())));
         }
 
         /// <summary>
@@ -991,15 +867,23 @@ If you really want to do in memory filtering on the data returned from the query
         /// <param name = "value">The value.</param>
         public void WhereStartsWith(string fieldName, object value)
         {
-            // NOTE: doesn't fully match StartsWith semantics
-            WhereEquals(
-                new WhereParams
-                {
-                    FieldName = fieldName,
-                    Value = String.Concat(value, "*"),
-                    IsAnalyzed = true,
-                    AllowWildcards = true
-                });
+            var whereParams = new WhereParams
+            {
+                FieldName = fieldName,
+                Value = value,
+                IsAnalyzed = true,
+                AllowWildcards = true
+            };
+
+            whereParams.FieldName = EnsureValidFieldName(whereParams.FieldName, whereParams.IsNestedPath);
+
+            var transformToEqualValue = TransformValue(whereParams);
+            LastEquality = new KeyValuePair<string, object>(whereParams.FieldName, transformToEqualValue);
+
+            AppendOperatorIfNeeded(WhereTokens);
+            NegateIfNeeded();
+
+            WhereTokens.AddLast(WhereToken.StartsWith(whereParams.FieldName, AddQueryParameter(whereParams.FieldName, transformToEqualValue)));
         }
 
         /// <summary>
@@ -1009,18 +893,23 @@ If you really want to do in memory filtering on the data returned from the query
         /// <param name = "value">The value.</param>
         public void WhereEndsWith(string fieldName, object value)
         {
-            // https://lucene.apache.org/core/2_9_4/queryparsersyntax.html#Wildcard%20Searches
-            // You cannot use a * or ? symbol as the first character of a search
+            var whereParams = new WhereParams
+            {
+                FieldName = fieldName,
+                Value = value,
+                IsAnalyzed = true,
+                AllowWildcards = true
+            };
 
-            // NOTE: doesn't fully match EndsWith semantics
-            WhereEquals(
-                new WhereParams
-                {
-                    FieldName = fieldName,
-                    Value = String.Concat("*", value),
-                    AllowWildcards = true,
-                    IsAnalyzed = true
-                });
+            whereParams.FieldName = EnsureValidFieldName(whereParams.FieldName, whereParams.IsNestedPath);
+
+            var transformToEqualValue = TransformValue(whereParams);
+            LastEquality = new KeyValuePair<string, object>(whereParams.FieldName, transformToEqualValue);
+
+            AppendOperatorIfNeeded(WhereTokens);
+            NegateIfNeeded();
+
+            WhereTokens.AddLast(WhereToken.EndsWith(whereParams.FieldName, AddQueryParameter(whereParams.FieldName, transformToEqualValue)));
         }
 
         /// <summary>
@@ -1032,50 +921,13 @@ If you really want to do in memory filtering on the data returned from the query
         /// <returns></returns>
         public void WhereBetween(string fieldName, object start, object end)
         {
-            AppendSpaceIfNeeded(QueryText.Length > 0);
-
+            AppendOperatorIfNeeded(WhereTokens);
             NegateIfNeeded();
 
-            fieldName = GetFieldNameForRangeQueries(fieldName, start, end);
+            var fromParameterName = AddQueryParameter(fieldName, start == null ? "*" : TransformValue(new WhereParams { Value = start, FieldName = fieldName }));
+            var toParameterName = AddQueryParameter(fieldName, end == null ? "NULL" : TransformValue(new WhereParams { Value = end, FieldName = fieldName }));
 
-            QueryText.Append(RavenQuery.EscapeField(fieldName)).Append(":{");
-            QueryText.Append(start == null ? "*" : TransformToRangeValue(new WhereParams { Value = start, FieldName = fieldName }));
-            QueryText.Append(" TO ");
-            QueryText.Append(end == null ? "NULL" : TransformToRangeValue(new WhereParams { Value = end, FieldName = fieldName }));
-            QueryText.Append("}");
-        }
-
-        /// <summary>
-        ///   Matches fields where the value is between the specified start and end, inclusive
-        /// </summary>
-        /// <param name = "fieldName">Name of the field.</param>
-        /// <param name = "start">The start.</param>
-        /// <param name = "end">The end.</param>
-        /// <returns></returns>
-        public void WhereBetweenOrEqual(string fieldName, object start, object end)
-        {
-            AppendSpaceIfNeeded(QueryText.Length > 0);
-
-            NegateIfNeeded();
-
-            fieldName = GetFieldNameForRangeQueries(fieldName, start, end);
-
-            QueryText.Append(RavenQuery.EscapeField(fieldName)).Append(":[");
-            QueryText.Append(start == null ? "*" : TransformToRangeValue(new WhereParams { Value = start, FieldName = fieldName }));
-            QueryText.Append(" TO ");
-            QueryText.Append(end == null ? "NULL" : TransformToRangeValue(new WhereParams { Value = end, FieldName = fieldName }));
-            QueryText.Append("]");
-        }
-
-        private string GetFieldNameForRangeQueries(string fieldName, object start, object end)
-        {
-            fieldName = EnsureValidFieldName(new WhereParams { FieldName = fieldName });
-
-            if (fieldName == Constants.Documents.Indexing.Fields.DocumentIdFieldName)
-                return fieldName;
-
-            var val = start ?? end;
-            return FieldUtil.ApplyRangeSuffixIfNecessary(fieldName, val);
+            WhereTokens.AddLast(WhereToken.Between(fieldName, fromParameterName, toParameterName));
         }
 
         /// <summary>
@@ -1085,7 +937,10 @@ If you really want to do in memory filtering on the data returned from the query
         /// <param name = "value">The value.</param>
         public void WhereGreaterThan(string fieldName, object value)
         {
-            WhereBetween(fieldName, value, null);
+            AppendOperatorIfNeeded(WhereTokens);
+            NegateIfNeeded();
+
+            WhereTokens.AddLast(WhereToken.GreaterThan(fieldName, AddQueryParameter(fieldName, value == null ? "*" : TransformValue(new WhereParams { Value = value, FieldName = fieldName }))));
         }
 
         /// <summary>
@@ -1095,7 +950,10 @@ If you really want to do in memory filtering on the data returned from the query
         /// <param name = "value">The value.</param>
         public void WhereGreaterThanOrEqual(string fieldName, object value)
         {
-            WhereBetweenOrEqual(fieldName, value, null);
+            AppendOperatorIfNeeded(WhereTokens);
+            NegateIfNeeded();
+
+            WhereTokens.AddLast(WhereToken.GreaterThanOrEqual(fieldName, AddQueryParameter(fieldName, value == null ? "*" : TransformValue(new WhereParams { Value = value, FieldName = fieldName }))));
         }
 
         /// <summary>
@@ -1105,7 +963,10 @@ If you really want to do in memory filtering on the data returned from the query
         /// <param name = "value">The value.</param>
         public void WhereLessThan(string fieldName, object value)
         {
-            WhereBetween(fieldName, null, value);
+            AppendOperatorIfNeeded(WhereTokens);
+            NegateIfNeeded();
+
+            WhereTokens.AddLast(WhereToken.LessThan(fieldName, AddQueryParameter(fieldName, value == null ? "NULL" : TransformValue(new WhereParams { Value = value, FieldName = fieldName }))));
         }
 
         /// <summary>
@@ -1115,7 +976,10 @@ If you really want to do in memory filtering on the data returned from the query
         /// <param name = "value">The value.</param>
         public void WhereLessThanOrEqual(string fieldName, object value)
         {
-            WhereBetweenOrEqual(fieldName, null, value);
+            AppendOperatorIfNeeded(WhereTokens);
+            NegateIfNeeded();
+
+            WhereTokens.AddLast(WhereToken.LessThanOrEqual(fieldName, AddQueryParameter(fieldName, value == null ? "NULL" : TransformValue(new WhereParams { Value = value, FieldName = fieldName }))));
         }
 
         /// <summary>
@@ -1123,10 +987,13 @@ If you really want to do in memory filtering on the data returned from the query
         /// </summary>
         public void AndAlso()
         {
-            if (QueryText.Length < 1)
+            if (WhereTokens.Last == null)
                 return;
 
-            QueryText.Append(" AND");
+            if (WhereTokens.Last.Value is QueryOperatorToken)
+                throw new InvalidOperationException("Cannot add AND, previous token was already an operator token.");
+
+            WhereTokens.AddLast(QueryOperatorToken.And);
         }
 
         /// <summary>
@@ -1134,10 +1001,13 @@ If you really want to do in memory filtering on the data returned from the query
         /// </summary>
         public void OrElse()
         {
-            if (QueryText.Length < 1)
+            if (WhereTokens.Last == null)
                 return;
 
-            QueryText.Append(" OR");
+            if (WhereTokens.Last.Value is QueryOperatorToken)
+                throw new InvalidOperationException("Cannot add OR, previous token was already an operator token.");
+
+            WhereTokens.AddLast(QueryOperatorToken.Or);
         }
 
         /// <summary>
@@ -1151,21 +1021,17 @@ If you really want to do in memory filtering on the data returned from the query
         /// </remarks>
         public void Boost(decimal boost)
         {
-            if (QueryText.Length < 1)
-            {
+            if (boost == 1m) // 1.0 is the default
+                return;
+
+            var whereToken = WhereTokens.Last?.Value as WhereToken;
+            if (whereToken == null)
                 throw new InvalidOperationException("Missing where clause");
-            }
 
             if (boost <= 0m)
-            {
                 throw new ArgumentOutOfRangeException(nameof(boost), "Boost factor must be a positive number");
-            }
 
-            if (boost != 1m)
-            {
-                // 1.0 is the default
-                QueryText.Append("^").Append(boost.ToString(CultureInfo.InvariantCulture));
-            }
+            whereToken.Boost = boost;
         }
 
         /// <summary>
@@ -1178,29 +1044,25 @@ If you really want to do in memory filtering on the data returned from the query
         /// </remarks>
         public void Fuzzy(decimal fuzzy)
         {
-            if (QueryText.Length < 1)
+            var whereToken = WhereTokens.Last?.Value as WhereToken;
+            if (whereToken == null)
             {
                 throw new InvalidOperationException("Missing where clause");
             }
 
             if (fuzzy < 0m || fuzzy > 1m)
             {
-                throw new ArgumentOutOfRangeException("Fuzzy distance must be between 0.0 and 1.0");
+                throw new ArgumentOutOfRangeException(nameof(fuzzy), "Fuzzy distance must be between 0.0 and 1.0");
             }
 
-            var ch = QueryText[QueryText.Length - 1];
-            if (ch == '"' || ch == ']')
-            {
-                // this check is overly simplistic
-                throw new InvalidOperationException("Fuzzy factor can only modify single word terms");
-            }
+            //var ch = QueryText[QueryText.Length - 1]; // TODO [ppekrol]
+            //if (ch == '"' || ch == ']')
+            //{
+            //    // this check is overly simplistic
+            //    throw new InvalidOperationException("Fuzzy factor can only modify single word terms");
+            //}
 
-            QueryText.Append("~");
-            if (fuzzy != 0.5m)
-            {
-                // 0.5 is the default
-                QueryText.Append(fuzzy.ToString(CultureInfo.InvariantCulture));
-            }
+            whereToken.Fuzzy = fuzzy;
         }
 
         /// <summary>
@@ -1213,7 +1075,8 @@ If you really want to do in memory filtering on the data returned from the query
         /// </remarks>
         public void Proximity(int proximity)
         {
-            if (QueryText.Length < 1)
+            var whereToken = WhereTokens.Last?.Value as WhereToken;
+            if (whereToken == null)
             {
                 throw new InvalidOperationException("Missing where clause");
             }
@@ -1223,13 +1086,13 @@ If you really want to do in memory filtering on the data returned from the query
                 throw new ArgumentOutOfRangeException(nameof(proximity), "Proximity distance must be a positive number");
             }
 
-            if (QueryText[QueryText.Length - 1] != '"')
-            {
-                // this check is overly simplistic
-                throw new InvalidOperationException("Proximity distance can only modify a phrase");
-            }
+            //if (QueryText[QueryText.Length - 1] != '"') // TODO [ppekrol]
+            //{
+            //    // this check is overly simplistic
+            //    throw new InvalidOperationException("Proximity distance can only modify a phrase");
+            //}
 
-            QueryText.Append("~").Append(proximity.ToString(CultureInfo.InvariantCulture));
+            whereToken.Proximity = proximity;
         }
 
         /// <summary>
@@ -1238,9 +1101,10 @@ If you really want to do in memory filtering on the data returned from the query
         ///   You can prefix a field name with '-' to indicate sorting by descending or '+' to sort by ascending
         /// </summary>
         /// <param name = "fields">The fields.</param>
-        public void OrderBy(params string[] fields)
+        public void OrderBy(string field, OrderingType ordering = OrderingType.String)
         {
-            OrderByFields = OrderByFields.Concat(fields).ToArray();
+            var f = EnsureValidFieldName(field, isNestedPath: false);
+            OrderByTokens.AddLast(OrderByToken.CreateAscending(f, ordering));
         }
 
         /// <summary>
@@ -1249,20 +1113,10 @@ If you really want to do in memory filtering on the data returned from the query
         ///   You can prefix a field name with '-' to indicate sorting by descending or '+' to sort by ascending
         /// </summary>
         /// <param name = "fields">The fields.</param>
-        public void OrderByDescending(params string[] fields)
+        public void OrderByDescending(string field, OrderingType ordering = OrderingType.String)
         {
-            fields = fields.Select(MakeFieldSortDescending).ToArray();
-            OrderBy(fields);
-        }
-
-        protected string MakeFieldSortDescending(string field)
-        {
-            if (string.IsNullOrWhiteSpace(field) || field.StartsWith("+") || field.StartsWith("-"))
-            {
-                return field;
-            }
-
-            return "-" + field;
+            var f = EnsureValidFieldName(field, isNestedPath: false);
+            OrderByTokens.AddLast(OrderByToken.CreateDescending(f, ordering));
         }
 
         /// <summary>
@@ -1408,28 +1262,22 @@ If you really want to do in memory filtering on the data returned from the query
         {
             if (IsSpatialQuery)
             {
-                if (IndexName == "dynamic" || IndexName.StartsWith("dynamic/"))
+                if (IndexName == "dynamic" || FromToken.IsDynamic)
                     throw new NotSupportedException("Dynamic indexes do not support spatial queries. A static index, with spatial field(s), must be defined.");
 
                 var spatialQuery = new SpatialIndexQuery
                 {
-                    IsDistinct = _isDistinct,
                     Query = query,
                     Start = Start,
                     WaitForNonStaleResultsAsOfNow = TheWaitForNonStaleResultsAsOfNow,
                     WaitForNonStaleResults = TheWaitForNonStaleResults,
                     WaitForNonStaleResultsTimeout = Timeout,
                     CutoffEtag = CutoffEtag,
-                    SortedFields = OrderByFields.Select(x => new SortedField(x)).ToArray(),
-                    DynamicMapReduceFields = DynamicMapReduceFields,
-                    FieldsToFetch = FieldsToFetch,
                     SpatialFieldName = SpatialFieldName,
                     QueryShape = QueryShape,
                     RadiusUnitOverride = SpatialUnits,
                     SpatialRelation = SpatialRelation,
                     DistanceErrorPercentage = DistanceErrorPct,
-                    DefaultField = DefaultField,
-                    DefaultOperator = DefaultOperator,
                     HighlightedFields = HighlightedFields.Select(x => x.Clone()).ToArray(),
                     HighlighterPreTags = HighlighterPreTags.ToArray(),
                     HighlighterPostTags = HighlighterPostTags.ToArray(),
@@ -1437,6 +1285,7 @@ If you really want to do in memory filtering on the data returned from the query
                     Transformer = Transformer,
                     AllowMultipleIndexEntriesForSameDocumentToResultTransformer = AllowMultipleIndexEntriesForSameDocumentToResultTransformer,
                     TransformerParameters = TransformerParameters,
+                    QueryParameters = QueryParameters,
                     DisableCaching = DisableCaching,
                     ShowTimings = ShowQueryTimings,
                     ExplainScores = ShouldExplainScores,
@@ -1451,24 +1300,19 @@ If you really want to do in memory filtering on the data returned from the query
 
             var indexQuery = new IndexQuery
             {
-                IsDistinct = _isDistinct,
                 Query = query,
                 Start = Start,
                 CutoffEtag = CutoffEtag,
                 WaitForNonStaleResultsAsOfNow = TheWaitForNonStaleResultsAsOfNow,
                 WaitForNonStaleResults = TheWaitForNonStaleResults,
                 WaitForNonStaleResultsTimeout = Timeout,
-                SortedFields = OrderByFields.Select(x => new SortedField(x)).ToArray(),
-                DynamicMapReduceFields = DynamicMapReduceFields,
-                FieldsToFetch = FieldsToFetch,
-                DefaultField = DefaultField,
-                DefaultOperator = DefaultOperator,
                 HighlightedFields = HighlightedFields.Select(x => x.Clone()).ToArray(),
                 HighlighterPreTags = HighlighterPreTags.ToArray(),
                 HighlighterPostTags = HighlighterPostTags.ToArray(),
                 HighlighterKeyName = HighlighterKeyName,
                 Transformer = Transformer,
                 TransformerParameters = TransformerParameters,
+                QueryParameters = QueryParameters,
                 AllowMultipleIndexEntriesForSameDocumentToResultTransformer = AllowMultipleIndexEntriesForSameDocumentToResultTransformer,
                 DisableCaching = DisableCaching,
                 ShowTimings = ShowQueryTimings,
@@ -1482,224 +1326,37 @@ If you really want to do in memory filtering on the data returned from the query
             return indexQuery;
         }
 
-        private static readonly Regex EscapePostfixWildcard = new Regex(@"\\\*(\s|$)", RegexOptions.Compiled);
-        protected QueryOperator DefaultOperator;
-        protected bool _isDistinct;
-        protected bool AllowMultipleIndexEntriesForSameDocumentToResultTransformer;
-
         /// <summary>
         /// Perform a search for documents which fields that match the searchTerms.
         /// If there is more than a single term, each of them will be checked independently.
         /// </summary>
         public void Search(string fieldName, string searchTerms, EscapeQueryOptions escapeQueryOptions = EscapeQueryOptions.RawQuery)
         {
-            QueryText.Append(' ');
-
+            AppendOperatorIfNeeded(WhereTokens);
             NegateIfNeeded();
+
+            fieldName = EnsureValidFieldName(fieldName, isNestedPath: false);
+
             switch (escapeQueryOptions)
             {
-                case EscapeQueryOptions.EscapeAll:
-                    searchTerms = RavenQuery.Escape(searchTerms, false, false);
-                    break;
                 case EscapeQueryOptions.AllowPostfixWildcard:
-                    searchTerms = RavenQuery.Escape(searchTerms, false, false);
                     searchTerms = EscapePostfixWildcard.Replace(searchTerms, "*${1}");
                     break;
                 case EscapeQueryOptions.AllowAllWildcards:
-                    searchTerms = RavenQuery.Escape(searchTerms, false, false);
                     searchTerms = searchTerms.Replace("\\*", "*");
                     break;
+                case EscapeQueryOptions.EscapeAll:
                 case EscapeQueryOptions.RawQuery:
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(escapeQueryOptions), "Value: " + escapeQueryOptions);
             }
-            bool hasWhiteSpace = searchTerms.Any(char.IsWhiteSpace);
-            LastEquality = new KeyValuePair<string, string>(fieldName,
+            var hasWhiteSpace = searchTerms.Any(char.IsWhiteSpace);
+            LastEquality = new KeyValuePair<string, object>(fieldName,
                 hasWhiteSpace ? "(" + searchTerms + ")" : searchTerms
                 );
 
-            QueryText.Append(fieldName).Append(":").Append("(").Append(searchTerms).Append(")");
-        }
-
-        private string TransformToEqualValue(WhereParams whereParams)
-        {
-            if (whereParams.Value == null)
-            {
-                return Constants.Documents.Indexing.Fields.NullValueNotAnalyzed;
-            }
-            if (Equals(whereParams.Value, string.Empty))
-            {
-                return Constants.Documents.Indexing.Fields.EmptyStringNotAnalyzed;
-            }
-
-            var type = whereParams.Value.GetType().GetNonNullableType();
-
-            if (_conventions.SaveEnumsAsIntegers && type.GetTypeInfo().IsEnum)
-            {
-                return ((int)whereParams.Value).ToString();
-            }
-
-            if (type == typeof(bool))
-            {
-                return (bool)whereParams.Value ? "true" : "false";
-            }
-            if (type == typeof(DateTime))
-            {
-                var val = (DateTime)whereParams.Value;
-                var s = val.GetDefaultRavenFormat();
-                if (val.Kind == DateTimeKind.Utc)
-                    s += "Z";
-                return s;
-            }
-            if (type == typeof(DateTimeOffset))
-            {
-                var val = (DateTimeOffset)whereParams.Value;
-                return val.UtcDateTime.GetDefaultRavenFormat(true);
-            }
-
-            if (type == typeof(decimal))
-            {
-                return RavenQuery.Escape(((double)((decimal)whereParams.Value)).ToString(CultureInfo.InvariantCulture), false, false);
-            }
-
-            if (type == typeof(double))
-            {
-                return RavenQuery.Escape(((double)(whereParams.Value)).ToString("r", CultureInfo.InvariantCulture), false, false);
-            }
-            var strValue = whereParams.Value as string;
-            if (strValue != null)
-            {
-                strValue = RavenQuery.Escape(strValue,
-                        whereParams.AllowWildcards && whereParams.IsAnalyzed, whereParams.IsAnalyzed);
-
-                return whereParams.IsAnalyzed ? strValue : String.Concat("[[", strValue, "]]");
-            }
-
-            if (_conventions.TryConvertValueForQuery(whereParams.FieldName, whereParams.Value, QueryValueConvertionType.Equality, out strValue))
-                return strValue;
-
-            if (whereParams.Value is ValueType)
-            {
-                var escaped = RavenQuery.Escape(Convert.ToString(whereParams.Value, CultureInfo.InvariantCulture),
-                                                whereParams.AllowWildcards && whereParams.IsAnalyzed, true);
-
-                return escaped;
-            }
-
-            var result = GetImplicitStringConvertion(whereParams.Value.GetType());
-            if (result != null)
-            {
-                return RavenQuery.Escape(result(whereParams.Value), whereParams.AllowWildcards && whereParams.IsAnalyzed, true);
-            }
-
-            throw new NotImplementedException("This feature is not yet implemented");
-            /*
-            var jsonSerializer = _conventions.CreateSerializer();
-            var ravenJTokenWriter = new RavenJTokenWriter();
-            jsonSerializer.Serialize(ravenJTokenWriter, whereParams.Value);
-            var term = ravenJTokenWriter.Token.ToString(Formatting.None);
-            if (term.Length > 1 && term[0] == '"' && term[term.Length - 1] == '"')
-            {
-                term = term.Substring(1, term.Length - 2);
-            }
-            switch (ravenJTokenWriter.Token.Type)
-            {
-                case JTokenType.Object:
-                case JTokenType.Array:
-                    return "[[" + RavenQuery.Escape(term, whereParams.AllowWildcards && whereParams.IsAnalyzed, false) + "]]";
-
-                default:
-                    return RavenQuery.Escape(term, whereParams.AllowWildcards && whereParams.IsAnalyzed, true);
-            }
-            */
-        }
-
-        private Func<object, string> GetImplicitStringConvertion(Type type)
-        {
-            if (type == null)
-                return null;
-
-            Func<object, string> value;
-            var localStringsCache = _implicitStringsCache;
-            if (localStringsCache.TryGetValue(type, out value))
-                return value;
-
-            var methodInfo = type.GetMethod("op_Implicit", new[] { type });
-
-            if (methodInfo == null || methodInfo.ReturnType != typeof(string))
-            {
-                _implicitStringsCache = new Dictionary<Type, Func<object, string>>(localStringsCache)
-                {
-                    {type, null}
-                };
-                return null;
-            }
-
-            var arg = Expression.Parameter(typeof(object), "self");
-
-            var func = (Func<object, string>)Expression.Lambda(Expression.Call(methodInfo, Expression.Convert(arg, type)), arg).Compile();
-
-            _implicitStringsCache = new Dictionary<Type, Func<object, string>>(localStringsCache)
-                {
-                    {type, func}
-                };
-            return func;
-        }
-
-        private string TransformToRangeValue(WhereParams whereParams)
-        {
-            if (whereParams.Value == null)
-                return Constants.Documents.Indexing.Fields.NullValueNotAnalyzed;
-            if (Equals(whereParams.Value, string.Empty))
-                return Constants.Documents.Indexing.Fields.EmptyStringNotAnalyzed;
-
-            if (whereParams.Value is DateTime)
-            {
-                var dateTime = (DateTime)whereParams.Value;
-                var dateStr = dateTime.GetDefaultRavenFormat();
-                if (dateTime.Kind == DateTimeKind.Utc)
-                    dateStr += "Z";
-                return dateStr;
-            }
-            if (whereParams.Value is DateTimeOffset)
-                return ((DateTimeOffset)whereParams.Value).UtcDateTime.GetDefaultRavenFormat(true);
-
-            if (whereParams.Value is int)
-                return NumberUtil.NumberToString((int)whereParams.Value);
-            if (whereParams.Value is long)
-                return NumberUtil.NumberToString((long)whereParams.Value);
-            if (whereParams.Value is decimal)
-                return NumberUtil.NumberToString((double)(decimal)whereParams.Value);
-            if (whereParams.Value is double)
-                return NumberUtil.NumberToString((double)whereParams.Value);
-            if (whereParams.Value is TimeSpan)
-                return NumberUtil.NumberToString(((TimeSpan)whereParams.Value).Ticks);
-            if (whereParams.Value is float)
-                return NumberUtil.NumberToString((float)whereParams.Value);
-            if (whereParams.Value is string)
-                return RavenQuery.Escape(whereParams.Value.ToString(), false, true);
-
-            string strVal;
-            if (_conventions.TryConvertValueForQuery(whereParams.FieldName, whereParams.Value, QueryValueConvertionType.Range,
-                                                    out strVal))
-                return strVal;
-
-            if (whereParams.Value is ValueType)
-                return RavenQuery.Escape(Convert.ToString(whereParams.Value, CultureInfo.InvariantCulture),
-                                         false, true);
-
-            var stringWriter = new StringWriter();
-            _conventions.CreateSerializer().Serialize(stringWriter, whereParams.Value);
-
-            var sb = stringWriter.GetStringBuilder();
-            if (sb.Length > 1 && sb[0] == '"' && sb[sb.Length - 1] == '"')
-            {
-                sb.Remove(sb.Length - 1, 1);
-                sb.Remove(0, 1);
-            }
-
-            return RavenQuery.Escape(sb.ToString(), false, true);
+            WhereTokens.AddLast(WhereToken.Search(fieldName, AddQueryParameter(fieldName, searchTerms)));
         }
 
         /// <summary>
@@ -1713,66 +1370,62 @@ If you really want to do in memory filtering on the data returned from the query
             if (_currentClauseDepth != 0)
                 throw new InvalidOperationException(string.Format("A clause was not closed correctly within this query, current clause depth = {0}", _currentClauseDepth));
 
-            return QueryText.ToString().Trim();
+            var queryText = new StringBuilder();
+
+            BuildSelect(queryText);
+            BuildFrom(queryText);
+            BuildGroupBy(queryText);
+            BuildWhere(queryText);
+            BuildOrderBy(queryText);
+
+            return queryText.ToString();
         }
 
         /// <summary>
         /// The last term that we asked the query to use equals on
         /// </summary>
-        public KeyValuePair<string, string> GetLastEqualityTerm(bool isAsync = false)
+        public KeyValuePair<string, object> GetLastEqualityTerm(bool isAsync = false)
         {
             return LastEquality;
         }
 
         public void Intersect()
         {
-            QueryText.Append(Constants.Documents.Querying.IntersectSeparator);
+            var last = WhereTokens.Last?.Value;
+            if (last is WhereToken || last is CloseSubclauseToken)
+                WhereTokens.AddLast(IntersectToken.Instance);
+
+            throw new InvalidOperationException("Cannot add INTERSECT at this point.");
+        }
+
+        public void WhereExists(string fieldName)
+        {
+            AppendOperatorIfNeeded(WhereTokens);
+            NegateIfNeeded();
+
+            fieldName = EnsureValidFieldName(fieldName, isNestedPath: false);
+
+            WhereTokens.AddLast(WhereToken.Exists(fieldName));
         }
 
         public void ContainsAny(string fieldName, IEnumerable<object> values)
         {
-            ContainsAnyAllProcessor(fieldName, values, "OR");
+            AppendOperatorIfNeeded(WhereTokens);
+            NegateIfNeeded();
+
+            fieldName = EnsureValidFieldName(fieldName, isNestedPath: false);
+
+            WhereTokens.AddLast(WhereToken.ContainsAny(fieldName, AddQueryParameter(fieldName, TransformEnumerable(fieldName, UnpackEnumerable(values)).ToArray())));
         }
 
         public void ContainsAll(string fieldName, IEnumerable<object> values)
         {
-            ContainsAnyAllProcessor(fieldName, values, "AND");
-        }
-
-        private void ContainsAnyAllProcessor(string fieldName, IEnumerable<object> values, string separator)
-        {
-            AppendSpaceIfNeeded(QueryText.Length > 0 && char.IsWhiteSpace(QueryText[QueryText.Length - 1]) == false);
+            AppendOperatorIfNeeded(WhereTokens);
             NegateIfNeeded();
 
-            var list = UnpackEnumerable(values).ToList();
-            if (list.Count == 0)
-            {
-                QueryText.Append("*:*");
-                return;
-            }
+            fieldName = EnsureValidFieldName(fieldName, isNestedPath: false);
 
-            var first = true;
-            QueryText.Append("(");
-            foreach (var value in list)
-            {
-                if (first == false)
-                {
-                    QueryText.Append(" " + separator + " ");
-                }
-                first = false;
-                var whereParams = new WhereParams
-                {
-                    AllowWildcards = true,
-                    IsAnalyzed = true,
-                    FieldName = fieldName,
-                    Value = value
-                };
-                EnsureValidFieldName(whereParams);
-                QueryText.Append(fieldName)
-                         .Append(":")
-                         .Append(TransformToEqualValue(whereParams));
-            }
-            QueryText.Append(")");
+            WhereTokens.AddLast(WhereToken.ContainsAll(fieldName, AddQueryParameter(fieldName, TransformEnumerable(fieldName, UnpackEnumerable(values)).ToArray())));
         }
 
         public void AddRootType(Type type)
@@ -1780,27 +1433,15 @@ If you really want to do in memory filtering on the data returned from the query
             RootTypes.Add(type);
         }
 
-        IDocumentQueryCustomization IDocumentQueryCustomization.AddOrder(string fieldName, bool descending)
+        IDocumentQueryCustomization IDocumentQueryCustomization.AddOrder(string fieldName, bool descending, OrderingType ordering)
         {
-            AddOrder(fieldName, descending);
+            AddOrder(fieldName, descending, ordering);
             return this;
         }
 
-        IDocumentQueryCustomization IDocumentQueryCustomization.AddOrder<TResult>(Expression<Func<TResult, object>> propertySelector, bool descending)
+        IDocumentQueryCustomization IDocumentQueryCustomization.AddOrder<TResult>(Expression<Func<TResult, object>> propertySelector, bool descending, OrderingType ordering)
         {
-            AddOrder(GetMemberQueryPath(propertySelector.Body), descending);
-            return this;
-        }
-
-        IDocumentQueryCustomization IDocumentQueryCustomization.AlphaNumericOrdering(string fieldName, bool descending)
-        {
-            AlphaNumericOrdering(fieldName, descending);
-            return this;
-        }
-
-        IDocumentQueryCustomization IDocumentQueryCustomization.AlphaNumericOrdering<TResult>(Expression<Func<TResult, object>> propertySelector, bool descending)
-        {
-            AlphaNumericOrdering(GetMemberQueryPath(propertySelector.Body), descending);
+            AddOrder(GetMemberQueryPath(propertySelector.Body), descending, ordering);
             return this;
         }
 
@@ -1850,17 +1491,15 @@ If you really want to do in memory filtering on the data returned from the query
             if (expression.NodeType == ExpressionType.ArrayLength)
                 result.Path += ".Length";
 
-            var propertyName = IndexName == null || IndexName.StartsWith("dynamic/", StringComparison.OrdinalIgnoreCase)
+            var propertyName = IndexName == null || FromToken.IsDynamic
                 ? _conventions.FindPropertyNameForDynamicIndex(typeof(T), IndexName, "", result.Path)
                 : _conventions.FindPropertyNameForIndex(typeof(T), IndexName, "", result.Path);
             return propertyName;
         }
 
-        public void SetAllowMultipleIndexEntriesForSameDocumentToResultTransformer(
-            bool val)
+        public void SetAllowMultipleIndexEntriesForSameDocumentToResultTransformer(bool val)
         {
-            AllowMultipleIndexEntriesForSameDocumentToResultTransformer =
-                val;
+            AllowMultipleIndexEntriesForSameDocumentToResultTransformer = val;
         }
 
         public void SetTransformer(string transformer)
@@ -1870,7 +1509,323 @@ If you really want to do in memory filtering on the data returned from the query
 
         public void Distinct()
         {
-            _isDistinct = true;
+            if (IsDistinct)
+                throw new InvalidOperationException("This is already a distinct query.");
+
+            SelectTokens.AddFirst(DistinctToken.Instance);
+        }
+
+        private void UpdateStatsAndHighlightings(QueryResult queryResult)
+        {
+            QueryStats.UpdateQueryStats(queryResult);
+            Highlightings.Update(queryResult);
+        }
+
+        private void BuildSelect(StringBuilder writer)
+        {
+            if (SelectTokens.Count == 0)
+                return;
+
+            writer
+                .Append("SELECT ");
+
+            var token = SelectTokens.First;
+            while (token != null)
+            {
+                if (token.Previous != null && token.Previous.Value is DistinctToken == false)
+                    writer.Append(",");
+
+                AddSpaceIfNeeded(token.Previous?.Value, token.Value, writer);
+
+                token.Value.WriteTo(writer);
+
+                token = token.Next;
+            }
+        }
+
+        private void BuildFrom(StringBuilder writer)
+        {
+            AddSpaceIfNeeded(SelectTokens.Last?.Value, FromToken, writer);
+            FromToken.WriteTo(writer);
+        }
+
+        private void BuildWhere(StringBuilder writer)
+        {
+            if (WhereTokens.Count == 0)
+                return;
+
+            writer
+                .Append(" WHERE ");
+
+            var token = WhereTokens.First;
+            while (token != null)
+            {
+                AddSpaceIfNeeded(token.Previous?.Value, token.Value, writer);
+                token.Value.WriteTo(writer);
+
+                token = token.Next;
+            }
+        }
+
+        private void BuildGroupBy(StringBuilder writer)
+        {
+            if (GroupByTokens.Count == 0)
+                return;
+
+            writer
+                .Append(" GROUP BY ");
+
+            var token = GroupByTokens.First;
+            while (token != null)
+            {
+                if (token.Previous != null)
+                    writer.Append(", ");
+
+                token.Value.WriteTo(writer);
+
+                token = token.Next;
+            }
+        }
+
+        private void BuildOrderBy(StringBuilder writer)
+        {
+            if (OrderByTokens.Count == 0)
+                return;
+
+            writer
+                .Append(" ORDER BY ");
+
+            var token = OrderByTokens.First;
+            while (token != null)
+            {
+                if (token.Previous != null)
+                    writer.Append(", ");
+
+                token.Value.WriteTo(writer);
+
+                token = token.Next;
+            }
+        }
+
+        private static void AddSpaceIfNeeded(QueryToken previousToken, QueryToken currentToken, StringBuilder writer)
+        {
+            if (previousToken == null)
+                return;
+
+            if (previousToken is OpenSubclauseToken || currentToken is CloseSubclauseToken)
+                return;
+
+            writer.Append(" ");
+        }
+
+        private void AppendOperatorIfNeeded(LinkedList<QueryToken> tokens)
+        {
+            if (tokens.Count == 0)
+                return;
+
+            if (tokens.Last.Value is WhereToken || tokens.Last.Value is CloseSubclauseToken)
+                tokens.AddLast(DefaultOperator == QueryOperator.And ? QueryOperatorToken.And : QueryOperatorToken.Or);
+        }
+
+        private IEnumerable<object> TransformEnumerable(string fieldName, IEnumerable<object> values)
+        {
+            foreach (var value in values)
+            {
+                var enumerable = value as IEnumerable;
+                if (enumerable != null && value is string == false)
+                {
+                    foreach (var transformedValue in TransformEnumerable(fieldName, enumerable.Cast<object>()))
+                        yield return transformedValue;
+
+                    continue;
+                }
+
+                var nestedWhereParams = new WhereParams
+                {
+                    AllowWildcards = true,
+                    IsAnalyzed = true,
+                    FieldName = fieldName,
+                    Value = value
+                };
+
+                yield return TransformValue(nestedWhereParams);
+            }
+        }
+
+        private void NegateIfNeeded()
+        {
+            if (Negate == false)
+                return;
+
+            Negate = false;
+            WhereTokens.AddLast(NegateToken.Instance);
+        }
+
+        private static IEnumerable<object> UnpackEnumerable(IEnumerable items)
+        {
+            foreach (var item in items)
+            {
+                var enumerable = item as IEnumerable;
+                if (enumerable != null && item is string == false)
+                {
+                    foreach (var nested in UnpackEnumerable(enumerable))
+                    {
+                        yield return nested;
+                    }
+                }
+                else
+                {
+                    yield return item;
+                }
+            }
+        }
+
+        private string EnsureValidFieldName(string fieldName, bool isNestedPath)
+        {
+            if (TheSession?.Conventions == null || isNestedPath || IsGroupBy)
+                return fieldName;
+
+            foreach (var rootType in RootTypes)
+            {
+                var identityProperty = TheSession.Conventions.GetIdentityProperty(rootType);
+                if (identityProperty != null && identityProperty.Name == fieldName)
+                {
+                    return Constants.Documents.Indexing.Fields.DocumentIdFieldName;
+                }
+            }
+
+            return fieldName;
+        }
+
+        private static Func<object, string> GetImplicitStringConversion(Type type)
+        {
+            if (type == null)
+                return null;
+
+            Func<object, string> value;
+            var localStringsCache = _implicitStringsCache;
+            if (localStringsCache.TryGetValue(type, out value))
+                return value;
+
+            var methodInfo = type.GetMethod("op_Implicit", new[] { type });
+
+            if (methodInfo == null || methodInfo.ReturnType != typeof(string))
+            {
+                _implicitStringsCache = new Dictionary<Type, Func<object, string>>(localStringsCache)
+                {
+                    {type, null}
+                };
+                return null;
+            }
+
+            var arg = Expression.Parameter(typeof(object), "self");
+
+            var func = (Func<object, string>)Expression.Lambda(Expression.Call(methodInfo, Expression.Convert(arg, type)), arg).Compile();
+
+            _implicitStringsCache = new Dictionary<Type, Func<object, string>>(localStringsCache)
+            {
+                {type, func}
+            };
+            return func;
+        }
+
+        private object TransformValue(WhereParams whereParams)
+        {
+            if (whereParams.Value == null)
+                return null;
+            if (Equals(whereParams.Value, string.Empty))
+                return string.Empty;
+
+            var type = whereParams.Value.GetType().GetNonNullableType();
+
+            if (type == typeof(DateTime) || type == typeof(DateTimeOffset))
+                return whereParams.Value;
+
+            if (type == typeof(string))
+            {
+                var valueAsString = (string)whereParams.Value;
+                return whereParams.IsAnalyzed ? valueAsString : string.Concat("[[", valueAsString, "]]");
+            }
+
+            if (type == typeof(int))
+                return whereParams.Value;
+            if (type == typeof(long))
+                return whereParams.Value;
+            if (type == typeof(decimal))
+                return whereParams.Value;
+            if (type == typeof(double))
+                return whereParams.Value;
+            if (whereParams.Value is TimeSpan)
+                return whereParams.Value;
+            if (whereParams.Value is float)
+                return whereParams.Value;
+            if (whereParams.Value is string)
+                return whereParams.Value;
+
+            if (whereParams.Value is ValueType)
+                return Convert.ToString(whereParams.Value, CultureInfo.InvariantCulture);
+
+            var result = GetImplicitStringConversion(whereParams.Value.GetType());
+            if (result != null)
+                return result(whereParams.Value);
+
+            return whereParams.Value;
+
+            //if (whereParams.Value is ValueType)
+            //    return RavenQuery.Escape(Convert.ToString(whereParams.Value, CultureInfo.InvariantCulture), false, true);
+
+            //string strVal;
+            //if (_conventions.TryConvertValueForQuery(whereParams.FieldName, whereParams.Value, QueryValueConvertionType.Range, out strVal))
+            //    return strVal;
+
+            //var stringWriter = new StringWriter();
+            //_conventions.CreateSerializer().Serialize(stringWriter, whereParams.Value);
+
+            //var sb = stringWriter.GetStringBuilder();
+            //if (sb.Length > 1 && sb[0] == '"' && sb[sb.Length - 1] == '"')
+            //{
+            //    sb.Remove(sb.Length - 1, 1);
+            //    sb.Remove(0, 1);
+            //}
+
+            //return RavenQuery.Escape(sb.ToString(), false, true);
+        }
+
+        private string AddQueryParameter(string fieldName, object value)
+        {
+            var parameterName = $"p{QueryParameters.Count.ToInvariantString()}";
+            QueryParameters.Add(parameterName, value);
+            return parameterName;
+        }
+
+        protected void UpdateFieldsToFetchToken(FieldsToFetchToken fieldsToFetch)
+        {
+            FieldsToFetchToken = fieldsToFetch;
+
+            if (SelectTokens.Count == 0)
+            {
+                SelectTokens.AddLast(fieldsToFetch);
+            }
+            else
+            {
+                var current = SelectTokens.First;
+                var replaced = false;
+
+                while (current != null)
+                {
+                    if (current.Value is FieldsToFetchToken)
+                    {
+                        current.Value = fieldsToFetch;
+                        replaced = true;
+                        break;
+                    }
+
+                    current = current.Next;
+                }
+
+                if (replaced == false)
+                    SelectTokens.AddLast(fieldsToFetch);
+            }
         }
     }
 }

@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Threading;
 
 using Lucene.Net.Documents;
@@ -11,22 +10,22 @@ using Lucene.Net.Search;
 using Lucene.Net.Store;
 using Raven.Client;
 using Raven.Client.Documents.Indexes;
-using Raven.Client.Documents.Queries;
 using Raven.Client.Util;
 using Raven.Server.Documents.Indexes.Persistence.Lucene.Analyzers;
 using Raven.Server.Documents.Indexes.Persistence.Lucene.Collectors;
 using Raven.Server.Documents.Queries;
 using Raven.Server.Documents.Queries.MoreLikeThis;
+using Raven.Server.Documents.Queries.Parser;
 using Raven.Server.Documents.Queries.Results;
 using Raven.Server.Documents.Queries.Sorting;
 using Raven.Server.Documents.Queries.Sorting.AlphaNumeric;
-using Raven.Server.Documents.Queries.Suggestions;
 using Raven.Server.Exceptions;
 using Raven.Server.Indexing;
 using Raven.Server.ServerWide.Context;
 using Sparrow.Json;
 using Sparrow.Logging;
 using Voron.Impl;
+using Query = Lucene.Net.Search.Query;
 
 namespace Raven.Server.Documents.Indexes.Persistence.Lucene
 {
@@ -77,8 +76,8 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             var docsToGet = pageSize;
             var position = query.Start;
 
-            var luceneQuery = GetLuceneQuery(query.Query, query.DefaultOperator, query.DefaultField, _analyzer);
-            var sort = GetSort(query.SortedFields);
+            var luceneQuery = GetLuceneQuery(query.Metadata, query.QueryParameters, _analyzer);
+            var sort = GetSort(query);
             var returnedResults = 0;
 
             using (var scope = new IndexQueryingScope(_indexType, query, fieldsToFetch, _searcher, retriever, _state))
@@ -145,7 +144,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             int previousBaseQueryMatches = 0, currentBaseQueryMatches;
 
             var firstSubDocumentQuery = GetLuceneQuery(subQueries[0], query.DefaultOperator, query.DefaultField, _analyzer);
-            var sort = GetSort(query.SortedFields);
+            var sort = GetSort(query);
 
             using (var scope = new IndexQueryingScope(_indexType, query, fieldsToFetch, _searcher, retriever, _state))
             {
@@ -233,7 +232,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
                 var noSortingCollector = new NonSortingCollector(Math.Abs(pageSize + start));
 
                 _searcher.Search(documentQuery, noSortingCollector, _state);
-                
+
                 return noSortingCollector.ToTopDocs();
             }
 
@@ -274,42 +273,52 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             return false;
         }
 
-        private static Sort GetSort(SortedField[] sortedFields)
+        private Sort GetSort(IndexQueryServerSide query)
         {
-            if (sortedFields == null || sortedFields.Length == 0)
+            var orderByFields = query.Metadata.OrderBy;
+
+            if (orderByFields == null)
                 return null;
 
-            return new Sort(sortedFields.Select(x =>
+            var sort = new List<SortField>();
+
+            foreach (var field in orderByFields)
             {
+                if (field.Name == Constants.Documents.Indexing.Fields.IndexFieldScoreName)
+                {
+                    sort.Add(SortField.FIELD_SCORE);
+                    continue;
+                }
+
+                if (InvariantCompare.IsPrefix(field.Name, Constants.Documents.Indexing.Fields.RandomFieldName, CompareOptions.None))
+                {
+                    var customFieldName = SortFieldHelper.ExtractName(field.Name);
+                    if (customFieldName.IsNullOrWhiteSpace()) // truly random
+                        sort.Add(new RandomSortField(Guid.NewGuid().ToString()));
+                    else
+                        sort.Add(new RandomSortField(customFieldName));
+
+                    continue;
+                }
+
                 var sortOptions = SortOptions.String;
 
-                if (x.Field == Constants.Documents.Indexing.Fields.IndexFieldScoreName)
-                    return SortField.FIELD_SCORE;
-
-                if (InvariantCompare.IsPrefix(x.Field, Constants.Documents.Indexing.Fields.AlphaNumericFieldName, CompareOptions.None))
+                switch (field.OrderingType)
                 {
-                    var customFieldName = SortFieldHelper.ExtractName(x.Field);
-                    if (customFieldName.IsNullOrWhiteSpace())
-                        throw new InvalidOperationException("Alphanumeric sort: cannot figure out what field to sort on!");
-
-                    var anSort = new AlphaNumericComparatorSource();
-                    return new SortField(customFieldName, anSort, x.Descending);
+                    case OrderByFieldType.AlphaNumeric:
+                        var anSort = new AlphaNumericComparatorSource();
+                        sort.Add(new SortField(field.Name, anSort, field.Ascending == false));
+                        continue;
+                    case OrderByFieldType.Long:
+                    case OrderByFieldType.Double:
+                        sortOptions = SortOptions.Numeric;
+                        break;
                 }
 
-                if (InvariantCompare.IsPrefix(x.Field, Constants.Documents.Indexing.Fields.RandomFieldName, CompareOptions.None))
-                {
-                    var customFieldName = SortFieldHelper.ExtractName(x.Field);
-                    if (customFieldName.IsNullOrWhiteSpace()) // truly random
-                        return new RandomSortField(Guid.NewGuid().ToString());
+                sort.Add(new SortField(field.Name, (int)sortOptions, field.Ascending == false));
+            }
 
-                    return new RandomSortField(customFieldName);
-                }
-
-                if (InvariantCompare.IsSuffix(x.Field, Constants.Documents.Indexing.Fields.RangeFieldSuffix, CompareOptions.None))
-                    sortOptions = SortOptions.Numeric;
-
-                return new SortField(IndexField.ReplaceInvalidCharactersInFieldName(x.Field), (int)sortOptions, x.Descending);
-            }).ToArray());
+            return new Sort(sort.ToArray());
         }
 
         public HashSet<string> Terms(string field, string fromValue, int pageSize, CancellationToken token)
@@ -346,7 +355,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             return results;
         }
 
-        public IEnumerable<Document> MoreLikeThis(MoreLikeThisQueryServerSide query, HashSet<string> stopWords, Func<string[], IQueryResultRetriever> createRetriever, CancellationToken token)
+        public IEnumerable<Document> MoreLikeThis(MoreLikeThisQueryServerSide query, HashSet<string> stopWords, Func<SelectField[], IQueryResultRetriever> createRetriever, CancellationToken token)
         {
             var documentQuery = new BooleanQuery();
 
@@ -368,9 +377,13 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             if (stopWords != null)
                 mlt.SetStopWords(stopWords);
 
-            var fieldNames = query.Fields ?? ir.GetFieldNames(IndexReader.FieldOption.INDEXED)
-                                    .Where(x => x != Constants.Documents.Indexing.Fields.DocumentIdFieldName && x != Constants.Documents.Indexing.Fields.ReduceKeyFieldName)
-                                    .ToArray();
+            string[] fieldNames;
+            if (query.Fields != null && query.Fields.Length > 0)
+                fieldNames = query.Fields;
+            else
+                fieldNames = ir.GetFieldNames(IndexReader.FieldOption.INDEXED)
+                    .Where(x => x != Constants.Documents.Indexing.Fields.DocumentIdFieldName && x != Constants.Documents.Indexing.Fields.ReduceKeyFieldName)
+                    .ToArray();
 
             mlt.SetFieldNames(fieldNames);
             mlt.Analyzer = _analyzer;
@@ -379,9 +392,9 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             var mltQuery = mlt.Like(td.ScoreDocs[0].Doc);
             var tsdc = TopScoreDocCollector.Create(pageSize, true);
 
-            if (string.IsNullOrWhiteSpace(query.AdditionalQuery) == false)
+            if (query.Metadata.WhereFields.Count > 0)
             {
-                var additionalQuery = QueryBuilder.BuildQuery(query.AdditionalQuery, _analyzer);
+                var additionalQuery = QueryBuilder.BuildQuery(query.Metadata, null, _analyzer);
                 mltQuery = new BooleanQuery
                     {
                         {mltQuery, Occur.MUST},
@@ -396,7 +409,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             var fieldsToFetch = string.IsNullOrWhiteSpace(query.DocumentId)
-                ? _searcher.Doc(baseDocId, _state).GetFields().Cast<AbstractField>().Select(x => x.Name).Distinct().ToArray()
+                ? _searcher.Doc(baseDocId, _state).GetFields().Cast<AbstractField>().Select(x => x.Name).Distinct().Select(x => SelectField.Create(x, null)).ToArray()
                 : null;
 
             var retriever = createRetriever(fieldsToFetch);
@@ -424,7 +437,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             var position = query.Start;
 
             var luceneQuery = GetLuceneQuery(query.Query, query.DefaultOperator, query.DefaultField, _analyzer);
-            var sort = GetSort(query.SortedFields);
+            var sort = GetSort(query);
 
             var search = ExecuteQuery(luceneQuery, query.Start, docsToGet, sort);
             var termsDocs = IndexedTerms.ReadAllEntriesFromIndex(_searcher.IndexReader, documentsContext, _state);

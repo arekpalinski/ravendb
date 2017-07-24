@@ -34,7 +34,7 @@ namespace FastTests.Server.Documents.Indexing.Static
                     new IndexField
                     {
                         Name = "Count",
-                        MapReduceOperation = FieldMapReduceOperation.Count,
+                        Aggregation = AggregationOperation.Count,
                         Storage = FieldStorage.Yes
                     }
                 }, new[]
@@ -143,7 +143,7 @@ namespace FastTests.Server.Documents.Indexing.Static
 
                 var queryResult =
                     await
-                        index.Query(new IndexQueryServerSide(),
+                        index.Query(new IndexQueryServerSide($"FROM INDEX '{index.Name}'"),
                             DocumentsOperationContext.ShortTermSingleUse(database),
                             OperationCancelToken.None);
 
@@ -202,7 +202,7 @@ namespace FastTests.Server.Documents.Indexing.Static
                     tx.Commit();
                 }
 
-                queryResult = await index.Query(new IndexQueryServerSide(),
+                queryResult = await index.Query(new IndexQueryServerSide($"FROM INDEX '{index.Name}'"),
                             DocumentsOperationContext.ShortTermSingleUse(database),
                             OperationCancelToken.None);
 
@@ -252,13 +252,7 @@ namespace FastTests.Server.Documents.Indexing.Static
                     tx.Commit();
                 }
 
-                queryResult = await index.Query(new IndexQueryServerSide
-                    {
-                        SortedFields = new[]
-                        {
-                            new SortedField("Location"),
-                        }
-                    },
+                queryResult = await index.Query(new IndexQueryServerSide("FROM Users ORDER BY Location"),
                     DocumentsOperationContext.ShortTermSingleUse(database),
                     OperationCancelToken.None);
 

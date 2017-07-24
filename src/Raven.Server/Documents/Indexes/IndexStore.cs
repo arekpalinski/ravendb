@@ -159,7 +159,7 @@ namespace Raven.Server.Documents.Indexes
                 .Select(x =>
                 {
                     var field = IndexField.Create(x.Key, x.Value, allFields: null);
-                    field.MapReduceOperation = x.Value.MapReduceOperation;
+                    field.Aggregation = x.Value.MapReduceOperation;
 
                     return field;
                 })
@@ -185,7 +185,7 @@ namespace Raven.Server.Documents.Indexes
                     .Select(x =>
                     {
                         var field = IndexField.Create(x.Key, x.Value, allFields: null);
-                        field.MapReduceOperation = x.Value.MapReduceOperation;
+                        field.Aggregation = x.Value.MapReduceOperation;
 
                         return field;
                     })
@@ -592,16 +592,6 @@ namespace Raven.Server.Documents.Indexes
         {
             if (string.IsNullOrWhiteSpace(name))
                 throw new ArgumentException("Index name cannot be empty!");
-
-            if (name.StartsWith(Index.DynamicIndexPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new ArgumentException($"Index name '{name.Replace("//", "__")}' not permitted. Index names starting with dynamic_ or dynamic/ are reserved!", nameof(name));
-            }
-
-            if (name.Equals(Index.DynamicIndex, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new ArgumentException($"Index name '{name.Replace("//", "__")}' not permitted. Index name dynamic is reserved!", nameof(name));
-            }
 
             if (name.Contains("//"))
             {

@@ -2,7 +2,6 @@
 using System.Linq;
 using System.Threading.Tasks;
 using FastTests.Server.Basic.Entities;
-using Raven.Client;
 using Raven.Client.Documents.Operations.Indexes;
 using Raven.Client.Documents.Session;
 using Raven.Tests.Core.Utils.Entities;
@@ -37,6 +36,58 @@ namespace FastTests.Server.Documents.Queries.Dynamic.Map
         }
 
         [Fact]
+        public async Task Numeric_where_equals_clause()
+        {
+            using (var store = GetDocumentStore())
+            {
+                using (var session = store.OpenAsyncSession())
+                {
+                    await session.StoreAsync(new User { Name = "Foo", Age = 40 });
+                    await session.StoreAsync(new User { Name = "Bar", Age = 50 });
+
+                    await session.SaveChangesAsync();
+                }
+
+                using (var session = store.OpenSession())
+                {
+                    var users = session.Query<User>().Customize(x => x.WaitForNonStaleResults()).Where(x => x.Age == 50).ToList();
+
+                    Assert.Equal(1, users.Count);
+                    Assert.Equal("Bar", users[0].Name);
+                }
+            }
+        }
+
+        [Fact]
+        public async Task Numeric_between_clause()
+        {
+            using (var store = GetDocumentStore())
+            {
+                using (var session = store.OpenAsyncSession())
+                {
+                    await session.StoreAsync(new User { Name = "Foo", Age = 40 });
+                    await session.StoreAsync(new User { Name = "Bar", Age = 50 });
+
+                    await session.SaveChangesAsync();
+                }
+
+                using (var session = store.OpenSession())
+                {
+                    var users = session.Query<User>().Customize(x => x.WaitForNonStaleResults()).Where(x => x.Age >= 50 && x.Age <= 60).ToList();
+
+                    Assert.Equal(1, users.Count);
+                    Assert.Equal("Bar", users[0].Name);
+
+
+                    users = session.Query<User>().Customize(x => x.WaitForNonStaleResults()).Where(x => x.Age >= 30.1 && x.Age <= 40.0).ToList();
+
+                    Assert.Equal(1, users.Count);
+                    Assert.Equal("Foo", users[0].Name);
+                }
+            }
+        }
+
+        [Fact]
         public async Task Numeric_range_where_clause()
         {
             using (var store = GetDocumentStore())
@@ -55,6 +106,16 @@ namespace FastTests.Server.Documents.Queries.Dynamic.Map
 
                     Assert.Equal(1, users.Count);
                     Assert.Equal("Arek", users[0].Name);
+
+                    users = session.Query<User>().Customize(x => x.WaitForNonStaleResults()).Where(x => x.Age < 50).ToList();
+                    Assert.Equal(1, users.Count);
+                    Assert.Equal("Fitzchak", users[0].Name);
+
+                    users = session.Query<User>().Customize(x => x.WaitForNonStaleResults()).Where(x => x.Age >= 40).ToList();
+                    Assert.Equal(2, users.Count);
+
+                    users = session.Query<User>().Customize(x => x.WaitForNonStaleResults()).Where(x => x.Age <= 50).ToList();
+                    Assert.Equal(2, users.Count);
                 }
             }
         }
@@ -178,7 +239,7 @@ namespace FastTests.Server.Documents.Queries.Dynamic.Map
                     var indexes = store.Admin.Send(new GetIndexesOperation(0, 10)).OrderBy(x => x.Etag).ToList();
 
                     Assert.Equal(1, indexes.Count);
-                    Assert.Equal("Auto/Orders/ByShipTo_Country", indexes[0].Name);
+                    Assert.Equal("Auto/Orders/ByShipTo.Country", indexes[0].Name);
                 }
             }
         }
@@ -216,7 +277,7 @@ namespace FastTests.Server.Documents.Queries.Dynamic.Map
                     var indexes = store.Admin.Send(new GetIndexesOperation(0, 10)).OrderBy(x => x.Etag).ToList();
 
                     Assert.Equal(1, indexes.Count);
-                    Assert.Equal("Auto/Orders/ByShipTo_ZipCodeSortByShipTo_ZipCode", indexes[0].Name);
+                    Assert.Equal("Auto/Orders/ByShipTo.ZipCodeSortByShipTo.ZipCode", indexes[0].Name);
                 }
             }
         }
@@ -385,6 +446,29 @@ namespace FastTests.Server.Documents.Queries.Dynamic.Map
                     Assert.Equal(1, nested.Count);
                     Assert.Equal("New York", nested[0].City);
                     Assert.Equal("USA", nested[0].Country);
+                }
+            }
+        }
+
+        [Fact]
+        public void Collection_query()
+        {
+            using (var store = GetDocumentStore())
+            {
+                using (var session = store.OpenSession())
+                {
+                    session.Store(new User { Name = "Fitzchak" }, "users/1");
+                    session.Store(new User { Name = "Arek" }, "users/2");
+
+                    session.SaveChanges();
+                }
+
+                using (var session = store.OpenSession())
+                {
+                    var users = session.Query<User>().Customize(x => x.WaitForNonStaleResults()).Where(x => x.Id == "users/2").ToList();
+
+                    Assert.Equal(1, users.Count);
+                    Assert.Equal("Arek", users[0].Name);
                 }
             }
         }

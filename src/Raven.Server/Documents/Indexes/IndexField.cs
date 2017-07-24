@@ -11,7 +11,7 @@ namespace Raven.Server.Documents.Indexes
 
         public SortOptions? Sort { get; set; }
 
-        public FieldMapReduceOperation MapReduceOperation { get; set; }
+        public AggregationOperation Aggregation { get; set; }
 
         public FieldStorage Storage { get; set; }
 
@@ -20,49 +20,6 @@ namespace Raven.Server.Documents.Indexes
         public FieldTermVector TermVector { get; set; }
         
         public bool HasSuggestions { get; set; }
-
-        public static string ReplaceInvalidCharactersInFieldName(string field)
-        {
-            // we allow only \w which is equivalent to [a-zA-Z_0-9]
-            const int a = 'a';
-            const int z = 'z';
-            const int A = 'A';
-            const int Z = 'Z';
-            const int Zero = '0';
-            const int Nine = '9';
-            const int Underscore = '_';
-
-            if (string.IsNullOrEmpty(field))
-                return field;
-
-            char[] input = null;
-
-            for (var i = 0; i < field.Length; i++)
-            {
-                var ch = field[i];
-                if (ch >= a && ch <= z)
-                    continue;
-
-                if (ch >= A && ch <= Z)
-                    continue;
-
-                if (ch >= Zero && ch <= Nine)
-                    continue;
-
-                if (ch == Underscore)
-                    continue;
-
-                if (input == null)
-                {
-                    input = new char[field.Length];
-                    field.CopyTo(0, input, 0, field.Length);
-                }
-
-                input[i] = '_';
-            }
-
-            return input == null ? field : new string(input);
-        }
 
         public IndexField()
         {
@@ -111,7 +68,7 @@ namespace Raven.Server.Documents.Indexes
             return string.Equals(Name, other.Name, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(Analyzer, other.Analyzer, StringComparison.OrdinalIgnoreCase)
                 && Sort == other.Sort
-                && MapReduceOperation == other.MapReduceOperation
+                && Aggregation == other.Aggregation
                 && Storage == other.Storage
                 && Indexing == other.Indexing
                 && TermVector == other.TermVector;
@@ -141,7 +98,7 @@ namespace Raven.Server.Documents.Indexes
                 var hashCode = (Name != null ? StringComparer.OrdinalIgnoreCase.GetHashCode(Name) : 0);
                 hashCode = (hashCode * 397) ^ (Analyzer != null ? StringComparer.OrdinalIgnoreCase.GetHashCode(Analyzer) : 0);
                 hashCode = (hashCode * 397) ^ Sort.GetHashCode();
-                hashCode = (hashCode * 397) ^ (int)MapReduceOperation;
+                hashCode = (hashCode * 397) ^ (int)Aggregation;
                 hashCode = (hashCode * 397) ^ (int)Storage;
                 hashCode = (hashCode * 397) ^ (int)Indexing;
                 hashCode = (hashCode * 397) ^ (int)TermVector;

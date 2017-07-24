@@ -25,12 +25,12 @@ namespace Raven.Server.Documents.Queries
         public readonly bool IsTransformation;
 
         public FieldsToFetch(IndexQueryServerSide query, IndexDefinitionBase indexDefinition, Transformer transformer)
-            : this(query.FieldsToFetch, indexDefinition, transformer)
+            : this(query.Metadata.SelectFields, indexDefinition, transformer)
         {
             IsDistinct = query.IsDistinct && IsProjection;
         }
 
-        public FieldsToFetch(string[] fieldsToFetch, IndexDefinitionBase indexDefinition, Transformer transformer)
+        public FieldsToFetch(SelectField[] fieldsToFetch, IndexDefinitionBase indexDefinition, Transformer transformer)
         {
             Fields = GetFieldsToFetch(fieldsToFetch, indexDefinition, out AnyExtractableFromIndex, out bool extractAllStoredFields);
             IsProjection = Fields != null && Fields.Count > 0;
@@ -51,29 +51,43 @@ namespace Raven.Server.Documents.Queries
             }
         }
 
-        private static Dictionary<string, FieldToFetch> GetFieldsToFetch(string[] fieldsToFetch, IndexDefinitionBase indexDefinition, out bool anyExtractableFromIndex, out bool extractAllStoredFields)
+        private static Dictionary<string, FieldToFetch> GetFieldsToFetch(SelectField[] selectFields, IndexDefinitionBase indexDefinition, out bool anyExtractableFromIndex, out bool extractAllStoredFields)
         {
             anyExtractableFromIndex = false;
             extractAllStoredFields = false;
 
-            if (fieldsToFetch == null || fieldsToFetch.Length == 0)
+            if (selectFields == null || selectFields.Length == 0)
                 return null;
 
             var result = new Dictionary<string, FieldToFetch>(StringComparer.OrdinalIgnoreCase);
-            for (var i = 0; i < fieldsToFetch.Length; i++)
+            for (var i = 0; i < selectFields.Length; i++)
             {
-                var fieldToFetch = fieldsToFetch[i];
+                var selectField = selectFields[i];
 
-                if (string.IsNullOrWhiteSpace(fieldToFetch))
-                    continue;
+                var selectFieldName = selectField.Name;
+
+                if (string.IsNullOrWhiteSpace(selectFieldName))
+                {
+                    if (selectField.IsGroupByKey == false)
+                        continue;
+
+                    if (selectField.GroupByKeys.Length == 1)
+                        selectFieldName = selectField.GroupByKeys[0];
+                    else
+                    {
+                        var projectedName = selectField.Alias ?? "Key";
+                        result[projectedName] = new FieldToFetch(projectedName, selectField.GroupByKeys);
+                        continue;
+                    }
+                }
 
                 if (indexDefinition == null)
                 {
-                    result[fieldToFetch] = new FieldToFetch(fieldToFetch, false);
+                    result[selectFieldName] = new FieldToFetch(selectFieldName, selectField.Alias, false);
                     continue;
                 }
 
-                if (fieldToFetch[0] == '_' && fieldToFetch == Constants.Documents.Indexing.Fields.AllStoredFields)
+                if (selectFieldName[0] == '_' && selectFieldName == Constants.Documents.Indexing.Fields.AllStoredFields)
                 {
                     if (result.Count > 0)
                         result.Clear(); // __all_stored_fields should only return stored fields so we are ensuring that no other fields will be returned
@@ -87,18 +101,18 @@ namespace Raven.Server.Documents.Queries
                             continue;
 
                         anyExtractableFromIndex = true;
-                        result[kvp.Key] = new FieldToFetch(kvp.Key, canExtractFromIndex: true);
+                        result[kvp.Key] = new FieldToFetch(kvp.Key, null, canExtractFromIndex: true);
                     }
 
                     return result;
                 }
 
                 IndexField value;
-                var extract = indexDefinition.TryGetField(fieldToFetch, out value) && value.Storage == FieldStorage.Yes;
+                var extract = indexDefinition.TryGetField(selectFieldName, out value) && value.Storage == FieldStorage.Yes;
                 if (extract)
                     anyExtractableFromIndex = true;
 
-                result[fieldToFetch] = new FieldToFetch(fieldToFetch, extract | indexDefinition.HasDynamicFields);
+                result[selectFieldName] = new FieldToFetch(selectFieldName, selectField.Alias, extract | indexDefinition.HasDynamicFields);
             }
 
             if (indexDefinition != null)
@@ -114,15 +128,30 @@ namespace Raven.Server.Documents.Queries
 
         public class FieldToFetch
         {
-            public FieldToFetch(string name, bool canExtractFromIndex)
+            public FieldToFetch(string name, string projectedName, bool canExtractFromIndex)
             {
                 Name = name;
+                ProjectedName = projectedName;
                 CanExtractFromIndex = canExtractFromIndex;
+            }
+
+            public FieldToFetch(string projectedName, string[] components)
+            {
+                ProjectedName = projectedName;
+                Components = components;
+                IsCompositeField = true;
+                CanExtractFromIndex = false;
             }
 
             public readonly StringSegment Name;
 
+            public readonly string ProjectedName;
+
             public readonly bool CanExtractFromIndex;
+
+            public readonly bool IsCompositeField;
+
+            public readonly string[] Components;
         }
     }
 }

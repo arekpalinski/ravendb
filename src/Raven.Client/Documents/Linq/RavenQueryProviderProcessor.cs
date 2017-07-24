@@ -50,6 +50,8 @@ namespace Raven.Client.Documents.Linq
         /// </summary>
         protected readonly string IndexName;
 
+        private readonly string _collectionName;
+
         /// <summary>
         /// Gets the current path in the case of expressions within collections
         /// </summary>
@@ -63,6 +65,7 @@ namespace Raven.Client.Documents.Linq
         /// <param name="afterQueryExecuted">Executed after the query run, allow access to the query results</param>
         /// <param name="afterStreamExecuted">Executed after the stream run, allow access to the stream results</param>
         /// <param name="indexName">The name of the index the query is executed against.</param>
+        /// <param name="collectionName">The name of the collection the query is executed against.</param>
         /// <param name="fieldsToFetch">The fields to fetch in this query</param>
         /// <param name="fieldsTRename">The fields to rename for the results of this query</param>
         /// <param name="isMapReduce"></param>
@@ -70,7 +73,7 @@ namespace Raven.Client.Documents.Linq
         /// <param name="transformerParameters"></param>
         /// /// <param name ="originalType" >the original type of the query if TransformWith is called otherwise null</param>
         public RavenQueryProviderProcessor(IDocumentQueryGenerator queryGenerator, Action<IDocumentQueryCustomization> customizeQuery, Action<QueryResult> afterQueryExecuted,
-             Action<object> afterStreamExecuted, string indexName, HashSet<string> fieldsToFetch, List<RenamedField> fieldsTRename, bool isMapReduce, string resultsTransformer,
+             Action<object> afterStreamExecuted, string indexName, string collectionName, HashSet<string> fieldsToFetch, List<RenamedField> fieldsTRename, bool isMapReduce, string resultsTransformer,
              Dictionary<string, object> transformerParameters, Type originalType)
         {
             FieldsToFetch = fieldsToFetch;
@@ -78,6 +81,7 @@ namespace Raven.Client.Documents.Linq
             _newExpressionType = typeof(T);
             QueryGenerator = queryGenerator;
             IndexName = indexName;
+            _collectionName = collectionName;
             _isMapReduce = isMapReduce;
             _afterQueryExecuted = afterQueryExecuted;
             _afterStreamExecuted = afterStreamExecuted;
@@ -126,7 +130,7 @@ namespace Raven.Client.Documents.Linq
                             case ExpressionType.Call:
                                 // probably a call to !In() or !string.IsNullOrEmpty()
                                 _documentQuery.OpenSubclause();
-                                _documentQuery.Where("*:*");
+                                _documentQuery.WhereTrue();
                                 _documentQuery.AndAlso();
                                 _documentQuery.NegateNext();
                                 VisitMethodCall((MethodCallExpression)unaryExpressionOp, negated: true);
@@ -135,7 +139,7 @@ namespace Raven.Client.Documents.Linq
                             default:
                                 //probably the case of !(complex condition)
                                 _documentQuery.OpenSubclause();
-                                _documentQuery.Where("*:*");
+                                _documentQuery.WhereTrue();
                                 _documentQuery.AndAlso();
                                 _documentQuery.NegateNext();
                                 VisitExpression(unaryExpressionOp);
@@ -283,9 +287,13 @@ namespace Raven.Client.Documents.Linq
                           : rightMember.Item2;
 
             if (andAlso.Left.NodeType == ExpressionType.GreaterThanOrEqual || andAlso.Left.NodeType == ExpressionType.LessThanOrEqual)
-                _documentQuery.WhereBetweenOrEqual(leftMember.Item1.Path, min, max);
-            else
                 _documentQuery.WhereBetween(leftMember.Item1.Path, min, max);
+            else
+            {
+                _documentQuery.WhereGreaterThan(leftMember.Item1.Path, min);
+                _documentQuery.AndAlso();
+                _documentQuery.WhereLessThan(leftMember.Item1.Path, max);
+            }
 
             return true;
         }
@@ -337,7 +345,7 @@ namespace Raven.Client.Documents.Linq
                 expression.Left.NodeType != ExpressionType.MemberAccess)
             {
                 _documentQuery.OpenSubclause();
-                _documentQuery.Where("*:*");
+                _documentQuery.WhereTrue();
                 _documentQuery.AndAlso();
                 _documentQuery.NegateNext();
                 VisitExpression(expression.Left);
@@ -481,7 +489,7 @@ namespace Raven.Client.Documents.Linq
             var parameterExpression = GetParameterExpressionIncludingConvertions(expression);
             if (parameterExpression != null)
             {
-                if (_currentPath.EndsWith(","))
+                if (_currentPath.EndsWith("[]."))
                     _currentPath = _currentPath.Substring(0, _currentPath.Length - 1);
                 return new ExpressionInfo(_currentPath, parameterExpression.Type, false);
             }
@@ -716,7 +724,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
             if (expression.Arguments.Count >= 2)
             {
                 var oldPath = _currentPath;
-                _currentPath = memberInfo.Path + ",";
+                _currentPath = memberInfo.Path + "[].";
                 VisitExpression(expression.Arguments[1]);
                 _currentPath = oldPath;
             }
@@ -761,7 +769,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
                     if (boolValue)
                     {
                         _documentQuery.OpenSubclause();
-                        _documentQuery.Where("*:*");
+                        _documentQuery.WhereTrue();
                         _documentQuery.AndAlso();
                         _documentQuery.NegateNext();
                     }
@@ -792,7 +800,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
             }
             else if (memberExpression.Type == typeof(string))
             {
-                if (_currentPath.EndsWith(","))
+                if (_currentPath.EndsWith("[]."))
                     _currentPath = _currentPath.Substring(0, _currentPath.Length - 1);
 
                 var memberInfo = GetMember(memberExpression);
@@ -975,6 +983,8 @@ The recommended method is to use full text search (mark the field as Analyzed an
                 if (options.HasFlag(SearchOptions.Not))
                 {
                     _documentQuery.OpenSubclause();
+                    _documentQuery.WhereExists(expressionInfo.Path);
+                    _documentQuery.AndAlso();
                     _documentQuery.NegateNext();
                 }
 
@@ -986,8 +996,6 @@ The recommended method is to use full text search (mark the field as Analyzed an
                 _documentQuery.Search(expressionInfo.Path, searchTerms, queryOptions);
                 if (options.HasFlag(SearchOptions.Not))
                 {
-                    _documentQuery.AndAlso();
-                    _documentQuery.Search(expressionInfo.Path, "*");
                     _documentQuery.CloseSubclause();
                 }
 
@@ -1052,7 +1060,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
                         if (expression.Arguments.Count == 1 && expression.Arguments[0].Type == typeof(string))
                         {
                             _documentQuery.OpenSubclause();
-                            _documentQuery.Where("*:*");
+                            _documentQuery.WhereTrue();
                             _documentQuery.AndAlso();
                             _documentQuery.NegateNext();
                             VisitIsNullOrEmpty(expression);
@@ -1285,7 +1293,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
                                  expression.Method.Name.EndsWith("Descending"));
                     break;
                 case "GroupBy":
-                    if (_documentQuery.IndexName.StartsWith("dynamic/") == false)
+                    if (_documentQuery.CollectionName == null)
                         throw new NotSupportedException("GroupBy method is only supported in dynamic map-reduce queries");
 
                     if (expression.Arguments.Count == 5) // GroupBy(x => keySelector, x => elementSelector, x => resultSelector, IEqualityComparer)
@@ -1335,11 +1343,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
                 case ExpressionType.MemberAccess:
                     var singleGroupByFieldName = GetSelectPath(_linqPathProvider.GetMemberExpression(lambdaExpression));
 
-                    _documentQuery.AddMapReduceField(new DynamicMapReduceField
-                    {
-                        Name = singleGroupByFieldName,
-                        IsGroupBy = true
-                    });
+                    _documentQuery.GroupBy(singleGroupByFieldName);
                     break;
                 case ExpressionType.New:
                     var newExpression = ((NewExpression)body);
@@ -1348,13 +1352,9 @@ The recommended method is to use full text search (mark the field as Analyzed an
                     {
                         var originalField = GetSelectPath((MemberExpression)newExpression.Arguments[index]);
 
-                        _documentQuery.AddMapReduceField(new DynamicMapReduceField
-                        {
-                            Name = originalField,
-                            IsGroupBy = true
-                        });
+                        _documentQuery.GroupBy(originalField);
 
-                        AddGroupByFieldToRenameIfNeeded(newExpression.Members[index], originalField);
+                        AddGroupByAliasIfNeeded(newExpression.Members[index], originalField);
                     }
                     break;
                 case ExpressionType.MemberInit:
@@ -1369,18 +1369,27 @@ The recommended method is to use full text search (mark the field as Analyzed an
 
                         var originalField = GetSelectPath((MemberExpression)field.Expression);
 
-                        _documentQuery.AddMapReduceField(new DynamicMapReduceField
-                        {
-                            Name = originalField,
-                            IsGroupBy = true
-                        });
+                        _documentQuery.GroupBy(originalField);
 
-                        AddGroupByFieldToRenameIfNeeded(field.Member, originalField);
+                        AddGroupByAliasIfNeeded(field.Member, originalField);
                     }
                     break;
                 default:
                     throw new NotSupportedException("Node not supported in GroupBy: " + body.NodeType);
 
+            }
+        }
+
+        private void AddGroupByAliasIfNeeded(MemberInfo aliasMember, string originalField)
+        {
+            var alias = GetSelectPath(aliasMember);
+
+            if (alias != null && originalField.Equals(alias, StringComparison.Ordinal) == false)
+            {
+                if (_documentQuery is DocumentQuery<T> docQuery)
+                    docQuery.AddGroupByAlias(originalField, alias);
+                else if (_documentQuery is AsyncDocumentQuery<T> asyncDocQuery)
+                    asyncDocQuery.AddGroupByAlias(originalField, alias);
             }
         }
 
@@ -1397,8 +1406,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
                 fieldType = typeof(string);
             }
 
-            fieldName = FieldUtil.ApplyRangeSuffixIfNecessary(fieldName, fieldType);
-            _documentQuery.AddOrder(fieldName, descending);
+            _documentQuery.AddOrder(fieldName, descending, OrderingUtil.GetOrderingOfType(fieldType));
         }
 
         private bool _insideSelect;
@@ -1532,7 +1540,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
 
                     if (entireExpression.Parameters[0].Name == parameterExpression.Name)
                     {
-                        AddGroupByFieldToRenameIfNeeded(fieldMember);
+                        _documentQuery.GroupByKey(null, GetSelectPath(fieldMember));
                     }
                     break;
                 case ExpressionType.MemberAccess:
@@ -1542,10 +1550,12 @@ The recommended method is to use full text search (mark the field as Analyzed an
 
                     if ("Key".Equals(name, StringComparison.Ordinal))
                     {
-                        if (_documentQuery.GetGroupByFields().Length > 1)
-                            throw new NotSupportedException("Cannot specify composite key of GroupBy directly in Select statement. Specify each field of the key separately.");
+                        var projectedName = ExtractProjectedName(fieldMember);
 
-                        AddGroupByFieldToRenameIfNeeded(fieldMember);
+                        if (projectedName.Equals("Key", StringComparison.Ordinal))
+                            _documentQuery.GroupByKey(null);
+                        else
+                            _documentQuery.GroupByKey(null, projectedName);
                     }
                     else if (name.StartsWith("Key.", StringComparison.Ordinal))
                     {
@@ -1554,7 +1564,10 @@ The recommended method is to use full text search (mark the field as Analyzed an
                         if (compositeGroupBy.Length > 2)
                             throw new NotSupportedException("Nested fields inside composite GroupBy keys are not supported");
 
-                        AddGroupByFieldToRenameIfNeeded(fieldMember, compositeGroupBy[1]);
+                        var fieldName = compositeGroupBy[1];
+                        var projectedName = ExtractProjectedName(fieldMember);
+
+                        _documentQuery.GroupByKey(fieldName, projectedName);
                     }
                     break;
                 case ExpressionType.Call:
@@ -1567,48 +1580,20 @@ The recommended method is to use full text search (mark the field as Analyzed an
             }
         }
 
-        private void AddGroupByFieldToRenameIfNeeded(MemberInfo field, string originalFieldName = null)
+        private static string ExtractProjectedName(MemberInfo fieldMember)
         {
-            var groupByKey = GetSelectPath(field);
+            if (fieldMember == null)
+                return null;
 
-            var groupByFields = _documentQuery.GetGroupByFields();
-
-            DynamicMapReduceField groupByField;
-
-            if (originalFieldName == null)
-            {
-                if (groupByFields.Length != 1)
-                    throw new NotSupportedException("We only support grouping by single field");
-
-                groupByField = groupByFields[0];
-            }
-            else
-            {
-                if (originalFieldName.Equals(groupByKey, StringComparison.Ordinal)) // already renamed inside GroupBy
-                    return;
-
-                groupByField = groupByFields.Single(x => x.Name.Equals(originalFieldName, StringComparison.Ordinal));
-            }
-
-            if (groupByKey.Equals(groupByField.Name, StringComparison.Ordinal) == false)
-            {
-                FieldsToRename.Add(new RenamedField
-                {
-                    NewField = groupByKey,
-                    OriginalField = groupByField.Name
-                });
-
-                groupByField.ClientSideName = groupByKey;
-            }
+            return GetSelectPath(fieldMember);
         }
 
         private void AddMapReduceField(MethodCallExpression mapReduceOperationCall, MemberInfo memberInfo, Expression elementSelectorPath)
         {
             if (mapReduceOperationCall.Method.DeclaringType != typeof(Enumerable))
-                throw new NotSupportedException(
-                    $"Unsupported method in select of dynamic map reduce query: {mapReduceOperationCall.Method.Name} of type {mapReduceOperationCall.Method.DeclaringType}");
+                throw new NotSupportedException($"Unsupported method in select of dynamic map reduce query: {mapReduceOperationCall.Method.Name} of type {mapReduceOperationCall.Method.DeclaringType}");
 
-            FieldMapReduceOperation mapReduceOperation;
+            AggregationOperation mapReduceOperation;
             if (Enum.TryParse(mapReduceOperationCall.Method.Name, out mapReduceOperation) == false)
                 throw new NotSupportedException($"Unhandled map reduce operation type: {mapReduceOperationCall.Method.Name}");
 
@@ -1659,7 +1644,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
                     {
                         case "Sum":
                             {
-                                if (mapReduceOperation != FieldMapReduceOperation.Sum)
+                                if (mapReduceOperation != AggregationOperation.Sum)
                                     throw new NotSupportedException("Cannot use different aggregating functions for a single field");
 
                                 if (methodCallExpression.Arguments.Count != 2)
@@ -1668,7 +1653,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
                                 var firstPart = GetMember(methodCallExpression.Arguments[0]);
                                 var secondPart = GetMember(methodCallExpression.Arguments[1]);
 
-                                mapReduceField = $"{firstPart.Path},{secondPart.Path}";
+                                mapReduceField = $"{firstPart.Path}[].{secondPart.Path}";
 
                                 break;
                             }
@@ -1680,38 +1665,27 @@ The recommended method is to use full text search (mark the field as Analyzed an
                 }
             }
 
-            if (mapReduceOperation == FieldMapReduceOperation.Count && mapReduceField != "Count")
+            if (mapReduceOperation == AggregationOperation.Count)
             {
-                if (renamedField == null)
-                    renamedField = mapReduceField;
-
-                mapReduceField = "Count";
+                if (mapReduceField.Equals("Count", StringComparison.Ordinal))
+                    _documentQuery.GroupByCount();
+                else
+                    _documentQuery.GroupByCount(mapReduceField);
+                return;
             }
 
-            var dynamicMapReduceField = new DynamicMapReduceField
+            if (mapReduceOperation == AggregationOperation.Sum)
             {
-                Name = mapReduceField,
-                OperationType = mapReduceOperation
-            };
-
-            if (renamedField != null && mapReduceField != renamedField)
-            {
-                FieldsToRename.Add(new RenamedField
-                {
-                    NewField = renamedField,
-                    OriginalField = mapReduceField
-                });
-
-                dynamicMapReduceField.ClientSideName = renamedField;
+                _documentQuery.GroupBySum(mapReduceField, renamedField);
+                return;
             }
 
-            _documentQuery.AddMapReduceField(dynamicMapReduceField);
+            throw new NotSupportedException($"Map-Reduce operation '{mapReduceOperation}' in '{mapReduceOperationCall}' is not supported.");
         }
 
-        private string GetSelectPath(MemberInfo member)
+        private static string GetSelectPath(MemberInfo member)
         {
             return LinqPathProvider.HandlePropertyRenames(member, member.Name);
-
         }
 
         private string GetSelectPath(MemberExpression expression)
@@ -1836,7 +1810,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
                 return Constants.Documents.Indexing.Fields.DocumentIdFieldName;
             }
 
-            return FieldUtil.ApplyRangeSuffixIfNecessary(expression.Path, value);
+            return expression.Path;
         }
 
         /// <summary>
@@ -1845,7 +1819,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
         /// <value>The lucene query.</value>
         public IDocumentQuery<T> GetDocumentQueryFor(Expression expression)
         {
-            var q = QueryGenerator.Query<T>(IndexName, _isMapReduce);
+            var q = QueryGenerator.Query<T>(IndexName, _collectionName, _isMapReduce);
             q.SetTransformerParameters(_transformerParameters);
 
             _documentQuery = (IAbstractDocumentQuery<T>)q;
@@ -1873,7 +1847,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
         /// <value>The lucene query.</value>
         public IAsyncDocumentQuery<T> GetDocumentQueryForAsync(Expression expression)
         {
-            var q = QueryGenerator.AsyncQuery<T>(IndexName, _isMapReduce);
+            var q = QueryGenerator.AsyncQuery<T>(IndexName, _collectionName, _isMapReduce);
 
             _documentQuery = (IAbstractDocumentQuery<T>)q;
             _documentQuery.SetTransformer(_resultsTransformer);
@@ -1901,7 +1875,7 @@ The recommended method is to use full text search (mark the field as Analyzed an
         /// <value>The lucene query.</value>
         public IAsyncDocumentQuery<T> GetAsyncDocumentQueryFor(Expression expression)
         {
-            var asyncDocumentQuery = QueryGenerator.AsyncQuery<T>(IndexName, _isMapReduce);
+            var asyncDocumentQuery = QueryGenerator.AsyncQuery<T>(IndexName, _collectionName, _isMapReduce);
             asyncDocumentQuery.SetTransformer(_resultsTransformer);
             asyncDocumentQuery.SetTransformerParameters(_transformerParameters);
             _documentQuery = (IAbstractDocumentQuery<T>)asyncDocumentQuery;

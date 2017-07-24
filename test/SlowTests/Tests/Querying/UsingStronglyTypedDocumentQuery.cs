@@ -10,7 +10,7 @@ namespace SlowTests.Tests.Querying
     {
         private static IDocumentQuery<IndexedUser> CreateUserQuery()
         {
-            return new DocumentQuery<IndexedUser>(null, "IndexName", null, null, false);
+            return new DocumentQuery<IndexedUser>(null, "IndexName", null, false);
         }
 
         [Fact]
@@ -53,8 +53,9 @@ namespace SlowTests.Tests.Querying
         [Fact]
         public void WhereBetweenOrEqualSameAsUntypedCounterpart()
         {
-            Assert.Equal(CreateUserQuery().WhereBetweenOrEqual("Name", "ayende", "zaphod").ToString(),
-                CreateUserQuery().WhereBetweenOrEqual(x => x.Name, "ayende", "zaphod").ToString());
+            throw new NotImplementedException();
+            //Assert.Equal(CreateUserQuery().WhereBetweenOrEqual("Name", "ayende", "zaphod").ToString(),
+            //    CreateUserQuery().WhereBetweenOrEqual(x => x.Name, "ayende", "zaphod").ToString());
         }
 
         [Fact]

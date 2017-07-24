@@ -15,7 +15,6 @@ using Raven.Client.Documents.Commands;
 using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Operations;
 using Raven.Client.Documents.Queries;
-using Raven.Client.Documents.Queries.Facets;
 using Raven.Client.Documents.Queries.MoreLikeThis;
 using Raven.Client.Util;
 using Raven.Server.Config.Categories;
@@ -28,11 +27,10 @@ using Raven.Server.Documents.Indexes.Persistence.Lucene;
 using Raven.Server.Documents.Indexes.Static;
 using Raven.Server.Documents.Indexes.Workers;
 using Raven.Server.Documents.Queries;
+using Raven.Server.Documents.Queries.Faceted;
 using Raven.Server.Documents.Queries.MoreLikeThis;
-using Raven.Server.Documents.Queries.Parse;
 using Raven.Server.Documents.Queries.Results;
-using Raven.Server.Documents.Queries.Sorting;
-using Raven.Server.Documents.Queries.Suggestions;
+using Raven.Server.Documents.Queries.Suggestion;
 using Raven.Server.Documents.Transformers;
 using Raven.Server.Exceptions;
 using Raven.Server.NotificationCenter.Notifications;
@@ -47,7 +45,6 @@ using Sparrow.Collections;
 using Sparrow.Json;
 using Voron;
 using Sparrow.Logging;
-using Sparrow.LowMemory;
 using Sparrow.Utils;
 using Size = Sparrow.Size;
 using Voron.Debugging;
@@ -156,25 +153,6 @@ namespace Raven.Server.Documents.Indexes
             MaxNumberOutputsPerDocument = int.MinValue,
             Suggestion = "Please verify this index definition and consider a re-design of your entities or index for better indexing performance"
         };
-
-        public const string DynamicIndex = "dynamic";
-
-        public const string DynamicIndexPrefix = "dynamic/";
-
-        public static bool IsDynamicIndex(string indexName)
-        {
-            if (indexName == null || indexName.Length < DynamicIndex.Length)
-                return false;
-
-            if (indexName.StartsWith(DynamicIndex, StringComparison.OrdinalIgnoreCase) == false)
-                return false;
-
-            if (indexName.Length == DynamicIndex.Length)
-                return true;
-
-            return indexName[DynamicIndex.Length] == '/';
-        }
-
 
         protected Index(long etag, IndexType type, IndexDefinitionBase definition)
         {
@@ -1621,7 +1599,7 @@ namespace Raven.Server.Documents.Indexes
 
             MarkQueried(DocumentDatabase.Time.GetUtcNow());
 
-            AssertQueryDoesNotContainFieldsThatAreNotIndexed(query, query.SortedFields);
+            AssertQueryDoesNotContainFieldsThatAreNotIndexed(query);
 
             Transformer transformer = null;
             if (string.IsNullOrEmpty(query.Transformer) == false)
@@ -1757,7 +1735,7 @@ namespace Raven.Server.Documents.Indexes
             }
         }
 
-        public virtual async Task<FacetedQueryResult> FacetedQuery(FacetQuery query, long facetSetupEtag,
+        public virtual async Task<FacetedQueryResult> FacetedQuery(FacetQueryServerSide query, long facetSetupEtag,
             DocumentsOperationContext documentsContext, OperationCancelToken token)
         {
             AssertIndexState();
@@ -1767,9 +1745,11 @@ namespace Raven.Server.Documents.Indexes
 
             MarkQueried(DocumentDatabase.Time.GetUtcNow());
 
-            AssertQueryDoesNotContainFieldsThatAreNotIndexed(query, null);
+            // TODO arek
+            //AssertQueryDoesNotContainFieldsThatAreNotIndexed(query);
 
-
+            if ("".Length == 0)
+                throw new NotImplementedException("TODO arek - faceted queries");
 
             using (var marker = MarkQueryAsRunning(query, token))
 
@@ -1804,6 +1784,7 @@ namespace Raven.Server.Documents.Indexes
 
                             var isStale = IsStale(documentsContext, indexContext, query.CutoffEtag);
 
+
                             if (WillResultBeAcceptable(isStale, query, wait) == false)
                             {
                                 documentsContext.CloseTransaction();
@@ -1818,6 +1799,7 @@ namespace Raven.Server.Documents.Indexes
                                 await wait.WaitForIndexingAsync(frozenAwaiter).ConfigureAwait(false);
                                 continue;
                             }
+
 
                             FillFacetedQueryResult(result, IsStale(documentsContext, indexContext), facetSetupEtag,
                                 documentsContext, indexContext);
@@ -1878,11 +1860,11 @@ namespace Raven.Server.Documents.Indexes
 
                     var isStale = IsStale(documentsContext, indexContext);
 
-                    FillSuggestionQueryResult(result, isStale, documentsContext, indexContext);                                            
+                    FillSuggestionQueryResult(result, isStale, documentsContext, indexContext);
 
                     using (var reader = IndexPersistence.OpenSuggestionIndexReader(tx.InnerTransaction, query.Field))
                     {
-                        result.Suggestions = reader.Suggestions(query, token.Token);                                      
+                        result.Suggestions = reader.Suggestions(query, token.Token);
                     }
 
                     return result;
@@ -1980,7 +1962,7 @@ namespace Raven.Server.Documents.Indexes
 
             MarkQueried(DocumentDatabase.Time.GetUtcNow());
 
-            AssertQueryDoesNotContainFieldsThatAreNotIndexed(query, query.SortedFields);
+            AssertQueryDoesNotContainFieldsThatAreNotIndexed(query);
 
             TransactionOperationContext indexContext;
             using (var marker = MarkQueryAsRunning(query, token))
@@ -2061,40 +2043,29 @@ namespace Raven.Server.Documents.Indexes
             throw new InvalidOperationException($"Index '{Name} ({Etag})' is currently being compacted.");
         }
 
-        private void AssertQueryDoesNotContainFieldsThatAreNotIndexed(IndexQueryBase query, SortedField[] sortedFields)
+        private void AssertQueryDoesNotContainFieldsThatAreNotIndexed(IndexQueryServerSide query)
         {
-            if (string.IsNullOrWhiteSpace(query.Query) == false)
+            foreach (var field in query.Metadata.IndexFieldNames)
             {
-                var setOfFields = SimpleQueryParser.GetFields(query.Query, query.DefaultOperator, query.DefaultField);
-                foreach (var field in setOfFields)
-                {
-                    var f = field;
+                var f = field;
 
-                    if (IndexPersistence.ContainsField(f) == false &&
-                        IndexPersistence.ContainsField("_") == false)
-                        // the catch all field name means that we have dynamic fields names
-                        throw new ArgumentException("The field '" + f +
-                                                    "' is not indexed, cannot query on fields that are not indexed");
-                }
+                if (IndexPersistence.ContainsField(f) == false &&
+                    IndexPersistence.ContainsField("_") == false)
+                    // the catch all field name means that we have dynamic fields names
+                    throw new ArgumentException($"The field '{f}' is not indexed, cannot query on fields that are not indexed");
             }
-            if (sortedFields != null)
+
+            if (query.Metadata.OrderBy != null)
             {
-                foreach (var sortedField in sortedFields)
+                foreach (var sortedField in query.Metadata.OrderBy)
                 {
-                    var f = sortedField.Field;
+                    var f = sortedField.Name;
                     if (f == Constants.Documents.Indexing.Fields.IndexFieldScoreName)
                         continue;
 
                     if (f.StartsWith(Constants.Documents.Indexing.Fields.RandomFieldName) ||
                         f.StartsWith(Constants.Documents.Indexing.Fields.CustomSortFieldName))
                         continue;
-
-                    if (f.StartsWith(Constants.Documents.Indexing.Fields.AlphaNumericFieldName))
-                    {
-                        f = SortFieldHelper.ExtractName(f);
-                        if (string.IsNullOrEmpty(f))
-                            throw new ArgumentException("Alpha numeric sorting requires a field name");
-                    }
 
                     if (IndexPersistence.ContainsField(f) == false &&
                         f.StartsWith(Constants.Documents.Indexing.Fields.DistanceFieldName) == false &&
@@ -2146,7 +2117,7 @@ namespace Raven.Server.Documents.Indexes
             return new QueryDoneRunning(this, executingQueryInfo);
         }
 
-        private static bool WillResultBeAcceptable(bool isStale, IndexQueryBase query, AsyncWaitForIndexing wait)
+        private static bool WillResultBeAcceptable(bool isStale, IndexQueryBase<BlittableJsonReaderObject> query, AsyncWaitForIndexing wait)
         {
             if (isStale == false)
                 return true;
@@ -2487,7 +2458,7 @@ namespace Raven.Server.Documents.Indexes
             {
                 return _environment.GenerateDetailedReport(tx.InnerTransaction, calculateExactSizes);
             }
-        }       
+        }
 
         private struct QueryDoneRunning : IDisposable
         {

@@ -14,7 +14,7 @@ using Raven.Server.Documents.Indexes.Debugging;
 using Raven.Server.Documents.Queries;
 using Raven.Server.Documents.Queries.Dynamic;
 using Raven.Server.Documents.Queries.MoreLikeThis;
-using Raven.Server.Documents.Queries.Suggestions;
+using Raven.Server.Documents.Queries.Suggestion;
 using Raven.Server.Utils;
 using Sparrow;
 using Sparrow.Json;
@@ -498,61 +498,12 @@ namespace Raven.Server.Json
                 writer.WriteNull();
             writer.WriteComma();
 
-            writer.WritePropertyName(nameof(query.DynamicMapReduceFields));
-            writer.WriteStartArray();
             var isFirstInternal = true;
-            foreach (var field in query.DynamicMapReduceFields)
-            {
-                if (isFirstInternal == false)
-                    writer.WriteComma();
-
-                isFirstInternal = false;
-
-                writer.WriteStartObject();
-
-                writer.WritePropertyName(nameof(field.Name));
-                writer.WriteString(field.Name);
-                writer.WriteComma();
-
-                writer.WritePropertyName(nameof(field.IsGroupBy));
-                writer.WriteBool(field.IsGroupBy);
-                writer.WriteComma();
-
-                writer.WritePropertyName(nameof(field.OperationType));
-                writer.WriteString(field.OperationType.ToString());
-                writer.WriteComma();
-
-                writer.WriteEndObject();
-            }
-            writer.WriteEndArray();
-            writer.WriteComma();
-
-            writer.WritePropertyName(nameof(query.FieldsToFetch));
-            if (query.FieldsToFetch != null)
-            {
-                writer.WriteStartArray();
-
-                isFirstInternal = true;
-                foreach (var field in query.FieldsToFetch)
-                {
-                    if (isFirstInternal == false) writer.WriteComma();
-
-                    isFirstInternal = false;
-
-                    writer.WriteString(field);
-                }
-
-                writer.WriteEndArray();
-            }
-            else
-                writer.WriteNull();
-            writer.WriteComma();
 
             writer.WritePropertyName(nameof(query.HighlightedFields));
             writer.WriteStartArray();
             if (query.HighlightedFields != null)
             {
-                isFirstInternal = true;
                 foreach (var field in query.HighlightedFields)
                 {
                     if (isFirstInternal == false)
@@ -614,34 +565,6 @@ namespace Raven.Server.Json
                     isFirstInternal = false;
 
                     writer.WriteString(tag);
-                }
-            }
-            writer.WriteEndArray();
-            writer.WriteComma();
-
-            writer.WritePropertyName(nameof(query.SortedFields));
-            writer.WriteStartArray();
-            if (query.SortedFields != null)
-            {
-                isFirstInternal = true;
-                foreach (var field in query.SortedFields)
-                {
-                    if (isFirstInternal == false)
-                        writer.WriteComma();
-
-                    isFirstInternal = false;
-
-                    writer.WriteStartObject();
-
-                    writer.WritePropertyName(nameof(field.Field));
-                    writer.WriteString(field.Field);
-                    writer.WriteComma();
-
-                    writer.WritePropertyName(nameof(field.Descending));
-                    writer.WriteBool(field.Descending);
-                    writer.WriteComma();
-
-                    writer.WriteEndObject();
                 }
             }
             writer.WriteEndArray();

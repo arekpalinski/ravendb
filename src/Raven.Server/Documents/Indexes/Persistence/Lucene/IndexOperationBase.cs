@@ -11,6 +11,7 @@ using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Queries;
 using Raven.Server.Documents.Indexes.Persistence.Lucene.Analyzers;
 using Raven.Server.Documents.Queries;
+using Sparrow.Json;
 using Sparrow.Logging;
 
 namespace Raven.Server.Documents.Indexes.Persistence.Lucene
@@ -28,7 +29,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             _indexName = indexName;
             _logger = logger;
         }
-        
+
         protected static RavenPerFieldAnalyzerWrapper CreateAnalyzer(Func<Analyzer> createDefaultAnalyzer, Dictionary<string, IndexField> fields, bool forQuerying = false)
         {
             if (fields.ContainsKey(Constants.Documents.Indexing.Fields.AllFields))
@@ -94,9 +95,14 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
 
         protected Query GetLuceneQuery(string q, QueryOperator defaultOperator, string defaultField, Analyzer analyzer)
         {
+            throw new NotSupportedException("TODO arek - remove");
+        }
+
+        protected Query GetLuceneQuery(QueryMetadata metadata, BlittableJsonReaderObject parameters, Analyzer analyzer)
+        {
             Query documentQuery;
 
-            if (string.IsNullOrEmpty(q))
+            if (string.IsNullOrEmpty(metadata.Query.QueryText))
             {
                 if (_logger.IsInfoEnabled)
                     _logger.Info($"Issuing query on index {_indexName} for all documents");
@@ -106,7 +112,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             else
             {
                 if (_logger.IsInfoEnabled)
-                    _logger.Info($"Issuing query on index {_indexName} for: {q}");
+                    _logger.Info($"Issuing query on index {_indexName} for: {metadata.Query}");
 
                 // RavenPerFieldAnalyzerWrapper searchAnalyzer = null;
                 try
@@ -123,7 +129,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
                     //    return parent.CreateAnalyzer(newAnalyzer, toDispose, true);
                     //});
 
-                    documentQuery = QueryBuilder.BuildQuery(q, defaultOperator, defaultField, analyzer);
+                    documentQuery = QueryBuilder.BuildQuery(metadata, parameters, analyzer);
                 }
                 finally
                 {

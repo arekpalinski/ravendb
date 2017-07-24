@@ -507,7 +507,7 @@ namespace FastTests.Client.Indexing
 
                 using (var commands = store.Commands())
                 {
-                    var command = new ExplainQueryCommand(store.Conventions, commands.Context, "dynamic/Users", new IndexQuery());
+                    var command = new ExplainQueryCommand(store.Conventions, commands.Context, new IndexQuery { Query = "FROM Users" });
 
                     await commands.RequestExecutor.ExecuteAsync(command, commands.Context);
 
@@ -563,7 +563,7 @@ namespace FastTests.Client.Indexing
 
                     var list = session.Advanced.MoreLikeThis<Post>(new MoreLikeThisQuery()
                     {
-                        IndexName = index.Name,
+                        Query = $"FROM INDEX '{index.Name}'",
                         DocumentId = "posts/1",
                         MinimumDocumentFrequency = 1,
                         MinimumTermFrequency = 0

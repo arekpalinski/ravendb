@@ -55,9 +55,9 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene.Documents
 
         internal const string ConvertToJsonSuffix = "_ConvertToJson";
 
-        private const string TrueString = "true";
+        internal const string TrueString = "true";
 
-        private const string FalseString = "false";       
+        internal const string FalseString = "false";
 
         private readonly Field _reduceValueField = new Field(Constants.Documents.Indexing.Fields.ReduceValueFieldName, new byte[0], 0, 0, Field.Store.YES);
 
@@ -103,7 +103,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene.Documents
         {
             Document.GetFields().Clear();
 
-            int numberOfFields = GetFields( new DefaultDocumentLuceneWrapper (Document), key, document, indexContext);
+            int numberOfFields = GetFields(new DefaultDocumentLuceneWrapper(Document), key, document, indexContext);
 
             shouldSkip = numberOfFields <= 1; // there is always a key field, but we want to filter-out empty documents
 
@@ -191,7 +191,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene.Documents
                     {
                         instance.Add(numericField);
                         newFields++;
-                    }                        
+                    }
                 }
 
                 return newFields;
@@ -275,7 +275,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene.Documents
                     instance.Add(numericField);
                     newFields++;
                 }
-                
+
                 return newFields;
             }
 
@@ -344,7 +344,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene.Documents
                 {
                     instance.Add(complexObjectField);
                     newFields++;
-                }                    
+                }
 
                 return newFields;
             }
@@ -365,7 +365,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene.Documents
                 {
                     instance.Add(jsonField);
                     newFields++;
-                }                    
+                }
 
                 return newFields;
             }
@@ -406,7 +406,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene.Documents
             {
                 instance.Add(numericField);
                 newFields++;
-            }                
+            }
 
             return newFields;
         }
@@ -504,14 +504,14 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene.Documents
                         reader = blittableReader.GetTextReaderFor(blittableValue);
                     }
 
-                    field = new Field(CreateFieldName(name), reader, termVector);
+                    field = new Field(name, reader, termVector);
                 }
                 else
                 {
                     if (value == null && lazyValue == null)
                         blittableReader = new BlittableObjectReader();
 
-                    field = new Field(CreateFieldName(name),
+                    field = new Field(name,
                         value ?? LazyStringReader.GetStringFor(lazyValue) ?? blittableReader.GetStringFor(blittableValue),
                         store, index, termVector);
                 }
@@ -585,7 +585,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene.Documents
                 _numericFieldsCache[cacheKey] = new CachedFieldItem<NumericField>
                 {
                     Key = new FieldCacheKey(name, index, store, termVector, _multipleItemsSameFieldCount.ToArray()),
-                    Field = numericField = new NumericField(CreateFieldName(name), store, true)
+                    Field = numericField = new NumericField(name, store, true)
                 };
             }
             else
@@ -594,13 +594,6 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene.Documents
             }
 
             return numericField;
-        }
-
-        private string CreateFieldName(string name)
-        {
-            var result = IndexField.ReplaceInvalidCharactersInFieldName(name);
-
-            return result;
         }
 
         private static bool CanCreateFieldsForNestedArray(object value, Field.Index index)

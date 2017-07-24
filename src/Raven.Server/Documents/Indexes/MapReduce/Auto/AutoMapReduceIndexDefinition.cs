@@ -15,24 +15,20 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Auto
         public AutoMapReduceIndexDefinition(string collection, IndexField[] mapFields, IndexField[] groupByFields)
             : base(IndexNameFinder.FindMapReduceIndexName(collection, mapFields, groupByFields), new HashSet<string> { collection }, IndexLockMode.Unlock, IndexPriority.Normal, mapFields)
         {
-            foreach (var field in mapFields)
-            {
-                if (field.Storage != FieldStorage.Yes)
-                    throw new ArgumentException($"Map-reduce field has to be stored. Field name: {field.Name}");
-            }
-
-            foreach (var field in groupByFields)
-            {
-                if (field.Storage != FieldStorage.Yes)
-                    throw new ArgumentException($"GroupBy field has to be stored. Field name: {field.Name}");
-            }
-
             GroupByFields = groupByFields.ToDictionary(x => x.Name, x => x, StringComparer.OrdinalIgnoreCase); ;
         }
 
         public bool ContainsGroupByField(string field)
         {
             return GroupByFields.ContainsKey(field);
+        }
+
+        public override bool TryGetField(string field, out IndexField value)
+        {
+            if (base.TryGetField(field, out value))
+                return true;
+
+            return GroupByFields.TryGetValue(field, out value);
         }
 
         protected override void PersistFields(JsonOperationContext context, BlittableJsonTextWriter writer)
@@ -46,7 +42,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Auto
 
         protected internal override IndexDefinition GetOrCreateIndexDefinitionInternal()
         {
-            var map = $"{Collections.First()}:[{string.Join(";", MapFields.Select(x => $"<Name:{x.Value.Name},Sort:{x.Value.Sort},Operation:{x.Value.MapReduceOperation}>"))}]";
+            var map = $"{Collections.First()}:[{string.Join(";", MapFields.Select(x => $"<Name:{x.Value.Name},Sort:{x.Value.Sort},Operation:{x.Value.Aggregation}>"))}]";
             var reduce = $"{Collections.First()}:[{string.Join(";", GroupByFields.Select(x => $"<Name:{x.Value.Name},Sort:{x.Value.Sort}>"))}]";
 
             var indexDefinition = new IndexDefinition();
@@ -167,7 +163,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Auto
                 json.TryGet(nameof(IndexField.Sort), out sortOptionAsInt);
 
                 int mapReduceOperationAsInt;
-                json.TryGet(nameof(IndexField.MapReduceOperation), out mapReduceOperationAsInt);
+                json.TryGet(nameof(IndexField.Aggregation), out mapReduceOperationAsInt);
 
                 var field = new IndexField
                 {
@@ -175,7 +171,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Auto
                     Storage = FieldStorage.Yes,
                     Sort = (SortOptions?)sortOptionAsInt,
                     Indexing = FieldIndexing.Default,
-                    MapReduceOperation = (FieldMapReduceOperation)mapReduceOperationAsInt
+                    Aggregation = (AggregationOperation)mapReduceOperationAsInt
                 };
 
                 mapFields[i] = field;

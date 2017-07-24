@@ -5,14 +5,11 @@ using System.Globalization;
 using System.Linq;
 using Raven.Client;
 using Raven.Client.Documents.Indexes;
-using Raven.Client.Documents.Queries;
 using Raven.Client.Extensions;
 using Raven.Server.Documents.Indexes;
 using Raven.Server.Documents.Indexes.Auto;
 using Raven.Server.Documents.Indexes.MapReduce.Auto;
-using Raven.Server.Documents.Queries.Parse;
-using Raven.Server.Documents.Queries.Sorting;
-
+using Raven.Server.Documents.Queries.Parser;
 namespace Raven.Server.Documents.Queries.Dynamic
 {
     public class DynamicQueryMapping
@@ -56,15 +53,15 @@ namespace Raven.Server.Documents.Queries.Dynamic
                     new IndexField
                     {
                         Name = field.Name,
-                        Storage = FieldStorage.Yes,
-                        MapReduceOperation = field.MapReduceOperation,
+                        Storage = FieldStorage.No,
+                        Aggregation = field.AggregationOperation,
                         Sort = SortDescriptors.FirstOrDefault(x => field.Name.Equals(x.Name))?.FieldType,
                     }).ToArray(),
                     GroupByFields.Select(field =>
                     new IndexField
                     {
                         Name = field,
-                        Storage = FieldStorage.Yes,
+                        Storage = FieldStorage.No,
                         Sort = SortDescriptors.FirstOrDefault(x => field.Equals(x.Name))?.FieldType,
                     }).ToArray());
         }
@@ -80,7 +77,7 @@ namespace Raven.Server.Documents.Queries.Dynamic
             {
                 if (extendedMapFields.Any(x => x.Name.Equals(field.Name, StringComparison.OrdinalIgnoreCase)) == false)
                 {
-                    extendedMapFields.Add(new DynamicQueryMappingItem(field.Name, field.MapReduceOperation));
+                    extendedMapFields.Add(new DynamicQueryMappingItem(field.Name, field.Aggregation));
                 }
 
                 if (extendedSortDescriptors.Any(x => x.Name.Equals(field.Name, StringComparison.OrdinalIgnoreCase)) == false && field.Sort != null)
@@ -99,121 +96,170 @@ namespace Raven.Server.Documents.Queries.Dynamic
             SortDescriptors = extendedSortDescriptors.ToArray();
         }
 
-        public static DynamicQueryMapping Create(string entityName, IndexQueryServerSide query)
+        public static DynamicQueryMapping Create(IndexQueryServerSide query)
         {
             var result = new DynamicQueryMapping
             {
-                ForCollection = entityName,
+                ForCollection = query.Metadata.CollectionName
             };
 
-            IEnumerable<DynamicQueryMappingItem> dynamicMapFields;
-            string[] numericFields;
+            var mapFields = new Dictionary<string, DynamicQueryMappingItem>(StringComparer.OrdinalIgnoreCase);
+            var sorting = new Dictionary<string, DynamicSortInfo>(StringComparer.OrdinalIgnoreCase);
 
-            if (query.DynamicMapReduceFields == null)
+            foreach (var field in query.Metadata.WhereFields)
             {
-                // auto map query
+                var fieldName = field.Key;
 
-                var fields = SimpleQueryParser.GetFieldsForDynamicQuery(query); // TODO arek - not sure if we really need a Tuple<string, string> here
+                if (fieldName == Constants.Documents.Indexing.Fields.DocumentIdFieldName)
+                    continue;
 
-                if (query.SortedFields != null)
+                mapFields[fieldName] = new DynamicQueryMappingItem(fieldName, AggregationOperation.None);
+
+                switch (field.Value)
                 {
-                    foreach (var sortedField in query.SortedFields)
+                    case ValueTokenType.Double:
+                    case ValueTokenType.Long:
                     {
-                        var field = sortedField.Field;
-
-                        if (field == Constants.Documents.Indexing.Fields.IndexFieldScoreName)
+                        if (fieldName == Constants.Documents.Indexing.Fields.IndexFieldScoreName)
                             continue;
 
-                        if (field.StartsWith(Constants.Documents.Indexing.Fields.RandomFieldName) ||
-                            field.StartsWith(Constants.Documents.Indexing.Fields.CustomSortFieldName))
+                        if (InvariantCompare.IsPrefix(fieldName, Constants.Documents.Indexing.Fields.RandomFieldName, CompareOptions.None))
                             continue;
 
-                        if (InvariantCompare.IsPrefix(field, Constants.Documents.Indexing.Fields.AlphaNumericFieldName, CompareOptions.None))
+                        sorting[fieldName] = new DynamicSortInfo()
                         {
-                            field = SortFieldHelper.ExtractName(field);
+                            Name = fieldName,
+                            FieldType = SortOptions.Numeric
+                        };
+
+                        break;
+                    }
+                }
+            }
+
+            if (query.Metadata.OrderBy != null)
+            {
+                foreach (var field in query.Metadata.OrderBy)
+                {
+                    var fieldName = field.Name;
+
+                    if (fieldName == Constants.Documents.Indexing.Fields.IndexFieldScoreName)
+                        continue;
+
+                    if (fieldName.StartsWith(Constants.Documents.Indexing.Fields.RandomFieldName) ||
+                        fieldName.StartsWith(Constants.Documents.Indexing.Fields.CustomSortFieldName))
+                        continue;
+
+                    if (sorting.TryGetValue(fieldName, out var existingSort) == false)
+                    {
+                        sorting[field.Name] = new DynamicSortInfo()
+                        {
+                            FieldType = GetSortType(field.OrderingType),
+                            Name = fieldName
+                        };
+                    }
+                    else
+                    {
+                        // sorting was set based on the type of variable in WHERE
+
+                        if (field.OrderingType != OrderByFieldType.Implicit)
+                        {
+                            // but ORDER BY ... AS ... was set explicitly
+                            existingSort.FieldType = GetSortType(field.OrderingType);
                         }
+                    }
 
-                        field = FieldUtil.RemoveRangeSuffixIfNecessary(field);
+                    mapFields[field.Name] = new DynamicQueryMappingItem(fieldName, AggregationOperation.None);
+                }
+            }
 
-                        fields.Add(Tuple.Create(SimpleQueryParser.TranslateField(field), field));
+            if (query.Metadata.IsGroupBy)
+            {
+                result.IsMapReduce = true;
+
+                foreach (var field in query.Metadata.SelectFields)
+                {
+                    if (field.IsGroupByKey == false)
+                    {
+                        var fieldName = field.Name;
+
+                        if (mapFields.TryGetValue(fieldName, out var existingField) == false)
+                        {
+                            switch (field.AggregationOperation)
+                            {
+                                case AggregationOperation.None:
+                                    break;
+                                case AggregationOperation.Count:
+                                case AggregationOperation.Sum:
+                                    mapFields[fieldName] = new DynamicQueryMappingItem(fieldName, field.AggregationOperation);
+                                    if (sorting.TryGetValue(fieldName, out var _) == false)
+                                    {
+                                        sorting[fieldName] = new DynamicSortInfo()
+                                        {
+                                            FieldType = SortOptions.Numeric,
+                                            Name = fieldName
+                                        };
+                                    }
+                                    break;
+                                default:
+                                    ThrowUnknownAggregationOperation(field.AggregationOperation);
+                                    break;
+                            }
+                        }
+                        else if (field.AggregationOperation != AggregationOperation.None)
+                        {
+                            existingField.AggregationOperation = field.AggregationOperation;
+                        }
+                        else
+                        {
+                            Debug.Assert(query.Metadata.GroupBy.Contains(fieldName));
+                            // the field was specified in GROUP BY and WHERE
+                            // let's remove it since GROUP BY fields are passed separately
+
+                            mapFields.Remove(fieldName);
+                        }
+                    }
+                    else
+                    {
+                        foreach (var groupBy in field.GroupByKeys)
+                        {
+                            mapFields.Remove(groupBy);
+                        }
                     }
                 }
 
-                dynamicMapFields = fields.Select(x => new DynamicQueryMappingItem(FieldUtil.RemoveRangeSuffixIfNecessary(x.Item1), FieldMapReduceOperation.None));
-
-                numericFields = fields.Where(x => x.Item1.EndsWith(Constants.Documents.Indexing.Fields.RangeFieldSuffix)).Select(x => x.Item1).Distinct().ToArray();
-            }
-            else
-            {
-                // dynamic map-reduce query
-
-                result.IsMapReduce = true;
-
-                dynamicMapFields = query.DynamicMapReduceFields.Where(x => x.IsGroupBy == false).Select(x => new DynamicQueryMappingItem(x.Name, x.OperationType));
-
-                result.GroupByFields = query.DynamicMapReduceFields.Where(x => x.IsGroupBy).Select(x => x.Name).ToArray();
-
-                numericFields = null;
+                result.GroupByFields = query.Metadata.GroupBy;
             }
 
-            result.MapFields = dynamicMapFields
-                .Where(x => x.Name != Constants.Documents.Indexing.Fields.DocumentIdFieldName)
-                .OrderByDescending(x => x.Name.Length)
-                .ToArray();
+            result.MapFields = mapFields.Values.ToArray();
 
-            result.SortDescriptors = GetSortInfo(query.SortedFields, numericFields);
+            result.SortDescriptors = sorting.Values.ToArray();
 
             result.HighlightedFields = query.HighlightedFields.EmptyIfNull().Select(x => x.Field).ToArray();
 
             return result;
         }
 
-        private static DynamicSortInfo[] GetSortInfo(SortedField[] sortedFields, string[] numericFields)
+        private static SortOptions GetSortType(OrderByFieldType ordering)
         {
-            var sortInfo = new List<DynamicSortInfo>();
-
-            if (numericFields != null && numericFields.Length > 0)
+            switch (ordering)
             {
-                foreach (var key in numericFields)
-                {
-                    if (key == Constants.Documents.Indexing.Fields.IndexFieldScoreName)
-                        continue;
-
-                    if (InvariantCompare.IsPrefix(key, Constants.Documents.Indexing.Fields.RandomFieldName, CompareOptions.None))
-                        continue;
-
-                    sortInfo.Add(new DynamicSortInfo
-                    {
-                        Name = key.Substring(0, key.Length - Constants.Documents.Indexing.Fields.RangeFieldSuffixLong.Length),
-                        FieldType = SortOptions.Numeric
-                    });
-                }
+                case OrderByFieldType.Implicit:
+                case OrderByFieldType.String:
+                    return SortOptions.String;
+                case OrderByFieldType.Long:
+                case OrderByFieldType.Double:
+                    return SortOptions.Numeric;
+                case OrderByFieldType.AlphaNumeric:
+                    return SortOptions.AlphaNumeric;
+                default:
+                    throw new ArgumentException(ordering.ToString());
             }
+        }
 
-            if (sortedFields != null && sortedFields.Length > 0)
-            {
-                foreach (var sortOptions in sortedFields)
-                {
-                    var key = sortOptions.Field;
-
-                    if (key == Constants.Documents.Indexing.Fields.IndexFieldScoreName)
-                        continue;
-
-                    if (InvariantCompare.IsPrefix(key, Constants.Documents.Indexing.Fields.RandomFieldName, CompareOptions.None))
-                        continue;
-
-                    string name;
-                    var rangeType = FieldUtil.GetRangeTypeFromFieldName(key, out name);
-
-                    sortInfo.Add(new DynamicSortInfo
-                    {
-                        Name = name,
-                        FieldType = rangeType == RangeType.None ? SortOptions.String : SortOptions.Numeric
-                    });
-                }
-            }
-
-            return sortInfo.ToArray();
+        private static void ThrowUnknownAggregationOperation(AggregationOperation operation)
+        {
+            throw new InvalidOperationException($"Unknown aggregation operation defined: {operation}");
         }
     }
 }

@@ -44,7 +44,7 @@ namespace FastTests.Server.Documents.Indexing.Auto
 
                 Assert.Throws<ObjectDisposedException>(() => index.Start());
 
-                var ex = await Record.ExceptionAsync(() => index.Query(new IndexQueryServerSide(), null, OperationCancelToken.None));
+                var ex = await Record.ExceptionAsync(() => index.Query(new IndexQueryServerSide($"FROM INDEX'{index.Name}'"), null, OperationCancelToken.None));
                 Assert.IsType<ObjectDisposedException>(ex);
 
                 index = AutoMapIndex.CreateNew(1, new AutoMapIndexDefinition("Users", new[] { new IndexField
@@ -967,11 +967,11 @@ namespace FastTests.Server.Documents.Indexing.Auto
                 var index2 = database.IndexStore.GetIndex(index2Id);
                 using (var context = DocumentsOperationContext.ShortTermSingleUse(database))
                 {
-                    await index1.Query(new IndexQueryServerSide(), context, OperationCancelToken.None); // last querying time
+                    await index1.Query(new IndexQueryServerSide("FROM Users"), context, OperationCancelToken.None); // last querying time
                 }
                 using (var context = DocumentsOperationContext.ShortTermSingleUse(database))
                 {
-                    await index2.Query(new IndexQueryServerSide(), context, OperationCancelToken.None); // last querying time
+                    await index2.Query(new IndexQueryServerSide("FROM Users"), context, OperationCancelToken.None); // last querying time
                 }
 
                 Assert.Equal(IndexPriority.Normal, index1.Definition.Priority);
@@ -989,7 +989,7 @@ namespace FastTests.Server.Documents.Indexing.Auto
 
                 using (var context = DocumentsOperationContext.ShortTermSingleUse(database))
                 {
-                    await index1.Query(new IndexQueryServerSide(), context, OperationCancelToken.None); // last querying time
+                    await index1.Query(new IndexQueryServerSide("FROM Users"), context, OperationCancelToken.None); // last querying time
                 }
 
                 database.IndexStore.RunIdleOperations(); // this will mark index2 as idle, because the difference between two indexes and index last querying time is more than TimeToWaitBeforeMarkingAutoIndexAsIdle

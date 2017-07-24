@@ -146,8 +146,8 @@ namespace Raven.Server.Documents.Indexes
                 writer.WriteInteger((int)(field.Sort ?? SortOptions.None));
                 writer.WriteComma();
 
-                writer.WritePropertyName((nameof(field.MapReduceOperation)));
-                writer.WriteInteger((int)(field.MapReduceOperation));
+                writer.WritePropertyName((nameof(field.Aggregation)));
+                writer.WriteInteger((int)(field.Aggregation));
 
                 writer.WriteEndObject();
 
@@ -191,7 +191,7 @@ namespace Raven.Server.Documents.Indexes
             return MapFields[field];
         }
 
-        public bool TryGetField(string field, out IndexField value)
+        public virtual bool TryGetField(string field, out IndexField value)
         {
             field = FieldUtil.RemoveRangeSuffixIfNecessary(field);
 

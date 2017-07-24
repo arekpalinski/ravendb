@@ -5,13 +5,13 @@ using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Text;
 using Raven.Client.Documents.Commands;
 using Raven.Client.Documents.Indexes.Spatial;
 using Raven.Client.Documents.Queries;
 using Raven.Client.Documents.Queries.Facets;
 using Raven.Client.Documents.Queries.Spatial;
 using Raven.Client.Documents.Session.Operations.Lazy;
+using Raven.Client.Documents.Session.Tokens;
 using Raven.Client.Documents.Transformers;
 using Raven.Client.Extensions;
 using Raven.Client.Util;
@@ -26,16 +26,8 @@ namespace Raven.Client.Documents.Session
         /// <summary>
         /// Initializes a new instance of the <see cref="DocumentQuery{T}"/> class.
         /// </summary>
-        public DocumentQuery(InMemoryDocumentSessionOperations session, string indexName, string[] fieldsToFetch, string[] projectionFields, bool isMapReduce)
-            : base(session, indexName, fieldsToFetch, projectionFields, isMapReduce)
-        {
-        }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="DocumentQuery{T}"/> class.
-        /// </summary>
-        public DocumentQuery(DocumentQuery<T> other)
-            : base(other)
+        public DocumentQuery(InMemoryDocumentSessionOperations session, string indexName, string collectionName, bool isGroupBy)
+            : base(session, indexName, collectionName, isGroupBy)
         {
         }
 
@@ -67,7 +59,7 @@ namespace Raven.Client.Documents.Session
         public virtual IDocumentQuery<TTransformerResult> SetTransformer<TTransformer, TTransformerResult>()
             where TTransformer : AbstractTransformerCreationTask, new()
         {
-            return CreateDocumentQueryInternal<TTransformerResult>(new TTransformer().TransformerName, FieldsToFetch, ProjectionFields);
+            return CreateDocumentQueryInternal<TTransformerResult>(new TTransformer().TransformerName);
         }
 
         IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.SetAllowMultipleIndexEntriesForSameDocumentToResultTransformer(bool val)
@@ -115,7 +107,7 @@ namespace Raven.Client.Documents.Session
         /// <typeparam name="TProjection">The type of the projection.</typeparam>
         public virtual IDocumentQuery<TProjection> SelectFields<TProjection>(string[] fields, string[] projections)
         {
-            return CreateDocumentQueryInternal<TProjection>(Transformer, fields, projections);
+            return CreateDocumentQueryInternal<TProjection>(Transformer, fields.Length > 0 ? FieldsToFetchToken.Create(fields, projections) : null);
         }
 
         /// <summary>
@@ -134,9 +126,10 @@ namespace Raven.Client.Documents.Session
         /// </summary>
         /// <param name="fieldName">Name of the field.</param>
         /// <param name="descending">if set to <c>true</c> [descending].</param>
-        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.AddOrder(string fieldName, bool descending)
+        /// <param name="ordering">Ordering type.</param>
+        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.AddOrder(string fieldName, bool descending, OrderingType ordering)
         {
-            AddOrder(fieldName, descending);
+            AddOrder(fieldName, descending, ordering);
             return this;
         }
 
@@ -145,9 +138,10 @@ namespace Raven.Client.Documents.Session
         /// </summary>
         /// <param name = "propertySelector">Property selector for the field.</param>
         /// <param name = "descending">if set to <c>true</c> [descending].</param>
-        public IDocumentQuery<T> AddOrder<TValue>(Expression<Func<T, TValue>> propertySelector, bool descending)
+        /// <param name="ordering">Ordering type.</param>
+        public IDocumentQuery<T> AddOrder<TValue>(Expression<Func<T, TValue>> propertySelector, bool descending, OrderingType ordering)
         {
-            AddOrder(GetMemberQueryPath(propertySelector.Body), descending);
+            AddOrder(GetMemberQueryPath(propertySelector.Body), descending, ordering);
             return this;
         }
 
@@ -246,12 +240,6 @@ namespace Raven.Client.Documents.Session
             return this;
         }
 
-        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.UsingDefaultField(string field)
-        {
-            UsingDefaultField(field);
-            return this;
-        }
-
         IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.UsingDefaultOperator(QueryOperator queryOperator)
         {
             UsingDefaultOperator(queryOperator);
@@ -343,10 +331,9 @@ namespace Raven.Client.Documents.Session
         /// <summary>
         /// Filter the results from the index using the specified where clause.
         /// </summary>
-        /// <param name="whereClause">The where clause.</param>
-        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.Where(string whereClause)
+        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.WhereLucene(string fieldName, string whereClause)
         {
-            Where(whereClause);
+            Where(fieldName, whereClause);
             return this;
         }
 
@@ -494,30 +481,6 @@ namespace Raven.Client.Documents.Session
         }
 
         /// <summary>
-        /// Matches fields where the value is between the specified start and end, inclusive
-        /// </summary>
-        /// <param name="fieldName">Name of the field.</param>
-        /// <param name="start">The start.</param>
-        /// <param name="end">The end.</param>
-        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.WhereBetweenOrEqual(string fieldName, object start, object end)
-        {
-            WhereBetweenOrEqual(fieldName, start, end);
-            return this;
-        }
-
-        /// <summary>
-        ///   Matches fields where the value is between the specified start and end, inclusive
-        /// </summary>
-        /// <param name = "propertySelector">Property selector for the field.</param>
-        /// <param name = "start">The start.</param>
-        /// <param name = "end">The end.</param>
-        public IDocumentQuery<T> WhereBetweenOrEqual<TValue>(Expression<Func<T, TValue>> propertySelector, TValue start, TValue end)
-        {
-            WhereBetweenOrEqual(GetMemberQueryPath(propertySelector.Body), start, end);
-            return this;
-        }
-
-        /// <summary>
         /// Matches fields where the value is greater than the specified value
         /// </summary>
         /// <param name="fieldName">Name of the field.</param>
@@ -605,6 +568,23 @@ namespace Raven.Client.Documents.Session
             return this;
         }
 
+
+        /// <summary>
+        ///     Check if the given field exists
+        /// </summary>
+        /// <param name = "propertySelector">Property selector for the field.</param>
+        public IDocumentQuery<T> WhereExists<TValue>(Expression<Func<T, TValue>> propertySelector)
+        {
+            WhereExists(GetMemberQueryPath(propertySelector.Body));
+            return this;
+        }
+
+        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.WhereExists(string fieldName)
+        {
+            WhereExists(fieldName);
+            return this;
+        }
+
         /// <summary>
         /// Add an AND to the query
         /// </summary>
@@ -663,19 +643,6 @@ namespace Raven.Client.Documents.Session
         IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.Proximity(int proximity)
         {
             Proximity(proximity);
-            return this;
-        }
-
-        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.AlphaNumericOrdering(string fieldName, bool descending)
-        {
-            AlphaNumericOrdering(fieldName, descending);
-            return this;
-        }
-
-        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.AlphaNumericOrdering<TResult>(Expression<Func<TResult, object>> propertySelector, bool descending)
-        {
-            var fieldName = GetMemberQueryPath(propertySelector);
-            AlphaNumericOrdering(fieldName, descending);
             return this;
         }
 
@@ -756,9 +723,15 @@ namespace Raven.Client.Documents.Session
             return this;
         }
 
+        IGroupByDocumentQuery<T> IDocumentQuery<T>.GroupBy(string fieldName, params string[] fieldNames)
+        {
+            GroupBy(fieldName, fieldNames);
+            return new GroupByDocumentQuery<T>(this);
+        }
+
         public IDocumentQuery<TResult> OfType<TResult>()
         {
-            return CreateDocumentQueryInternal<TResult>(Transformer, FieldsToFetch, ProjectionFields);
+            return CreateDocumentQueryInternal<TResult>(Transformer);
         }
 
         /// <summary>
@@ -767,9 +740,9 @@ namespace Raven.Client.Documents.Session
         /// You can prefix a field name with '-' to indicate sorting by descending or '+' to sort by ascending
         /// </summary>
         /// <param name="fields">The fields.</param>
-        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.OrderBy(params string[] fields)
+        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.OrderBy(string field, OrderingType ordering)
         {
-            OrderBy(fields);
+            OrderBy(field, ordering);
             return this;
         }
 
@@ -781,7 +754,10 @@ namespace Raven.Client.Documents.Session
         /// <param name = "propertySelectors">Property selectors for the fields.</param>
         public IDocumentQuery<T> OrderBy<TValue>(params Expression<Func<T, TValue>>[] propertySelectors)
         {
-            OrderBy(propertySelectors.Select(GetMemberQueryPathForOrderBy).ToArray());
+            foreach (var item in propertySelectors)
+            {
+                OrderBy(GetMemberQueryPathForOrderBy(item), OrderingUtil.GetOrderingOfType(item.Type));
+            }
             return this;
         }
 
@@ -791,9 +767,9 @@ namespace Raven.Client.Documents.Session
         /// You can prefix a field name with '-' to indicate sorting by descending or '+' to sort by ascending
         /// </summary>
         /// <param name="fields">The fields.</param>
-        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.OrderByDescending(params string[] fields)
+        IDocumentQuery<T> IDocumentQueryBase<T, IDocumentQuery<T>>.OrderByDescending(string field, OrderingType ordering)
         {
-            OrderByDescending(fields);
+            OrderByDescending(field, ordering);
             return this;
         }
 
@@ -805,7 +781,11 @@ namespace Raven.Client.Documents.Session
         /// <param name = "propertySelectors">Property selectors for the fields.</param>
         public IDocumentQuery<T> OrderByDescending<TValue>(params Expression<Func<T, TValue>>[] propertySelectors)
         {
-            OrderByDescending(propertySelectors.Select(GetMemberQueryPathForOrderBy).ToArray());
+            foreach (var item in propertySelectors)
+            {
+                OrderByDescending(GetMemberQueryPathForOrderBy(item), OrderingUtil.GetOrderingOfType(item.Type));
+            }
+
             return this;
         }
 
@@ -1027,9 +1007,9 @@ namespace Raven.Client.Documents.Session
         public FacetedQueryResult GetFacets(string facetSetupDoc, int facetStart, int? facetPageSize)
         {
             var q = GetIndexQuery();
-            var query = FacetQuery.Create(IndexName, q, facetSetupDoc, null, facetStart, facetPageSize, Conventions);
+            var query = FacetQuery.Create(q, facetSetupDoc, null, facetStart, facetPageSize, Conventions);
 
-            var command = new GetFacetsCommand(TheSession.Context, query);
+            var command = new GetFacetsCommand(Conventions, TheSession.Context, query);
             TheSession.RequestExecutor.Execute(command, TheSession.Context);
 
             return command.Result;
@@ -1038,9 +1018,9 @@ namespace Raven.Client.Documents.Session
         public FacetedQueryResult GetFacets(List<Facet> facets, int facetStart, int? facetPageSize)
         {
             var q = GetIndexQuery();
-            var query = FacetQuery.Create(IndexName, q, null, facets, facetStart, facetPageSize, Conventions);
+            var query = FacetQuery.Create(q, null, facets, facetStart, facetPageSize, Conventions);
 
-            var command = new GetFacetsCommand(TheSession.Context, query);
+            var command = new GetFacetsCommand(Conventions, TheSession.Context, query);
             TheSession.RequestExecutor.Execute(command, TheSession.Context);
 
             return command.Result;
@@ -1049,18 +1029,18 @@ namespace Raven.Client.Documents.Session
         public Lazy<FacetedQueryResult> GetFacetsLazy(string facetSetupDoc, int facetStart, int? facetPageSize)
         {
             var q = GetIndexQuery();
-            var query = FacetQuery.Create(IndexName, q, facetSetupDoc, null, facetStart, facetPageSize, Conventions);
+            var query = FacetQuery.Create(q, facetSetupDoc, null, facetStart, facetPageSize, Conventions);
 
-            var lazyFacetsOperation = new LazyFacetsOperation(query);
+            var lazyFacetsOperation = new LazyFacetsOperation(Conventions, query);
             return ((DocumentSession)TheSession).AddLazyOperation(lazyFacetsOperation, (Action<FacetedQueryResult>)null);
         }
 
         public Lazy<FacetedQueryResult> GetFacetsLazy(List<Facet> facets, int facetStart, int? facetPageSize)
         {
             var q = GetIndexQuery();
-            var query = FacetQuery.Create(IndexName, q, null, facets, facetStart, facetPageSize, Conventions);
+            var query = FacetQuery.Create(q, null, facets, facetStart, facetPageSize, Conventions);
 
-            var lazyFacetsOperation = new LazyFacetsOperation(query);
+            var lazyFacetsOperation = new LazyFacetsOperation(Conventions, query);
             return ((DocumentSession)TheSession).AddLazyOperation(lazyFacetsOperation, (Action<FacetedQueryResult>)null);
         }
 
@@ -1096,7 +1076,7 @@ namespace Raven.Client.Documents.Session
             }
 
 
-            var lazyQueryOperation = new LazyQueryOperation<T>(QueryOperation, AfterQueryExecutedCallback);
+            var lazyQueryOperation = new LazyQueryOperation<T>(TheSession.Conventions, QueryOperation, AfterQueryExecutedCallback);
 
             return ((DocumentSession)TheSession).AddLazyCountOperation(lazyQueryOperation);
         }
@@ -1112,7 +1092,7 @@ namespace Raven.Client.Documents.Session
                 QueryOperation = InitializeQueryOperation();
             }
 
-            var lazyQueryOperation = new LazyQueryOperation<T>(QueryOperation, AfterQueryExecutedCallback);
+            var lazyQueryOperation = new LazyQueryOperation<T>(TheSession.Conventions, QueryOperation, AfterQueryExecutedCallback);
             return ((DocumentSession)TheSession).AddLazyOperation(lazyQueryOperation, onEval);
         }
 
@@ -1141,26 +1121,30 @@ namespace Raven.Client.Documents.Session
             InvokeAfterQueryExecuted(QueryOperation.CurrentQueryResults);
         }
 
-        private DocumentQuery<TResult> CreateDocumentQueryInternal<TResult>(string transformer, string[] fieldsToFetch, string[] projectionFields)
+        private DocumentQuery<TResult> CreateDocumentQueryInternal<TResult>(string transformer, FieldsToFetchToken newFieldsToFetch = null)
         {
-            var documentQuery = new DocumentQuery<TResult>(
+            if (newFieldsToFetch != null)
+                UpdateFieldsToFetchToken(newFieldsToFetch);
+
+            var query = new DocumentQuery<TResult>(
                 TheSession,
                 IndexName,
-                fieldsToFetch,
-                projectionFields,
-                IsMapReduce)
+                CollectionName,
+                IsGroupBy)
             {
                 PageSize = PageSize,
-                QueryText = new StringBuilder(QueryText.ToString()),
+                SelectTokens = SelectTokens,
+                FieldsToFetchToken = FieldsToFetchToken,
+                WhereTokens = WhereTokens,
+                OrderByTokens = OrderByTokens,
+                GroupByTokens = GroupByTokens,
+                QueryParameters = QueryParameters,
                 Start = Start,
                 Timeout = Timeout,
                 CutoffEtag = CutoffEtag,
                 QueryStats = QueryStats,
                 TheWaitForNonStaleResults = TheWaitForNonStaleResults,
                 TheWaitForNonStaleResultsAsOfNow = TheWaitForNonStaleResultsAsOfNow,
-                OrderByFields = OrderByFields,
-                DynamicMapReduceFields = DynamicMapReduceFields,
-                _isDistinct = _isDistinct,
                 AllowMultipleIndexEntriesForSameDocumentToResultTransformer = AllowMultipleIndexEntriesForSameDocumentToResultTransformer,
                 Negate = Negate,
                 TransformResultsFunc = TransformResultsFunc,
@@ -1172,7 +1156,6 @@ namespace Raven.Client.Documents.Session
                 SpatialUnits = SpatialUnits,
                 DistanceErrorPct = DistanceErrorPct,
                 RootTypes = { typeof(T) },
-                DefaultField = DefaultField,
                 BeforeQueryExecutionAction = BeforeQueryExecutionAction,
                 HighlightedFields = new List<HighlightedField>(HighlightedFields),
                 HighlighterPreTags = HighlighterPreTags,
@@ -1186,8 +1169,9 @@ namespace Raven.Client.Documents.Session
                 DefaultOperator = DefaultOperator,
                 ShouldExplainScores = ShouldExplainScores
             };
-            documentQuery.AfterQueryExecuted(AfterQueryExecutedCallback);
-            return documentQuery;
+
+            query.AfterQueryExecuted(AfterQueryExecutedCallback);
+            return query;
         }
     }
 }
