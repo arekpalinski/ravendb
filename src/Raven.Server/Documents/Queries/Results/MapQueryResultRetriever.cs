@@ -12,7 +12,7 @@ namespace Raven.Server.Documents.Queries.Results
         private readonly DocumentsOperationContext _context;
 
         public MapQueryResultRetriever(DocumentsStorage documentsStorage, DocumentsOperationContext context, FieldsToFetch fieldsToFetch)
-            : base(fieldsToFetch, context)
+            : base(fieldsToFetch, context, false)
         {
             _documentsStorage = documentsStorage;
             _context = context;
@@ -24,7 +24,7 @@ namespace Raven.Server.Documents.Queries.Results
             if (TryGetKey(input, state, out id) == false)
                 throw new InvalidOperationException($"Could not extract '{Constants.Documents.Indexing.Fields.DocumentIdFieldName}' from index.");
 
-            if (_fieldsToFetch.IsProjection || _fieldsToFetch.IsTransformation)
+            if (FieldsToFetch.IsProjection || FieldsToFetch.IsTransformation)
                 return GetProjection(input, score, id, state);
 
             var doc = DirectGet(null, id, state);
