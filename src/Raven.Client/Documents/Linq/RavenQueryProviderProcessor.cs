@@ -459,8 +459,6 @@ namespace Raven.Client.Documents.Linq
             var parameterExpression = GetParameterExpressionIncludingConvertions(expression);
             if (parameterExpression != null)
             {
-                if (_currentPath.EndsWith("[]."))
-                    _currentPath = _currentPath.Substring(0, _currentPath.Length - 3);
                 return new ExpressionInfo(_currentPath, parameterExpression.Type, false);
             }
 
@@ -481,6 +479,9 @@ namespace Raven.Client.Documents.Linq
 
             if (expression.NodeType == ExpressionType.ArrayLength)
                 result.Path += ".Length";
+
+            if (string.IsNullOrEmpty(CurrentPath) == false)
+                result.Path = "." + result.Path;
 
             var propertyName = IndexName == null && _collectionName != null
                                    ? QueryGenerator.Conventions.FindPropertyNameForDynamicIndex(typeof(T), IndexName, CurrentPath,
@@ -713,7 +714,11 @@ The recommended method is to use full text search (mark the field as Analyzed an
             if (expression.Arguments.Count >= 2)
             {
                 var oldPath = _currentPath;
-                _currentPath = memberInfo.Path + "[].";
+                _currentPath = memberInfo.Path;
+
+                if (IndexName == null && _collectionName != null)
+                    _currentPath += "[]";
+
                 VisitExpression(expression.Arguments[1]);
                 _currentPath = oldPath;
             }
@@ -776,9 +781,6 @@ The recommended method is to use full text search (mark the field as Analyzed an
             }
             else if (memberExpression.Type == typeof(string))
             {
-                if (_currentPath.EndsWith("[]."))
-                    _currentPath = _currentPath.Substring(0, _currentPath.Length - 1);
-
                 var memberInfo = GetMember(memberExpression);
 
                 _documentQuery.WhereEquals(new WhereParams

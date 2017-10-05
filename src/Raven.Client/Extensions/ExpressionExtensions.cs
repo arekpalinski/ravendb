@@ -20,7 +20,7 @@ namespace Raven.Client.Extensions
         public static Type ExtractTypeFromPath<T>(this Expression<Func<T, object>> path)
         {
             var propertySeparator = '.';
-            var collectionSeparator = "[].";
+            var collectionSeparator = "[]";
             var collectionSeparatorAsString = collectionSeparator;
             var propertyPath = path.ToPropertyPath(propertySeparator, collectionSeparator);
             var properties = propertyPath.Split(propertySeparator);
@@ -75,14 +75,14 @@ namespace Raven.Client.Extensions
         ///</summary>
         public static string ToPropertyPath(this LambdaExpression expr,
             char propertySeparator = '.',
-            string collectionSeparator = "[].")
+            string collectionSeparator = "[]")
         {
             var expression = expr.Body;
 
             return expression.ToPropertyPath(propertySeparator, collectionSeparator);
         }
 
-        public static string ToPropertyPath(this Expression expression, char propertySeparator = '.', string collectionSeparator = "[].")
+        public static string ToPropertyPath(this Expression expression, char propertySeparator = '.', string collectionSeparator = "[]")
         {
             var propertyPathExpressionVisitor = new PropertyPathExpressionVisitor(propertySeparator.ToString(), collectionSeparator);
             propertyPathExpressionVisitor.Visit(expression);
@@ -108,7 +108,7 @@ namespace Raven.Client.Extensions
                 builder.Append(curValue);
 
             }
-            return builder.ToString().Trim(propertySeparator, collectionSeparator[0], collectionSeparator[1], collectionSeparator[2]);
+            return builder.ToString().Trim(propertySeparator, collectionSeparator[0], collectionSeparator[1]);
         }
 
         internal class PropertyPathExpressionVisitor : ExpressionVisitor
