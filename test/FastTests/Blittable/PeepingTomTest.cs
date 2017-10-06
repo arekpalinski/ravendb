@@ -27,6 +27,7 @@ namespace FastTests.Blittable
 
         [Theory]
         [InlineDataWithRandomSeed]
+        [InlineData(1291481720)]
         public void PeepingTomStreamShouldPeepCorrectlyWithRandomValues(int seed)
         {
             var random = new Random(seed);
