@@ -914,6 +914,8 @@ namespace Sparrow.Json
 
             _documentBuilder.Reset();
 
+            _documentBuilder.Renew("test", BlittableJsonDocumentBuilder.UsageMode.ToDisk);
+
             // We don't reset _arenaAllocatorForLongLivedValues. It's used as a cache buffer for long lived strings like field names.
             // When a context is re-used, the buffer containing those field names was not reset and the strings are still valid and alive.
 
