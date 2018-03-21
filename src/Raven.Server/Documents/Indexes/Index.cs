@@ -199,6 +199,8 @@ namespace Raven.Server.Documents.Indexes
                 using (DrainRunningQueries())
                     DisposeIndex();
             });
+
+            _lowMemoryFlag.Raise();
         }
 
         protected virtual void DisposeIndex()
@@ -991,6 +993,13 @@ namespace Raven.Server.Documents.Indexes
                                         _logger.Info($"Could not update stats for '{Name}'.", e);
                                 }
 
+                                if (_lastCommitedTxId == 150)
+                                {
+                                    Console.WriteLine($"Exit thread of index {Name}");
+                                    // exit indexing thread
+                                    return;
+                                }
+
                                 try
                                 {
                                     if (ShouldReplace())
@@ -1229,7 +1238,7 @@ namespace Raven.Server.Documents.Indexes
             {
                 scope.AddMemoryError(oome);
                 Interlocked.Add(ref _lowMemoryPressure, 10);
-                _lowMemoryFlag.Raise();
+               // _lowMemoryFlag.Raise();
 
                 var title = $"Out of memory occurred for '{Name}'";
                 if (_logger.IsInfoEnabled)
@@ -1394,6 +1403,10 @@ namespace Raven.Server.Documents.Indexes
                             };
 
                             tx.Commit();
+
+                            _lastCommitedTxId = tx.InnerTransaction.LowLevelTransaction.Id;
+                            Console.WriteLine("Committed: " + _lastCommitedTxId);
+                            
                             SlowWriteNotification.Notify(commitStats, DocumentDatabase);
 
                             stats.RecordCommitStats(commitStats.NumberOfModifiedPages, commitStats.NumberOf4KbsWrittenToDisk);
@@ -1414,6 +1427,8 @@ namespace Raven.Server.Documents.Indexes
                 }
             }
         }
+
+        private long _lastCommitedTxId = 0;
 
         public abstract IIndexedDocumentsEnumerator GetMapEnumerator(IEnumerable<Document> documents, string collection, TransactionOperationContext indexContext,
             IndexingStatsScope stats);
@@ -2933,7 +2948,7 @@ namespace Raven.Server.Documents.Indexes
         {
             _currentMaximumAllowedMemory = DefaultMaximumMemoryAllocation;
             _allocationCleanupNeeded = true;
-            _lowMemoryFlag.Raise();
+            //_lowMemoryFlag.Raise();
         }
 
         public void LowMemoryOver()
@@ -2942,7 +2957,7 @@ namespace Raven.Server.Documents.Indexes
             var newValue = Math.Max(0, oldValue - 1);
             if (Interlocked.CompareExchange(ref _lowMemoryPressure, newValue, oldValue) == 0)
             {
-                _lowMemoryFlag.Lower();
+                //_lowMemoryFlag.Lower();
             }
         }
 
