@@ -110,6 +110,11 @@ namespace Voron.Data.BTrees
                         }
                     }
 
+                    if (_currentPage.PageNumber == 2758 && _parent._tx.LowLevelTransaction.Id == 150)
+                    {
+
+                    }
+
                     var chunkSize = (int)(_writePos - _currentPage.DataPointer);
                     RecordChunkPage(_currentPage.PageNumber, chunkSize);
 
@@ -179,6 +184,11 @@ namespace Voron.Data.BTrees
             /// <returns></returns>
             private void AllocateNextPage()
             {
+                if (_currentPage.IsValid && _currentPage.PageNumber == 2758 && _parent._tx.LowLevelTransaction.Id == 150)
+                {
+
+                }
+
                 var overflowSize = (_numberOfPagesPerChunk * Constants.Storage.PageSize) - PageHeader.SizeOf;
                 var nextPage = _parent._tx.LowLevelTransaction.AllocateOverflowRawPage(overflowSize, out _, zeroPage: false);
                 if (_currentPage.Pointer != null)

@@ -371,6 +371,11 @@ namespace Voron.Impl
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal Page ModifyPage(long num)
         {
+            if (num == 2758)
+            {
+                Console.WriteLine("page 2758 modified in tx " + Id);
+            }
+
             _env.Options.AssertNoCatastrophicFailure();
 
             if (_pageLocator.TryGetWritablePage(num, out Page result))
@@ -539,6 +544,11 @@ namespace Voron.Impl
 
         private Page AllocatePage(int numberOfPages, long pageNumber, Page? previousVersion, bool zeroPage)
         {
+            if (pageNumber == 2758)
+            {
+                Console.WriteLine("Page 2758 was allocated in tx " + Id);
+            }
+
             if (_disposed)
                 throw new ObjectDisposedException("Transaction");
 
@@ -743,6 +753,10 @@ namespace Voron.Impl
 
         internal void FreePage(long pageNumber)
         {
+            if (pageNumber == 2758)
+            {
+                Console.WriteLine("Free " + pageNumber + " in tx " + Id);
+            }
             if (_disposed)
                 throw new ObjectDisposedException("Transaction");
 

@@ -499,14 +499,16 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             HashSet<long> compressedEmptyLeafs,
             CancellationToken token)
         {
+            Console.WriteLine("!!!!!!!!!!!!!!!!!!");
+
+
             if (remainingBranchesToAggregate.Contains(pageNumber))
             {
                 // RavenDB-5363: we have a modified branch page but its children were not modified (branch page splitting) so we didn't
                 // aggregated it yet, let's do it now
-
                 try
                 {
-                    var unaggregatedBranch = new TreePage(indexContext.Transaction.InnerTransaction.LowLevelTransaction.GetPage(pageNumber).DataPointer,
+                    var unaggregatedBranch = new TreePage(indexContext.Transaction.InnerTransaction.LowLevelTransaction.GetPage(pageNumber).Pointer,
                         Constants.Storage.PageSize);
 
                     using (var result = AggregateBranchPage(unaggregatedBranch, table, indexContext, remainingBranchesToAggregate, compressedEmptyLeafs, token))
@@ -529,7 +531,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                 return false;
             }
 
-            var relatedPage = new TreePage(indexContext.Transaction.InnerTransaction.LowLevelTransaction.GetPage(pageNumber).DataPointer,
+            var relatedPage = new TreePage(indexContext.Transaction.InnerTransaction.LowLevelTransaction.GetPage(pageNumber).Pointer,
                 Constants.Storage.PageSize);
 
             throw new InvalidOperationException($"Couldn't find pre-computed results for existing page: {relatedPage}");

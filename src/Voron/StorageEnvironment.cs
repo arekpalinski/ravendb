@@ -136,8 +136,8 @@ namespace Voron
                 else // existing db, let us load it
                     LoadExistingDatabase();
 
-                if (_options.ManualFlushing == false)
-                    Task.Run(IdleFlushTimer);
+                //if (_options.ManualFlushing == false)
+                //    Task.Run(IdleFlushTimer);
             }
             catch (Exception)
             {

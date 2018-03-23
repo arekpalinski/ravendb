@@ -459,6 +459,7 @@ namespace Voron.Impl.Journal
 
             public void ApplyLogsToDataFile(CancellationToken token, TimeSpan timeToWait)
             {
+                return;
                 if (token.IsCancellationRequested)
                     return;
 
@@ -1379,7 +1380,17 @@ namespace Voron.Impl.Journal
                     // To do that we need to first decrypt the page from the data file, but what happens if it was only partially 
                     // written when we crashed? We cannot decrypt partial data, therefore we cannot compare the diff to the plaintext on disk.
                     // The solution is to write the full page to the journal and when recovering, copy the full page to the data file. 
+
                     int size = txPage.NumberOfPages * Constants.Storage.PageSize;
+
+                    if (pageHeader->PageNumber == 2758 && tx.Id == 150)
+                    {
+                        var calculate0 = Hashing.XXHash64.Calculate(scratchPage, (ulong) size);
+
+                        var calculate2 = Hashing.XXHash64.Calculate(scratchPage, (ulong) 18266 + Constants.Tree.PageHeaderSize);
+                    }
+
+                   
                     pagesEncountered += txPage.NumberOfPages;
                     Debug.Assert(pagesEncountered <= pagesCountIncludingAllOverflowPages);
 

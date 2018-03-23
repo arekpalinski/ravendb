@@ -7,6 +7,7 @@ using System.IO.MemoryMappedFiles;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using Sparrow;
 using Sparrow.Logging;
@@ -456,11 +457,17 @@ namespace Voron.Platform.Win32
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Failed to Prefetch Vitrual Memory of file " + FileName);
         }
 
+        [ThreadStatic]
+        public static bool LogProtection;
+
 
         internal override void ProtectPageRange(byte* start, ulong size, bool force = false)
         {
             if (size == 0)
                 return;
+
+            if (LogProtection)
+                Console.WriteLine($"Protect {new IntPtr(start)}, size: {size} thread: {Thread.CurrentThread.ManagedThreadId}");
 
             if (UsePageProtection || force)
             {
@@ -482,10 +489,39 @@ namespace Voron.Platform.Win32
             }
         }
 
+        internal static void ProtectPageRangeForce(byte* start, ulong size, bool force = false)
+        {
+            if (size == 0)
+                return;
+
+            if (LogProtection)
+                Console.WriteLine($"Protect {new IntPtr(start)}, size: {size} thread: {Thread.CurrentThread.ManagedThreadId}");
+
+                Win32MemoryProtectMethods.MEMORY_BASIC_INFORMATION memoryInfo1 = new Win32MemoryProtectMethods.MEMORY_BASIC_INFORMATION();
+                int vQueryFirstOutput = Win32MemoryProtectMethods.VirtualQuery(start, &memoryInfo1, new UIntPtr(size));
+                int vQueryFirstError = Marshal.GetLastWin32Error();
+
+                Win32MemoryProtectMethods.MemoryProtection oldProtection;
+                bool status = Win32MemoryProtectMethods.VirtualProtect(start, new UIntPtr(size), Win32MemoryProtectMethods.MemoryProtection.READONLY, out oldProtection);
+                if (!status)
+                {
+                    int vProtectError = Marshal.GetLastWin32Error();
+
+                    Win32MemoryProtectMethods.MEMORY_BASIC_INFORMATION memoryInfo2 = new Win32MemoryProtectMethods.MEMORY_BASIC_INFORMATION();
+                    int vQuerySecondOutput = Win32MemoryProtectMethods.VirtualQuery(start, &memoryInfo2, new UIntPtr(size));
+                    int vQuerySecondError = Marshal.GetLastWin32Error();
+                    Debugger.Break();
+                }
+        }
+
         internal override void UnprotectPageRange(byte* start, ulong size, bool force = false)
         {
             if (size == 0)
                 return;
+
+            if (LogProtection)
+                Console.WriteLine($"UnProtect {new IntPtr(start)}, size: {size} thread: {Thread.CurrentThread.ManagedThreadId}: stack " + Environment.StackTrace);
+
 
             if (UsePageProtection || force)
             {

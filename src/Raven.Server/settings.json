@@ -1,5 +1,11 @@
 ﻿{
-    "ServerUrl": "http://127.0.0.1:8080",
-    "Setup.Mode": "None",
-    "License.Eula.Accepted": true
+  "DataDir": "RavenData",
+  "License.Eula.Accepted": true,
+  "Security.Certificate.LetsEncrypt.Email": "arek@ravendb.net",
+  "Setup.Mode": "LetsEncrypt",
+  "Security.Certificate.Path": "cluster.server.certificate.changesapitest.pfx",
+  "ServerUrl": "https://127.0.0.1",
+  "ServerUrl.Tcp": "tcp://127.0.0.1:38888",
+  "PublicServerUrl": "https://a.changesapitest.ravendb.community",
+  "PublicServerUrl.Tcp": "tcp://a.changesapitest.ravendb.community:38888"
 }

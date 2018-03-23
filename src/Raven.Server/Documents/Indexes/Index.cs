@@ -254,6 +254,7 @@ namespace Raven.Server.Documents.Indexes
 
         public static Index Open(string path, DocumentDatabase documentDatabase)
         {
+            Console.WriteLine("opening index: " + path);
             StorageEnvironment environment = null;
 
             var name = new DirectoryInfo(path).Name;
@@ -1401,6 +1402,11 @@ namespace Raven.Server.Documents.Indexes
                                     IndexPersistence.RecreateSearcher(tx.InnerTransaction);
                                 }
                             };
+
+                            if (tx.InnerTransaction.LowLevelTransaction.Id == 150)
+                            {
+                                var page = tx.InnerTransaction.LowLevelTransaction.GetPage(2758);
+                            }
 
                             tx.Commit();
 

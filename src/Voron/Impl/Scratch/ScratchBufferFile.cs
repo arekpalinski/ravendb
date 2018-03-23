@@ -185,20 +185,32 @@ namespace Voron.Impl.Scratch
             long asOfTxId = txId ?? -1;
 
 #if VALIDATE
-            using (var tempTx = new TempPagerTransaction())
-            {
-                byte* pagePointer = _scratchPager.AcquirePagePointer(tempTx, pageNumber, PagerState);
+            var cryptoPager = _scratchPager as CryptoPager;
 
-                PageFromScratchBuffer temporary;
-                if (_allocatedPages.TryGetValue(pageNumber, out temporary) != false)
+            if (cryptoPager != null)
+                CryptoPager.ForceBuffersProtection = true;
+            try
+            {
+                using (var tempTx = new TempPagerTransaction())
                 {
-                    var page = new Page(pagePointer);
-                    ulong pageSize = (ulong) (page.IsOverflow ? VirtualPagerLegacyExtensions.GetNumberOfOverflowPages(page.OverflowSize) : 1) * Constants.Storage.PageSize;
-                    // This has to be forced, as the scratchPager does NOT protect on allocate,
-                    // (on the contrary, we force protection/unprotection when freeing a page and allocating it
-                    // from the reserve)
-                    _scratchPager.ProtectPageRange(pagePointer, pageSize, true);
+                    byte* pagePointer = _scratchPager.AcquirePagePointer(tempTx, pageNumber, PagerState);
+
+                    PageFromScratchBuffer temporary;
+                    if (_allocatedPages.TryGetValue(pageNumber, out temporary) != false)
+                    {
+                        var page = new Page(pagePointer);
+                        ulong pageSize = (ulong) (page.IsOverflow ? VirtualPagerLegacyExtensions.GetNumberOfOverflowPages(page.OverflowSize) : 1) * Constants.Storage.PageSize;
+                        // This has to be forced, as the scratchPager does NOT protect on allocate,
+                        // (on the contrary, we force protection/unprotection when freeing a page and allocating it
+                        // from the reserve)
+                        _scratchPager.ProtectPageRange(pagePointer, pageSize, true);
+                    }
                 }
+            }
+            finally
+            {
+                if (cryptoPager != null)
+                    CryptoPager.ForceBuffersProtection = false;
             }
 #endif
 

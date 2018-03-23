@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using Sparrow.Compression;
 using Sparrow.Utils;
+using Voron.Data;
 using Voron.Global;
 using Voron.Impl.Paging;
 
@@ -131,6 +132,8 @@ namespace Voron.Impl.Journal
                     throw new InvalidDataException($"Transaction {current->TransactionId} contains refeence to page {pageInfoPtr[i].PageNumber} which is after the last allocated page {current->LastPageNumber}");
             }
 
+            var validate = false;
+
             for (var i = 0; i < current->PageCount; i++)
             {
                 if (totalRead > current->UncompressedSize)
@@ -145,19 +148,65 @@ namespace Voron.Impl.Journal
                 _dataPager.EnsureMapped(this, pageInfoPtr[i].PageNumber, numberOfPagesOnDestination);
 
                 // We are going to overwrite the page, so we don't care about its current content
+
                 var pagePtr = _dataPager.AcquirePagePointerForNewPage(this, pageInfoPtr[i].PageNumber, numberOfPagesOnDestination);
                 
                 var pageNumber = *(long*)(outputPage + totalRead);
+
+                if (pageNumber == 2758)
+                {
+                    validate = true;
+                    //var a = (_dataPager as CryptoPager).AcquirePagePointer_ForceDecryption(this, 2758);
+                }
+
+                if (pageNumber == 2759)
+                {
+                    Console.WriteLine($"Page 2759 in tx: {current->TransactionId}");
+                }
+                
                 if (pageInfoPtr[i].PageNumber != pageNumber)
                     throw new InvalidDataException($"Expected a diff for page {pageInfoPtr[i].PageNumber} but got one for {pageNumber}");
+
+                //Console.WriteLine($"Page number: {pageNumber}, Size: {pageInfoPtr[i].Size}, IsNewDiff: {pageInfoPtr[i].IsNewDiff}, DiffSize: {pageInfoPtr[i].DiffSize}");
+
+
                 totalRead += sizeof(long);
 
                 _dataPager.UnprotectPageRange(pagePtr, (ulong)pageInfoPtr[i].Size);
  
                 if (pageInfoPtr[i].DiffSize == 0)
                 {
+                    if (pageNumber == 2758 && current->TransactionId == 150)
+                    {
+                        var calculate0 = Hashing.XXHash64.Calculate(outputPage + totalRead, (ulong) pageInfoPtr[i].Size);
+
+                        var calculate2 = Hashing.XXHash64.Calculate(outputPage + totalRead, (ulong) 18266 + Constants.Tree.PageHeaderSize);
+                    }
+
                     Memory.Copy(pagePtr, outputPage + totalRead, pageInfoPtr[i].Size);
                     totalRead += pageInfoPtr[i].Size;
+
+                    
+
+                    if (options.EncryptionEnabled)
+                    {
+                        var pageHeader = (PageHeader*)pagePtr;
+
+                        if ((pageHeader->Flags & PageFlags.Overflow) == PageFlags.Overflow)
+                        {
+                            var encryptionBuffers = ((IPagerLevelTransactionState)this).CryptoPagerTransactionState[_dataPager].LoadedBuffers;
+
+                            var numberOfPages = VirtualPagerLegacyExtensions.GetNumberOfOverflowPages(pageHeader->OverflowSize);
+
+                            for (int j = 1; j < numberOfPages; j++)
+                            {
+                                if (encryptionBuffers.TryGetValue(pageNumber + j, out var buffer))
+                                {
+                                    buffer.SkipOnTxCommit = true;
+                                }
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -167,6 +216,11 @@ namespace Voron.Impl.Journal
                     _diffApplier.DiffSize = pageInfoPtr[i].DiffSize;
                     _diffApplier.Apply(pageInfoPtr[i].IsNewDiff);
                     totalRead += pageInfoPtr[i].DiffSize;
+                }
+
+                if (pageNumber == 2758 && current->TransactionId == 150)
+                {
+                   // var a = (_dataPager as CryptoPager).AcquirePagePointer_ForceDecryption(this, 2758);
                 }
 
                 _dataPager.ProtectPageRange(pagePtr, (ulong)pageInfoPtr[i].Size);
