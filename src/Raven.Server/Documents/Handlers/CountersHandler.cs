@@ -6,7 +6,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Net;
 using System.Threading.Tasks;
 using Raven.Client.Documents.Operations.Counters;
@@ -118,6 +117,9 @@ namespace Raven.Server.Documents.Handlers
                                 GetCounterValue(context, _database, docId, operation.CounterName, _replyWithAllNodesValues, CountersDetail);                               
                                 break;
                             case CounterOperationType.Delete:
+                                if (_fromEtl && doc == null)
+                                    break;
+
                                 LastChangeVector = _database.DocumentsStorage.CountersStorage.DeleteCounter(context, docId, docCollection, operation.CounterName);
                                 break;
                             case CounterOperationType.Put:
