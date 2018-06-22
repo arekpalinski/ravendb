@@ -123,7 +123,7 @@ namespace Raven.Server.Documents
             if (collectionName == null)
                 yield break;
 
-            var table = EnsureCountersTableCreated(context.Transaction.InnerTransaction, collectionName);
+            var table = GetCountersTable(context.Transaction.InnerTransaction, collectionName);
 
             if (table == null)
                 yield break;
@@ -220,7 +220,7 @@ namespace Raven.Server.Documents
             }
 
             var collectionName = _documentsStorage.ExtractCollectionName(context, collection);
-            var table = EnsureCountersTableCreated(context.Transaction.InnerTransaction, collectionName);
+            var table = GetCountersTable(context.Transaction.InnerTransaction, collectionName);
 
             using (GetCounterKey(context, documentId, name, mode == PutCounterMode.Etl ? context.Environment.Base64Id : changeVector, out var counterKey))
             {
@@ -298,11 +298,11 @@ namespace Raven.Server.Documents
 
         private readonly HashSet<string> _tableCreated = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        public Table EnsureCountersTableCreated(Transaction tx, CollectionName collection)
+        public Table GetCountersTable(Transaction tx, CollectionName collection)
         {
             var tableName = collection.GetTableName(CollectionTableType.Counters);
 
-            if (_tableCreated.Add(collection.Name))
+            if (tx.IsWriteTransaction && _tableCreated.Add(collection.Name))
                 CountersSchema.Create(tx, tableName, 32);
 
             return tx.OpenTable(CountersSchema, tableName);
@@ -317,7 +317,7 @@ namespace Raven.Server.Documents
             }
 
             var collectionName = _documentsStorage.ExtractCollectionName(context, collection);
-            var table = EnsureCountersTableCreated(context.Transaction.InnerTransaction, collectionName);
+            var table = GetCountersTable(context.Transaction.InnerTransaction, collectionName);
             
             using (GetCounterKey(context, documentId, name, context.Environment.Base64Id, out var counterKey))
             {
@@ -511,7 +511,7 @@ namespace Raven.Server.Documents
             // tombstones (existing tombstones will remain and be cleaned up by the usual
             // tombstone cleaner task
             
-            var table = EnsureCountersTableCreated(context.Transaction.InnerTransaction, collection);
+            var table = GetCountersTable(context.Transaction.InnerTransaction, collection);
 
             if (table.NumberOfEntries == 0)
                 return; 
@@ -542,7 +542,7 @@ namespace Raven.Server.Documents
         public string DeleteCounter(DocumentsOperationContext context, Slice key, string collection, long lastModifiedTicks, bool forceTombstone)
         {
             var collectionName = _documentsStorage.ExtractCollectionName(context, collection);
-            var table = EnsureCountersTableCreated(context.Transaction.InnerTransaction, collectionName);
+            var table = GetCountersTable(context.Transaction.InnerTransaction, collectionName);
 
             long deletedEtag = -1;
             if (table.DeleteByPrimaryKeyPrefix(key, tvh =>
