@@ -20,7 +20,7 @@ namespace Raven.Client.Documents.Operations.ETL
         internal const string AddCounter = "addCounter";
 
         internal const string CounterMarker = "$counter/";
-        
+
         private static readonly Regex LoadToMethodRegex = new Regex($@"{LoadTo}(\w+)", RegexOptions.Compiled);
 
         private static readonly Regex LoadAttachmentMethodRegex = new Regex(LoadAttachment, RegexOptions.Compiled);
@@ -28,6 +28,9 @@ namespace Raven.Client.Documents.Operations.ETL
 
         private static readonly Regex LoadCounterMethodRegex = new Regex(LoadCounter, RegexOptions.Compiled);
         private static readonly Regex AddCounterMethodRegex = new Regex(AddCounter, RegexOptions.Compiled);
+
+        internal static readonly Regex LoadCountersBehaviorMethodRegex = new Regex(@"function\s+loadCountersOf(\w+)Behavior\s*\(.+\}", RegexOptions.Singleline);
+        internal static readonly Regex LoadCountersBehaviorMethodNameRegex = new Regex(@"loadCountersOf(\w+)Behavior", RegexOptions.Singleline);
 
         private static readonly Regex Legacy_ReplicateToMethodRegex = new Regex(@"replicateTo(\w+)", RegexOptions.Compiled);
 
@@ -42,6 +45,8 @@ namespace Raven.Client.Documents.Operations.ETL
         public bool ApplyToAllDocuments { get; set; }
 
         public string Script { get; set; }
+
+        internal Dictionary<string, (string FunctionName, string Function)> CounterBehaviors { get; private set; }
 
         internal bool IsHandlingAttachments { get; private set; }
 
@@ -98,6 +103,28 @@ namespace Raven.Client.Documents.Operations.ETL
                 IsHandlingAttachments = LoadAttachmentMethodRegex.Matches(Script).Count > 0 || AddAttachmentMethodRegex.Matches(Script).Count > 0;
 
                 IsHandlingCounters = LoadCounterMethodRegex.Matches(Script).Count > 0 || AddCounterMethodRegex.Matches(Script).Count > 0;
+
+                var counterBehaviors = LoadCountersBehaviorMethodRegex.Matches(Script);
+
+                if (counterBehaviors.Count > 0)
+                {
+                    CounterBehaviors = new Dictionary<string, (string, string)>();
+
+                    for (int i = 0; i < counterBehaviors.Count; i++)
+                    {
+                        var counterBehaviorFunction = counterBehaviors[i];
+
+                        if (counterBehaviorFunction.Groups.Count != 2)
+                            errors.Add("TODO arek");
+
+                        var function = counterBehaviorFunction.Groups[0].Value;
+                        var collection = counterBehaviorFunction.Groups[1].Value;
+
+                        var functionName = LoadCountersBehaviorMethodNameRegex.Match(function);
+
+                        CounterBehaviors[collection] = (functionName.Value, function);
+                    }
+                }
             }
 
             return errors.Count == 0;

@@ -326,7 +326,7 @@ for (var i = 0; i < counters.length; i++) {
         }
 
         [Fact]
-        public void Should_error_if_attachment_doesnt_exist()
+        public void Should_error_if_counter_doesnt_exist()
         {
             using (var src = GetDocumentStore())
             using (var dest = GetDocumentStore())
@@ -709,6 +709,163 @@ if (hasCounter('down')) {
 
                     Assert.Equal(1, value);
                 }
+            }
+        }
+
+        [Fact]
+        public void Should_handle_counters_according_to_behavior_defined_in_script()
+        {
+            using (var src = GetDocumentStore())
+            using (var dest = GetDocumentStore())
+            {
+                AddEtl(src, dest, "Users", script:
+                    @"
+if (this.Age > 20)
+{
+    loadToUsers({ Name: this.Name + ' ' + this.LastName });
+}
+
+function loadCountersOfUsersBehavior(docId, counter)
+{
+    var user = load(docId);
+
+    if (user.Age > 20 && counter == 'up')
+    {
+        return true;
+    }
+}");
+                //                var etlDone = WaitForEtl(src, (n, s) => s.LoadSuccesses > 0);
+
+                //                using (var session = src.OpenSession())
+                //                {
+                //                    session.Store(new User()
+                //                    {
+                //                        Name = "Joe",
+                //                        LastName = "Doe",
+                //                        Age = 21
+                //                    }, "users/1");
+
+                //                    session.CountersFor("users/1").Increment("up", 20);
+                //                    session.CountersFor("users/1").Increment("down", 10);
+
+                //                    session.SaveChanges();
+                //                }
+
+                //                etlDone.Wait(TimeSpan.FromMinutes(1));
+
+                //                AssertCounters(dest, new[]
+                //                {
+                //                    ("users/1", "up", 20L, false),
+                //                    ("users/1", "down", 10, false),
+                //                    ("users/1/people/", "down", 10, true)
+                //                });
+
+                //                etlDone.Reset();
+
+                //");
+
+                using (var session = src.OpenSession())
+                {
+                    session.Store(new User()
+                    {
+                        Name = "Joe",
+                        LastName = "Doe",
+                        Age = 21
+                    }, "users/1");
+
+                    session.CountersFor("users/1").Increment("up", 20);
+                    session.CountersFor("users/1").Increment("down", 10);
+
+                    session.SaveChanges();
+                }
+
+                using (var session = src.OpenSession())
+                {
+                    session.CountersFor("users/1").Increment("up", 20);
+                    session.CountersFor("users/1").Increment("down", 10);
+
+                    session.SaveChanges();
+                }
+
+                var etlDone = WaitForEtl(src, (n, s) => s.LoadSuccesses >= 3); // TODO arek
+
+                etlDone.Wait(TimeSpan.FromMinutes(1));
+
+                AssertCounters(dest, new[]
+                {
+                    ("users/1", "up", 40L, false),
+                });
+
+                etlDone.Reset();
+
+                //using (var session = src.OpenSession())
+                //{
+                //    session.CountersFor("users/1").Increment("up", 20);
+                //    session.CountersFor("users/1").Increment("down", 10);
+
+                //    session.SaveChanges();
+                //}
+
+                //etlDone.Wait();
+
+                //string personId;
+
+                //using (var session = dest.OpenSession())
+                //{
+                //    personId = session.Advanced.LoadStartingWith<Person>("users/1/people/")[0].Id;
+                //}
+
+                //etlDone.Reset();
+
+                //using (var session = src.OpenSession())
+                //{
+                //    session.CountersFor("users/1").Delete("up");
+                //    session.SaveChanges();
+                //}
+
+                //etlDone.Wait(TimeSpan.FromMinutes(1));
+
+                //using (var session = dest.OpenSession())
+                //{
+                //    var user = session.Load<User>("users/1");
+
+                //    var metatata = session.Advanced.GetMetadataFor(user);
+
+                //    Assert.True(metatata.ContainsKey(Constants.Documents.Metadata.Counters));
+
+                //    var counter = session.CountersFor("users/1").Get("up-etl");
+
+                //    Assert.Null(counter); // this counter was removed
+                //}
+
+                //AssertCounters(dest, new[]
+                //{
+                //    ("users/1", "down", 10L, false),
+                //    ("users/1/people/", "down", 10, true)
+                //});
+
+                //etlDone.Reset();
+
+                //using (var session = src.OpenSession())
+                //{
+                //    session.Delete("users/1");
+
+                //    session.SaveChanges();
+                //}
+
+                //etlDone.Wait(TimeSpan.FromMinutes(1));
+
+                //using (var session = dest.OpenSession())
+                //{
+                //    Assert.Null(session.Load<User>("users/1"));
+
+                //    Assert.Null(session.CountersFor("users/1").Get("up"));
+                //    Assert.Null(session.CountersFor("users/1").Get("up"));
+
+                //    Assert.Empty(session.Advanced.LoadStartingWith<Person>("users/1/people/"));
+
+                //    Assert.Null(session.CountersFor(personId).Get("down-etl"));
+                //}
             }
         }
     }

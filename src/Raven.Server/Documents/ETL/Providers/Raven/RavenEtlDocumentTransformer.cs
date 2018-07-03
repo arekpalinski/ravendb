@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text;
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime.Descriptors;
@@ -29,7 +30,7 @@ namespace Raven.Server.Documents.ETL.Providers.Raven
         private RavenEtlScriptRun _currentRun;
 
         public RavenEtlDocumentTransformer(Transformation transformation, DocumentDatabase database, DocumentsOperationContext context, ScriptInput script)
-            : base(database, context, script.Transformation)
+            : base(database, context, script.Transformation, script.CounterBehaviors)
         {
             _transformation = transformation;
             _script = script;
@@ -41,14 +42,14 @@ namespace Raven.Server.Documents.ETL.Providers.Raven
         {
             base.Initalize();
 
-            if (SingleRun == null)
+            if (DocumentRun == null)
                 return;
 
             if (_transformation.IsHandlingAttachments)
-                _addAttachmentMethod = new PropertyDescriptor(new ClrFunctionInstance(SingleRun.ScriptEngine, AddAttachment), null, null, null);
+                _addAttachmentMethod = new PropertyDescriptor(new ClrFunctionInstance(DocumentRun.ScriptEngine, AddAttachment), null, null, null);
 
             if (_transformation.IsHandlingCounters)
-                _addCounterMethod = new PropertyDescriptor(new ClrFunctionInstance(SingleRun.ScriptEngine, AddCounter), null, null, null);
+                _addCounterMethod = new PropertyDescriptor(new ClrFunctionInstance(DocumentRun.ScriptEngine, AddCounter), null, null, null);
         }
 
         protected override string[] LoadToDestinations { get; }
@@ -197,7 +198,18 @@ namespace Raven.Server.Documents.ETL.Providers.Raven
                                 ApplyDeleteCommands(item, OperationType.Put);
                             }
 
-                            SingleRun.Run(Context, Context, "execute", new object[] { Current.Document }).Dispose();
+                            DocumentRun.Run(Context, Context, "execute", new object[] { Current.Document }).Dispose();
+
+                            if (_script.CounterBehaviors != null)
+                            {
+                                var counters = GetCountersFor(Current);
+                                foreach (var VARIABLE in COLLECTION)
+                                {
+                                    
+                                }
+                            }
+
+                            // TODO arek - should send counters as well
                         }
                         else
                         {
@@ -206,14 +218,20 @@ namespace Raven.Server.Documents.ETL.Providers.Raven
 
                         break;
                     case EtlItemType.Counter:
-                        if (_script.Transformation != null)
+                        if (_script.Transformation != null && _script.CounterBehaviors != null)
                         {
-                            throw new NotImplementedException("TODO arek");
+                            using (var result = CountersBehaviorRun.Run(Context, Context, _script.CounterBehaviorFunctionFor(item.Collection),
+                                new object[] {item.DocumentId, item.CounterName}))
+                            {
+                                if (result.BooleanValue == true)
+                                    _currentRun.AddCounter(item.DocumentId, item.CounterName, item.CounterValue);
+                            }
                         }
                         else
                         {
                             _currentRun.AddCounter(item.DocumentId, item.CounterName, item.CounterValue);
                         }
+                        
                         break;
                 }
             }
@@ -336,9 +354,13 @@ namespace Raven.Server.Documents.ETL.Providers.Raven
 
             public readonly PatchRequest Transformation;
 
+            public readonly PatchRequest CounterBehaviors;
+
             public readonly HashSet<string> DefaultCollections;
 
             public readonly Dictionary<string, string> IdPrefixForCollection = new Dictionary<string, string>();
+
+            private readonly Dictionary<string, string> _collectionToCounterBehaviorFunction;
 
             public ScriptInput(Transformation transformation)
             {
@@ -346,6 +368,22 @@ namespace Raven.Server.Documents.ETL.Providers.Raven
 
                 if (string.IsNullOrEmpty(transformation.Script))
                     return;
+
+                if (transformation.CounterBehaviors != null)
+                {
+                    _collectionToCounterBehaviorFunction = new Dictionary<string, string>();
+
+                    var counterBehaviorsFunctions = new StringBuilder();
+
+                    foreach (var counterBehavior in transformation.CounterBehaviors)
+                    {
+                        counterBehaviorsFunctions.AppendLine(counterBehavior.Value.Function);
+
+                        _collectionToCounterBehaviorFunction[counterBehavior.Key] = counterBehavior.Value.FunctionName;
+                    }
+
+                    CounterBehaviors = new PatchRequest(counterBehaviorsFunctions.ToString(), PatchRequestType.EtlCounterBehaviors);
+                }
 
                 Transformation = new PatchRequest(transformation.Script, PatchRequestType.RavenEtl);
 
@@ -370,6 +408,11 @@ namespace Raven.Server.Documents.ETL.Providers.Raven
                         _collectionNameComparisons[sourceCollection][loadToCollection] = string.Compare(sourceCollection, loadToCollection, StringComparison.OrdinalIgnoreCase) == 0;
                     }
                 }
+            }
+
+            public string CounterBehaviorFunctionFor(string collection)
+            {
+                return _collectionToCounterBehaviorFunction.TryGetValue(collection)]; // TODO arek - we could have not defined function for a given collection - don't send counters then
             }
 
             public bool IsLoadedToDefaultCollection(RavenEtlItem item, string loadToCollection)
