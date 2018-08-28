@@ -28,6 +28,7 @@ using Raven.Database.Impl;
 using Raven.Database.Impl.DTC;
 using Raven.Database.Plugins;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using Raven.Database.Storage;
 using Raven.Database.Storage.Esent.Debug;
 using Raven.Database.Util;
@@ -231,6 +232,7 @@ namespace Raven.Storage.Esent
         private bool reportedGetDatabaseTransactionCacheSizeInBytesError;
         private readonly string uniquePrefix;
 
+        [HandleProcessCorruptedStateExceptions]
         public long GetDatabaseTransactionVersionSizeInBytes()
         {
             if (configuration.DisablePerformanceCounters)
@@ -241,8 +243,21 @@ namespace Raven.Storage.Esent
             try
             {
                 const string categoryName = "Database ==> Instances";
+
+                try
+                {
+                    if (PerformanceCounterCategory.Exists(categoryName) == false)
+                        return getDatabaseTransactionVersionSizeInBytesErrorValue = -1;
+                }
+                catch (AccessViolationException)
+                {
+                    // it can be thrown when running in docker container
+                    return getDatabaseTransactionVersionSizeInBytesErrorValue = -1;
+                }
+
                 if (PerformanceCounterCategory.Exists(categoryName) == false)
                     return getDatabaseTransactionVersionSizeInBytesErrorValue = -1;
+
                 var category = new PerformanceCounterCategory(categoryName);
                 var instances = category.GetInstanceNames();
                 var ravenInstance = instances.FirstOrDefault(x => x.Contains(uniquePrefix));

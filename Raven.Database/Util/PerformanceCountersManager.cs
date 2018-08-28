@@ -8,6 +8,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Security;
 using System.Threading;
 using System.Threading.Tasks;
@@ -240,31 +241,40 @@ namespace Raven.Database.Util
             UnloadCounters();
         }
 
+        [HandleProcessCorruptedStateExceptions]
         private static bool PerformanceCounterExistsAndHasAllCounters(string instanceName)
         {
-            if (PerformanceCounterCategory.Exists(CategoryName) == false)
-                return false;
-            foreach (var counter in CounterProperties)
+            try
             {
-				var customAttribute = (PerformanceCounterAttribute)counter.GetCustomAttributes(typeof(PerformanceCounterAttribute), false)[0];
-				if (PerformanceCounterCategory.CounterExists(customAttribute.Name, CategoryName) == false)
-                {
-                    PerformanceCounterCategory.Delete(CategoryName);
+                if (PerformanceCounterCategory.Exists(CategoryName) == false)
                     return false;
+                foreach (var counter in CounterProperties)
+                {
+                    var customAttribute = (PerformanceCounterAttribute)counter.GetCustomAttributes(typeof(PerformanceCounterAttribute), false)[0];
+                    if (PerformanceCounterCategory.CounterExists(customAttribute.Name, CategoryName) == false)
+                    {
+                        PerformanceCounterCategory.Delete(CategoryName);
+                        return false;
+                    }
+
+                    try
+                    {
+                        new PerformanceCounter(CategoryName, customAttribute.Name, instanceName, readOnly: true).Close();
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        PerformanceCounterCategory.Delete(CategoryName);
+                        return false;
+                    }
                 }
 
-                try
-                {
-					new PerformanceCounter(CategoryName, customAttribute.Name, instanceName, readOnly: true).Close();
-                }
-                catch (InvalidOperationException)
-                {
-                    PerformanceCounterCategory.Delete(CategoryName);
-                    return false;
-                }
+                return true;
             }
-
-            return true;
+            catch (AccessViolationException)
+            {
+                // it can be thrown when running in docker container
+                return false;
+            }
         }
     }
 }
