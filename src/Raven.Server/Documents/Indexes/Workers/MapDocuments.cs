@@ -80,6 +80,13 @@ namespace Raven.Server.Documents.Indexes.Workers
                                 {
                                     if (docsEnumerator.MoveNext(out IEnumerable mapResults) == false)
                                     {
+                                        if (count == 0)
+                                        {
+
+                                        }
+
+                                        Console.WriteLine("Indexed (A): " + count + " last collection etag: " + lastCollectionEtag);
+
                                         collectionStats.RecordMapCompletedReason("No more documents to index");
                                         keepRunning = false;
                                         break;
@@ -122,11 +129,14 @@ namespace Raven.Server.Documents.Indexes.Workers
                                                                                 $"Exception: {e}");
                                     }
 
-                                    if (CanContinueBatch(databaseContext, indexContext, collectionStats, lastEtag, lastCollectionEtag, count) == false)
-                                    {
-                                        keepRunning = false;
-                                        break;
-                                    }
+                                    //if (CanContinueBatch(databaseContext, indexContext, collectionStats, lastEtag, lastCollectionEtag, count) == false)
+                                    //{
+                                    //    Console.WriteLine("Indexed (B): " + count + " last collection etag: " + lastCollectionEtag);
+
+
+                                    //    keepRunning = false;
+                                    //    break;
+                                    //}
 
                                     if (count >= pageSize)
                                     {

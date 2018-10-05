@@ -357,6 +357,8 @@ namespace Voron.Platform.Win32
 
         internal override void ProtectPageRange(byte* start, ulong size, bool force = false)
         {
+            return;
+
             if (size == 0)
                 return;
 
@@ -382,6 +384,7 @@ namespace Voron.Platform.Win32
 
         internal override void UnprotectPageRange(byte* start, ulong size, bool force = false)
         {
+            return;
             if (size == 0)
                 return;
 

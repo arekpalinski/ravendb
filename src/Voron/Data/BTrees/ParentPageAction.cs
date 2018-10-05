@@ -7,6 +7,7 @@
 using System.Diagnostics;
 using System.Linq;
 #endif
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Voron.Global;
 using Voron.Impl;
@@ -85,6 +86,29 @@ namespace Voron.Data.BTrees
             ParentOfAddedPageRef = _parentPage;
 
             var pos = _parentPage.AddPageRefNode(nodePos.Value, separator, pageRefNumber);
+
+            if (separator.Options == SliceOptions.Key)
+            {
+                TreePage refPage = _tree.GetReadOnlyTreePage(pageRefNumber);
+
+                if (refPage.IsBranch == false)
+                {
+                    for (int i = 0; i < refPage.NumberOfEntries; i++)
+                    {
+                        using (refPage.GetNodeKey(_tx, i, out var key))
+                        {
+                            if (SliceComparer.Compare(key, separator) < 0)
+                            {
+                                System.Console.WriteLine($"CCCCCCCCCCCCCCCCCCCCCC: {key}, {separator}, {i}");
+
+                                Debugger.Launch();
+                                Debugger.Break();
+                            }
+                        }
+                    }
+                }
+
+            }
 
             EnsureValidLastSearchPosition(_parentPage, _currentPage.PageNumber, originalLastSearchPositionOfParent);
 

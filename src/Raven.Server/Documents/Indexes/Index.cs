@@ -278,6 +278,8 @@ namespace Raven.Server.Documents.Indexes
 
                 environment = LayoutUpdater.OpenEnvironment(options);
 
+                environment.ValidateReferences = true;
+
                 IndexType type;
                 try
                 {
@@ -408,6 +410,8 @@ namespace Raven.Server.Documents.Indexes
                 {
                     storageEnvironment = LayoutUpdater.OpenEnvironment(options);
                     Initialize(storageEnvironment, documentDatabase, configuration, performanceHints);
+
+                    storageEnvironment.ValidateReferences = true;
                 }
                 catch (Exception)
                 {
@@ -439,6 +443,7 @@ namespace Raven.Server.Documents.Indexes
 
         private static void InitializeOptions(StorageEnvironmentOptions options, DocumentDatabase documentDatabase, string name, bool schemaUpgrader = true)
         {
+            options.ManualFlushing = true;
             options.OnNonDurableFileSystemError += documentDatabase.HandleNonDurableFileSystemError;
             options.OnRecoveryError += (s, e) => documentDatabase.HandleOnIndexRecoveryError(name, s, e);
             options.CompressTxAboveSizeInBytes = documentDatabase.Configuration.Storage.CompressTxAboveSize.GetValue(SizeUnit.Bytes);
@@ -881,6 +886,145 @@ namespace Raven.Server.Documents.Indexes
             }
         }
 
+        //List<int> batchSizes = new List<int>()
+        //{
+        //    360,
+        //    4572,
+        //    14754,
+        //    33021,
+        //    58206,
+        //    51268,
+        //    44290,
+        //    32468,
+        //    23228,
+        //    18448,
+        //    38820,
+        //    62900,
+        //    87876,
+        //    37860,
+        //    23768,
+        //    25649,
+        //    54656,
+        //    68146,
+        //    54498,
+        //    32682,
+        //    24594,
+        //    58316,
+        //    89260,
+        //    68858,
+        //    30280,
+        //    20480,
+        //    17326,
+        //    35126,
+        //    60036,
+        //    92612,
+        //};
+
+        //List<int> batchSizes = new List<int>()
+        //{
+        //    0,
+        //    360,
+        //    4980,
+        //    14346,
+        //    33021,
+        //    56890,
+        //    60010,
+        //    47572,
+        //    31900,
+        //    22092,
+        //    20498,
+        //    57440,
+        //    66684,
+        //    71064
+        //};
+
+        List<int> batchSizes = new List<int>()
+        {
+            1700 ,
+            8540 ,
+            7565 ,
+            10446,
+            6562 ,
+            6144 ,
+            6144 ,
+            6144 ,
+            10240,
+            8192 ,
+            18432,
+            19972,
+            14844,
+            10240,
+            10240,
+            11778,
+            10750,
+            10240,
+            10240,
+            16384,
+            15754,
+            10238,
+            8824 ,
+            7542 ,
+            8842 ,
+            9596 ,
+            9194 ,
+            15596,
+            30018,
+            23580,
+            25466,
+            25406,
+            28434,
+            22164,
+            17314,
+            13182,
+            4602 ,
+            14984,
+            10708,
+            7674 ,
+            4146 ,
+            3742 ,
+            6498 ,
+            17095,
+            70638,
+            51448,
+            35302,
+            28186,
+            33252,
+            13484,
+            10268,
+            9372 ,
+            7568 ,
+            4944 ,
+            9795 ,
+            36082,
+            42552,
+            68762,
+            32350,
+            17518,
+            16790,
+            11414,
+            12762,
+            5680 ,
+            9944 ,
+            35170,
+            81692,
+            44592,
+            25780,
+            18238,
+            15718,
+            8310 ,
+            10516,
+            25109,
+            54538,
+            76070,
+            37136,
+            22490,
+            17024,
+            22287,
+
+        };
+
+        private int BatchNumber = 0;
+        private int FlushCounter = 0;
         protected void ExecuteIndexing()
         {
             _priorityChanged.Raise();
@@ -929,6 +1073,12 @@ namespace Raven.Server.Documents.Indexes
 
                         bool didWork = false;
 
+                        CollectionRunner.WaitForPatchedDocs.WaitOne();
+
+                        //CollectionRunner.Lock.Enter();
+
+                        IndexingCompleted.Reset();
+
                         try
                         {
                             using (var scope = stats.CreateScope())
@@ -942,7 +1092,11 @@ namespace Raven.Server.Documents.Indexes
                                         TimeSpentIndexing.Start();
                                         var lastAllocatedBytes = GC.GetAllocatedBytesForCurrentThread();
 
-                                        didWork = DoIndexingWork(scope, _indexingProcessCancellationTokenSource.Token);
+                                        
+                                        {
+                                            didWork = DoIndexingWork(scope, _indexingProcessCancellationTokenSource.Token);
+                                        }
+
                                         batchCompleted = true;
                                         lastAllocatedBytes = GC.GetAllocatedBytesForCurrentThread() - lastAllocatedBytes;
                                         scope.AddAllocatedBytes(lastAllocatedBytes);
@@ -1057,11 +1211,7 @@ namespace Raven.Server.Documents.Indexes
                                         _logger.Info($"Could not replace index '{Name}'.", e);
                                 }
                             }
-                        }
-                        finally
-                        {
-                            stats.Complete();
-                        }
+                        
 
                         if (batchCompleted)
                         {
@@ -1080,6 +1230,25 @@ namespace Raven.Server.Documents.Indexes
                             var batchCompletedAction = DocumentDatabase.IndexStore.IndexBatchCompleted;
                             batchCompletedAction?.Invoke((Name, didWork));
                         }
+
+                            if (FlushCounter++ % 3 == 0)
+                            {
+                                Console.WriteLine("Flushing index");
+                                _environment.FlushLogToDataFile();
+                            }
+
+                        }
+                        finally
+                        {
+                            stats.Complete();
+                            //CollectionRunner.Lock.Exit();
+                        }
+
+                        IndexingCompleted.Set();
+                        CollectionRunner.WaitForPatchedDocs.Reset();
+
+
+                        //Thread.Sleep(2000);
 
                         try
                         {
@@ -1141,6 +1310,8 @@ namespace Raven.Server.Documents.Indexes
                 }
             }
         }
+
+        public static ManualResetEvent IndexingCompleted = new ManualResetEvent(false);
 
         protected virtual bool ShouldReplace()
         {
@@ -1493,6 +1664,8 @@ namespace Raven.Server.Documents.Indexes
 
                             stats.RecordCommitStats(commitStats.NumberOfModifiedPages, commitStats.NumberOf4KbsWrittenToDisk);
                         }
+
+                        BatchNumber++;
                     }
                     catch
                     {
@@ -2859,6 +3032,21 @@ namespace Raven.Server.Documents.Indexes
             int count)
         {
             stats.RecordMapAllocations(_threadAllocations.TotalAllocated);
+
+            //if (BatchNumber < batchSizes.Count)
+            //{
+            //    if (count >= batchSizes[BatchNumber])
+            //        return false;
+
+            //    return true;
+            //}
+
+            //if (count >= 5_000)
+            //{
+            //    return false;
+            //}
+
+            return true;
 
             if (_indexDisabled)
             {

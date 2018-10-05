@@ -676,6 +676,55 @@ namespace Voron.Data.BTrees
             }
         }
 
+        public void DebugValidate2(Tree tree, long root)
+        {
+            if (NumberOfEntries == 0)
+                return;
+#if VALIDATE
+            if (Freed)
+                return;
+#endif
+            if (IsBranch && NumberOfEntries < 2)
+            {
+                throw new InvalidOperationException("The branch page " + PageNumber + " has " + NumberOfEntries + " entry");
+            }
+
+            Slice prev;
+            var prevScope = GetNodeKey(tree.Llt, 0, out prev);
+            try
+            {
+                var pages = new HashSet<long>();
+                for (int i = 1; i < NumberOfEntries; i++)
+                {
+                    var node = GetNode(i);
+                    Slice current;
+                    var currentScope = GetNodeKey(tree.Llt, i, out current);
+
+                    if (SliceComparer.CompareInline(prev, current) >= 0)
+                    {
+                        DebugStuff.RenderAndShowTree(tree, root);
+                        throw new InvalidOperationException("The page " + PageNumber + " is not sorted");
+                    }
+
+                    if (node->Flags == (TreeNodeFlags.PageRef))
+                    {
+                        if (pages.Add(node->PageNumber) == false)
+                        {
+                            DebugStuff.RenderAndShowTree(tree, root);
+                            throw new InvalidOperationException("The page " + PageNumber + " references same page multiple times");
+                        }
+                    }
+                    prevScope.Dispose();
+                    prev = current;
+                    prevScope = currentScope;
+                }
+            }
+            finally
+            {
+                prevScope.Dispose();
+            }
+        }
+
         public bool UseMoreSizeThan(int len)
         {
             if (SizeUsed <= len)

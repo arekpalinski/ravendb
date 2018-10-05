@@ -23,6 +23,7 @@ using Voron.Data.BTrees;
 using Voron.Data.Tables;
 using Voron.Impl;
 using Voron.Data.Compression;
+using Voron.Debugging;
 using Voron.Global;
 
 namespace Raven.Server.Documents.Indexes.MapReduce
@@ -205,6 +206,8 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             }
         }
 
+        public List<(long, string)> RecentlyDeleted = new List<(long, string)>();
+
         private void HandleTreeReduction(TransactionOperationContext indexContext, IndexingStatsScope stats,
              MapReduceResultsStore modifiedStore, LowLevelTransaction lowLevelTransaction,
             IndexWriteOperation writer, LazyStringValue reduceKeyHash, Table table, CancellationToken token)
@@ -212,15 +215,64 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             if (modifiedStore.ModifiedPages.Count == 0 && modifiedStore.FreedPages.Count == 0)
                 return;
 
-            EnsureValidTreeReductionStats(stats);
+            var page = new TreePage(null, Constants.Storage.PageSize);
 
             var tree = modifiedStore.Tree;
+
+            tree.ValidateTree_References();
+
+            //if (reduceKeyHash == "4450026199287070408")
+            //{
+            //    page.Base = lowLevelTransaction.GetPage(105433).Pointer;
+
+            //    using (var emptyPage = tree.DecompressPage(page, skipCache: true))
+            //    {
+            //        if (emptyPage.PageNumber == 105433)
+            //        {
+            //            var parentBranch = new TreePage(lowLevelTransaction.GetPage(128190).Pointer, Constants.Storage.PageSize);
+
+            //            parentBranch.DebugValidate2(modifiedStore.Tree, modifiedStore.Tree.State.RootPageNumber);
+
+            //            int index = 0;
+
+            //            using (emptyPage.Original.GetNodeKey(lowLevelTransaction, index, out var firstKeyOnEmptyPage))
+            //            using (parentBranch.GetNodeKey(lowLevelTransaction, 2, out var _3rd_node_key))
+            //            {
+            //                var a = SliceComparer.CompareInline(firstKeyOnEmptyPage, _3rd_node_key);
+            //            }
+
+            //            using (emptyPage.Original.GetNodeKey(lowLevelTransaction, index, out var firstKeyOnEmptyPage))
+            //            using (parentBranch.GetNodeKey(lowLevelTransaction, 3, out var _3rd_node_key))
+            //            {
+            //                var a = SliceComparer.CompareInline(firstKeyOnEmptyPage, _3rd_node_key);
+            //            }
+
+            //            using (emptyPage.Original.GetNodeKey(lowLevelTransaction, index, out var firstKeyOnEmptyPage))
+            //            using (parentBranch.GetNodeKey(lowLevelTransaction, 4, out var _4th_node_key))
+            //            {
+            //                var a = SliceComparer.CompareInline(firstKeyOnEmptyPage, _4th_node_key);
+            //            }
+
+            //            using (emptyPage.Original.GetNodeKey(lowLevelTransaction, index, out var firstKeyOnEmptyPage))
+            //            using (parentBranch.GetNodeKey(lowLevelTransaction, 5, out var _4th_node_key))
+            //            {
+            //                var a = SliceComparer.CompareInline(firstKeyOnEmptyPage, _4th_node_key);
+            //            }
+            //        }
+
+            //        modifiedStore.Tree.RemoveEmptyDecompressedPage(emptyPage);
+            //    }
+            //}
+
+            EnsureValidTreeReductionStats(stats);
+
+            
 
             var branchesToAggregate = new HashSet<long>();
 
             var parentPagesToAggregate = new HashSet<long>();
 
-            var page = new TreePage(null, Constants.Storage.PageSize);
+            
 
             HashSet<long> compressedEmptyLeafs = null;
 
@@ -228,6 +280,11 @@ namespace Raven.Server.Documents.Indexes.MapReduce
 
             foreach (var modifiedPage in modifiedStore.ModifiedPages)
             {
+                if (modifiedPage == 125451)
+                {
+                    Console.WriteLine("Leaf page was modified in tree:" + tree.Name);
+                }
+
                 token.ThrowIfCancellationRequested();
 
                 page.Base = lowLevelTransaction.GetPage(modifiedPage).Pointer;
@@ -261,6 +318,8 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                             using (Slice.External(indexContext.Allocator, (byte*)&emptyPageNumber, sizeof(long), out Slice pageNumSlice))
                                 table.DeleteByKey(pageNumSlice);
 
+                            RecentlyDeleted.Add((leafPage.PageNumber, "e"));
+
                             continue;
                         }
 
@@ -271,6 +330,11 @@ namespace Raven.Server.Documents.Indexes.MapReduce
 
                             if (compressedEmptyLeafs == null)
                                 compressedEmptyLeafs = new HashSet<long>();
+
+                            if (leafPage.PageNumber == 105433)
+                            {
+
+                            }
 
                             compressedEmptyLeafs.Add(leafPage.PageNumber);
                             continue;
@@ -327,8 +391,15 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             {
                 foreach (var freedPage in modifiedStore.FreedPages)
                 {
+                    if (freedPage == 125451)
+                    {
+                        Console.WriteLine("Removing aggregation result for 125451 page in the following tree: " + tree.Name);
+                    }
+
                     tmp = Bits.SwapBytes(freedPage);
                     table.DeleteByKey(pageNumberSlice);
+
+                    RecentlyDeleted.Add((freedPage, "f"));
                 }
             }
 
@@ -341,6 +412,11 @@ namespace Raven.Server.Documents.Indexes.MapReduce
 
                 foreach (var pageNumber in branchPages)
                 {
+                    if (pageNumber == 125451)
+                    {
+                        Console.WriteLine("Branch page was modified in tree:" + tree.Name);
+                    }
+
                     page.Base = lowLevelTransaction.GetPage(pageNumber).Pointer;
 
                     try
@@ -414,6 +490,28 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                     {
                         if (emptyPage.NumberOfEntries > 0) // could be changed meanwhile
                             continue;
+
+                        //if (emptyPage.PageNumber == 105433)
+                        //{
+                        //    var parentBranch = new TreePage(lowLevelTransaction.GetPage(128190).Pointer, Constants.Storage.PageSize);
+
+                        //    parentBranch.DebugValidate2(modifiedStore.Tree, modifiedStore.Tree.State.RootPageNumber);
+
+                        //    int index = 0;
+
+                        //    using (emptyPage.Original.GetNodeKey(lowLevelTransaction, index, out var firstKeyOnEmptyPage))
+                        //    using (parentBranch.GetNodeKey(lowLevelTransaction, 4, out var _4th_node_key))
+                        //    {
+                        //        var a = SliceComparer.CompareInline(firstKeyOnEmptyPage, _4th_node_key);
+                        //    }
+
+                        //    using (emptyPage.Original.GetNodeKey(lowLevelTransaction, index, out var firstKeyOnEmptyPage))
+                        //    using (parentBranch.GetNodeKey(lowLevelTransaction, 3, out var _3rd_node_key))
+                        //    {
+                        //        var a = SliceComparer.CompareInline(firstKeyOnEmptyPage, _3rd_node_key);
+                        //    }
+                        //}
+
 
                         modifiedStore.Tree.RemoveEmptyDecompressedPage(emptyPage);
                     }
@@ -523,7 +621,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             }
         }
 
-        private bool TryAggregateChildPageOrThrow(long pageNumber, Table table, TransactionOperationContext indexContext,
+        internal bool TryAggregateChildPageOrThrow(long pageNumber, Table table, TransactionOperationContext indexContext,
             HashSet<long> remainingBranchesToAggregate,
             HashSet<long> compressedEmptyLeafs,
             Dictionary<long, Exception> failedAggregatedLeafs,
@@ -561,6 +659,10 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                 return false;
             }
 
+            Console.WriteLine("About to throw: Couldn't find a pre-computed aggregation result ...");
+
+            
+
             var relatedPage = indexContext.Transaction.InnerTransaction.LowLevelTransaction.GetPage(pageNumber);
             var relatedTreePage = new TreePage(relatedPage.Pointer, Constants.Storage.PageSize);
 
@@ -586,18 +688,32 @@ namespace Raven.Server.Documents.Indexes.MapReduce
 
             var message = $"Couldn't find a pre-computed aggregation result for the existing page: {relatedTreePage}. ";
 
+            DebugStuff.RenderAndShow(tree);
+
             if (decompressedDebug != null)
                 message += $"Decompressed: {decompressedDebug}). ";
 
-            message += $"Tree state: {tree.State}. ";
+            message += $"Tree name: {tree.Name}, tree state: {tree.State}. ";
 
             if (failedAggregatedLeafs != null && failedAggregatedLeafs.TryGetValue(pageNumber, out var exception))
             {
                 message += $"The aggregation of this leaf (#{pageNumber}) has failed so the relevant result doesn't exist. " +
                            "Check the inner exception for leaf aggregation error details";
 
+                Console.WriteLine(message);
+
+
+                Debugger.Launch();
+                Debugger.Break();
+
                 throw new AggregationResultNotFoundException(message, exception);
             }
+
+            Console.WriteLine(message);
+
+
+            Debugger.Launch();
+            Debugger.Break();
 
             throw new AggregationResultNotFoundException(message);
         }

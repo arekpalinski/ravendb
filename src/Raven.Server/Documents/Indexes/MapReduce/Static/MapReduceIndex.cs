@@ -441,6 +441,11 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Static
                                 _reduceKeyProcessor.Process(_parent._indexContext.Allocator, blittableValue);
                         }
 
+                        if (_reduceKeyProcessor.Hash == 4450026199287070408)
+                        {
+
+                        }
+
                         if (_reduceKeyProcessor.ProcessedFields != _groupByFields.Count)
                             ThrowMissingGroupByFieldsInMapOutput(output, _groupByFields, _parent._compiledIndex);
 

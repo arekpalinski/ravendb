@@ -1322,9 +1322,24 @@ namespace Raven.Server.Documents
             public CollectionName Collection;
         }
 
+        public static bool ShouldStop = false;
+
         public long GenerateNextEtag()
         {
-            return Interlocked.Increment(ref _lastEtag); // use interlocked so the GetDatabaseChangeVector can read the latest version
+            var returnValue =  Interlocked.Increment(ref _lastEtag); // use interlocked so the GetDatabaseChangeVector can read the latest version
+
+            //if (returnValue == 5362064)
+            //{
+            //    Console.WriteLine("5362064 etag");
+            //    Console.WriteLine(System.Environment.StackTrace);
+
+            //    Debugger.Launch();
+            //    Debugger.Break();
+
+            //    ShouldStop = true;
+            //}
+
+            return returnValue;
         }
 
         public void EnsureLastEtagIsPersisted(DocumentsOperationContext context, long docEtag)

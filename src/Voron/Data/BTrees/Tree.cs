@@ -408,6 +408,10 @@ namespace Voron.Data.BTrees
             page.DebugValidate(this, State.RootPageNumber);
 
             ptr = overFlowPos == null ? dataPos : overFlowPos;
+
+            //if (_llt.Environment.ValidateReferences)
+            //    ValidateTree_References();
+
             return new DirectAddScope(this);
         }
 
@@ -575,6 +579,79 @@ namespace Voron.Data.BTrees
                             throw new InvalidOperationException("The page " + page + " already appeared in the tree!");
                         }
                         stack.Push(GetReadOnlyTreePage(page));
+                    }
+                }
+            }
+        }
+
+        public void ValidateTree_References()
+        {
+            var rootPageNumber = State.RootPageNumber;
+
+            var pages = new HashSet<long>();
+            var stack = new Stack<TreePage>();
+            var root = GetReadOnlyTreePage(rootPageNumber);
+            stack.Push(root);
+            pages.Add(rootPageNumber);
+            while (stack.Count > 0)
+            {
+                var p = stack.Pop();
+
+                using (p.IsCompressed ? (DecompressedLeafPage)(p = DecompressPage(p, skipCache: true)) : null)
+                {
+                    if (p.NumberOfEntries == 0 && p != root)
+                    {
+                        DebugStuff.RenderAndShowTree(this, rootPageNumber);
+                        throw new InvalidOperationException("The page " + p.PageNumber + " is empty");
+
+                    }
+                    p.DebugValidate(this, rootPageNumber);
+                    if (p.IsBranch == false)
+                        continue;
+
+                    if (p.NumberOfEntries < 2)
+                    {
+                        throw new InvalidOperationException("The branch page " + p.PageNumber + " has " +
+                                                            p.NumberOfEntries + " entry");
+                    }
+
+                    for (int i = 0; i < p.NumberOfEntries; i++)
+                    {
+                        var page = p.GetNode(i)->PageNumber;
+                        
+                        if (pages.Add(page) == false)
+                        {
+                            DebugStuff.RenderAndShowTree(this, rootPageNumber);
+                            throw new InvalidOperationException("The page " + page + " already appeared in the tree!");
+                        }
+
+                        TreePage refPage = GetReadOnlyTreePage(page);
+
+                        using (refPage.IsCompressed ? (DecompressedLeafPage)(refPage = DecompressPage(refPage, skipCache: true)) : null)
+                        using (p.GetNodeKey(_llt, i, out var branchKey))
+                        {
+                            if (branchKey.Options == SliceOptions.Key)
+                            {
+                                for (int j = 0; j < refPage.NumberOfEntries; j++)
+                                {
+                                    using (refPage.GetNodeKey(_llt, j, out var key))
+                                    {
+                                        if (key.HasValue && key.Size > 0 && SliceComparer.Compare(key, branchKey) < 0)
+                                        {
+                                            System.Console.WriteLine($"YEYEYEYEYEY: {key}, {branchKey}, {j}");
+
+                                            Debugger.Launch();
+                                            Debugger.Break();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (refPage.IsBranch == false)
+                            continue;
+
+                        stack.Push(refPage);
                     }
                 }
             }
@@ -1022,6 +1099,9 @@ namespace Voron.Data.BTrees
                 }
             }
 
+            //if (_llt.Environment.ValidateReferences)
+            //    ValidateTree_References();
+
             page.DebugValidate(this, State.RootPageNumber);
         }
 
@@ -1074,11 +1154,75 @@ namespace Voron.Data.BTrees
 
         public void RemoveEmptyDecompressedPage(DecompressedLeafPage emptyPage)
         {
+            if (emptyPage.PageNumber == 105433)
+            {
+
+            }
+
+            TreeNodeHeader* treeNodeHeader = emptyPage.Original.GetNode(0);
+
+            if (treeNodeHeader->Flags != TreeNodeFlags.CompressionTombstone)
+            {
+                Console.WriteLine("Got empty page which doesn't have compression tombstone at first node");
+
+                Debugger.Launch();
+                Debugger.Break();
+            }
+
+            Console.WriteLine($"Removing {emptyPage} (orig: {emptyPage.Original}) from {Name} tree");
+
             using (emptyPage.Original.GetNodeKey(_llt, 0, out var key))
             {
                 var p = FindPageFor(key, node: out _, cursor: out var cursorConstructor, allowCompressed: true);
 
-                Debug.Assert(p.IsLeaf && p.IsCompressed && p.PageNumber == emptyPage.PageNumber);
+                if ((p.IsLeaf && p.IsCompressed && p.PageNumber == emptyPage.PageNumber) == false)
+                {
+                    Console.WriteLine($"AAAAAAAAAAAAAAAAAAAA {p.PageNumber} {emptyPage.PageNumber}");
+
+                    Debugger.Launch();
+                    Debugger.Break();
+
+                    long parentPageOf = GetParentPageOf(p);
+                    var parent = GetReadOnlyTreePage(parentPageOf);
+
+                    Slice separator = Slices.Empty;
+
+                    for (int i = 0; i < parent.NumberOfEntries; i++)
+                    {
+                        if (parent.GetNode(i)->PageNumber == p.PageNumber)
+                        {
+                            parent.GetNodeKey(_tx.LowLevelTransaction, i, out separator);
+                        }
+                    }
+
+                    TreePage refPage = p;
+
+                    if (refPage.IsBranch == false)
+                    {
+                        using (refPage.IsCompressed ? (DecompressedLeafPage)(refPage = DecompressPage(refPage, skipCache: true)) : null)
+                        {
+                            for (int i = 0; i < refPage.NumberOfEntries; i++)
+                            {
+                                using (refPage.GetNodeKey(_tx.LowLevelTransaction, i, out var key2))
+                                {
+                                    if (SliceComparer.Compare(key2, separator) < 0)
+                                    {
+                                        System.Console.WriteLine($"DDDDDDDD: {key2}, {separator}, {i}");
+
+                                        Debugger.Launch();
+                                        Debugger.Break();
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+
+                    Debugger.Launch();
+                    Debugger.Break();
+                }
+
+                //Debug.Assert(p.IsLeaf && p.IsCompressed && p.PageNumber == emptyPage.PageNumber);
 
                 using (var cursor = cursorConstructor.Build(key))
                 {

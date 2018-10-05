@@ -38,6 +38,8 @@ namespace Voron
 
     public class StorageEnvironment : IDisposable
     {
+        public bool ValidateReferences = false;
+
         internal class IndirectReference
         {
             public StorageEnvironment Owner;
