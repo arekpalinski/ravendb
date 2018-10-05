@@ -95,7 +95,7 @@ namespace Raven.Server.Documents
         protected async Task<IOperationResult> ExecuteOperation(string collectionName, CollectionOperationOptions options, DocumentsOperationContext context,
              Action<DeterminateProgress> onProgress, Func<LazyStringValue, TransactionOperationsMerger.MergedTransactionCommand> action, OperationCancelToken token)
         {
-            const int batchSize = 4096;
+            const int batchSize = 8192;
             var progress = new DeterminateProgress();
             var cancellationToken = token.Token;
             var isAllDocs = collectionName == Constants.Documents.Collections.AllDocumentsCollection;
