@@ -190,7 +190,6 @@ namespace Raven.Tests.FileSystem.Synchronization
             await RunRenameSynchronization(sourceClient, destinationClient);
 
             Assert.NotNull(await destinationClient.GetMetadataForAsync("test"));
-            Assert.Null(await destinationClient.GetMetadataForAsync("renamed"));
         }
 
         [Fact]
