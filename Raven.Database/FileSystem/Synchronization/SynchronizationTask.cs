@@ -721,9 +721,16 @@ namespace Raven.Database.FileSystem.Synchronization
                 }
             }
 
-            if (forceSyncingAll)
+            if (forceSyncingAll && tasks.Count > 0)
             {
-                context.NotifyAboutWork(); // synchronization slot released, next file can be synchronized
+                if (deleteWorkFound)
+                {
+                    context.NotifyAboutWork(); // synchronization slot released, next file can be synchronized
+                }
+                else
+                {
+                    tasks.Last().ContinueWith(_ => context.NotifyAboutWork()); // synchronization slot released, next file can be synchronized
+                }
             }
 
             return tasks;
