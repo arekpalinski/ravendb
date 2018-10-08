@@ -102,7 +102,12 @@ namespace Raven.Tests.FileSystem.Auth
             var report = SyncTestUtils.ResolveConflictAndSynchronize(sourceClient, destinationClient, "test.bin");
 
             Assert.Null(report.Exception);
-            Assert.Equal(SynchronizationType.Rename, report.Type);
+            Assert.Equal(SynchronizationType.Delete, report.Type);
+
+            var report2 = sourceClient.Synchronization.StartAsync("renamed.bin", destinationClient).Result;
+
+            Assert.Null(report2.Exception);
+            Assert.Equal(SynchronizationType.ContentUpdate, report2.Type);
 
             var testMetadata = await destinationClient.GetMetadataForAsync("test.bin");
             var renamedMetadata = await destinationClient.GetMetadataForAsync("renamed.bin");

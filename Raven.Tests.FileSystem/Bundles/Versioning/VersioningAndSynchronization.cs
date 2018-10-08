@@ -203,7 +203,7 @@ namespace Raven.Tests.FileSystem.Bundles.Versioning
                 }
 
                 await source.AsyncFilesCommands.RenameAsync("file.txt", "renamed.txt");
-                await source.AsyncFilesCommands.Synchronization.StartAsync("file.txt", destination.AsyncFilesCommands);
+                await source.AsyncFilesCommands.Synchronization.StartAsync("renamed.txt", destination.AsyncFilesCommands);
 
                 using (var dstSession = destination.OpenAsyncSession())
                 {
@@ -249,13 +249,13 @@ namespace Raven.Tests.FileSystem.Bundles.Versioning
                 }
 
                 await source.AsyncFilesCommands.RenameAsync("file.txt", "renamed.txt");
-                await source.AsyncFilesCommands.Synchronization.StartAsync("file.txt", destination.AsyncFilesCommands);
+                await source.AsyncFilesCommands.Synchronization.StartAsync("renamed.txt", destination.AsyncFilesCommands);
 
                 using (var dstSession = destination.OpenAsyncSession())
                 {
                     var revisions = await dstSession.GetRevisionNamesForAsync("renamed.txt", 0, 128);
 
-                    Assert.Equal(2, revisions.Length);
+                    Assert.Equal(1, revisions.Length);
                 }
             }
         }

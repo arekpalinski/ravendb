@@ -11,6 +11,46 @@ namespace Raven.Tests.FileSystem.Bugs
     public class UpdatingMetadata : RavenFilesTestWithLogs
     {
         [Fact]
+        public async Task CanUpdateMetadataAndSearch()
+        {
+            var client = NewAsyncClient();
+            var ms = new MemoryStream();
+            var streamWriter = new StreamWriter(ms);
+            var expected = new string('a', 1024);
+            streamWriter.Write(expected);
+            streamWriter.Flush();
+            ms.Position = 0;
+
+            await client.UploadAsync("/uploads/abc.txt", ms, new RavenJObject
+            {
+                {"FileId", 1}
+            });
+
+            var result = await client.SearchAsync("FileId:1");
+
+            Assert.Equal(1, result.Files.Count);
+
+            await client.UpdateMetadataAsync("/uploads/abc.txt", new RavenJObject
+            {
+                {"FileId", 2}
+            });
+
+            result = await client.SearchAsync("FileId:2");
+
+            Assert.Equal(1, result.Files.Count);
+
+            var metadata = await client.GetMetadataForAsync("/uploads/abc.txt");
+
+            metadata["FileId"] = 3;
+
+            await client.UpdateMetadataAsync("/uploads/abc.txt", metadata);
+
+            result = await client.SearchAsync("FileId:3");
+
+            Assert.Equal(1, result.Files.Count);
+        }
+
+        [Fact]
         public async Task CanUpdateMetadata()
         {
             var client = NewAsyncClient(); 

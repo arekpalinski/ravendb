@@ -53,27 +53,10 @@ namespace Raven.Database.FileSystem.Synchronization
                 return false;
             }
 
-            if (ExistsRenameTombstone(file.FullPath, candidatesToSynchronization))
-            {
-                if (Log.IsDebugEnabled)
-                    Log.Debug($"File {file.FullPath} has been filtered out due to ExistsRenameTombstone");
-
-                return false;
-            }
-
             if (file.FullPath.Contains("/revisions/"))
                 return false;
 
             return true;
-        }
-
-        private static bool ExistsRenameTombstone(string name, IEnumerable<FileHeader> candidatesToSynchronization)
-        {
-            return
-                candidatesToSynchronization.Any(
-                    x =>
-                    x.Metadata[SynchronizationConstants.RavenDeleteMarker] != null &&
-                    x.Metadata.Value<string>(SynchronizationConstants.RavenRenameFile) == name);
         }
 
         public SynchronizationWorkItem DetermineWork(string file, RavenJObject localMetadata, RavenJObject destinationMetadata, string localServerUrl,
@@ -104,28 +87,11 @@ namespace Raven.Database.FileSystem.Synchronization
             {
                 if (localMetadata.ContainsKey(SynchronizationConstants.RavenRenameFile))
                 {
-                    var rename = localMetadata.Value<string>(SynchronizationConstants.RavenRenameFile);
+                    reason = NoSyncReason.IgnoringLegacyRenameTombstones;
 
-                    if (destinationMetadata != null)
-                        return new RenameWorkItem(file, rename, localServerUrl, storage);
-
-                    destinationMetadata = getDestinationMetadata(rename);
-
-                    if (destinationMetadata == null)
-                    {
-                        // we have a rename tombstone but file does not exists on destination
-
-                        var result = new ContentUpdateWorkItem(rename, localServerUrl, storage, sigGenerator, configuration);
-
-                        // we need to use rename tombstone etag here
-                        // we need to record that we processed rename tombstone, not the current file which can have much larger etag
-
-                        result.ForceSetEtag(Etag.Parse(localMetadata.Value<string>(Constants.MetadataEtagField)));
-
-                        return result;
-                    } 
+                    return null;
                 }
-                else if (destinationMetadata == null)
+                if (destinationMetadata == null)
                 {
                     reason = NoSyncReason.NoNeedToDeleteNonExistigFile;
                     return null;

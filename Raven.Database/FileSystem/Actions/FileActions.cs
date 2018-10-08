@@ -304,7 +304,7 @@ namespace Raven.Database.FileSystem.Actions
                     FileSystem.RenameTriggers.Apply(trigger => trigger.AfterRename(operation.Name, operation.Rename, operation.MetadataAfterOperation));
 
                     // copy renaming file metadata and set special markers
-                    var tombstoneMetadata = new RavenJObject(operation.MetadataAfterOperation).WithRenameMarkers(operation.Rename);
+                    var tombstoneMetadata = new RavenJObject(operation.MetadataAfterOperation).WithDeleteMarker();
 
                     accessor.PutFile(operation.Name, 0, tombstoneMetadata, true); // put rename tombstone
 

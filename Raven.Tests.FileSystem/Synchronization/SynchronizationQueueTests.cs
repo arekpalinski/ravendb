@@ -71,7 +71,7 @@ namespace Raven.Tests.FileSystem.Synchronization
         }
 
         [MtaFact]
-        public void Should_be_only_work_with_greater_etag_in_pending_queue()
+        public void Should_be_both_work_for_the_same_file_in_pending_queue_as_files_must_be_processed_in_etag_order()
         {
             using (var sigGenerator = new SigGenerator())
             {
@@ -87,8 +87,8 @@ namespace Raven.Tests.FileSystem.Synchronization
 
                 queue.EnqueueSynchronization(Destination, new ContentUpdateWorkItem(FileName, "http://localhost:12345", transactionalStorage, new SigGenerator(), configuration));
 
-                Assert.Equal(1, queue.Pending.Count());
-                Assert.True(newerEtag.CompareTo(queue.Pending.ToArray()[0].FileETag) == 0);
+                Assert.Equal(2, queue.Pending.Count());
+                Assert.True(newerEtag.CompareTo(queue.Pending.ToArray()[1].FileETag) == 0);
             }
         }
 

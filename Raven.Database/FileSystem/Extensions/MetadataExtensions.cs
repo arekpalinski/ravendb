@@ -27,14 +27,6 @@ namespace Raven.Database.FileSystem.Extensions
             return metadata;
         }
 
-        public static RavenJObject WithRenameMarkers(this RavenJObject metadata, string rename)
-        {
-            metadata[SynchronizationConstants.RavenDeleteMarker] = "true";
-            metadata[SynchronizationConstants.RavenRenameFile] = rename;
-
-            return metadata;
-        }
-
         public static RavenJObject WithDeleteMarker(this RavenJObject metadata)
         {
             metadata[SynchronizationConstants.RavenDeleteMarker] = "true";

@@ -551,7 +551,11 @@ namespace Raven.Tests.FileSystem.Synchronization
             // we need to indicate old file name, otherwise content update would be performed because renamed file does not exist on dest
             var report = SyncTestUtils.ResolveConflictAndSynchronize(sourceClient, destinationClient, "test.bin");
 
-            Assert.Equal(SynchronizationType.Rename, report.Type);
+            Assert.Equal(SynchronizationType.Delete, report.Type);
+
+            var report2 = sourceClient.Synchronization.StartAsync("renamed.bin", destinationClient).Result;
+
+            Assert.Equal(SynchronizationType.ContentUpdate, report2.Type);
 
             var conflictItem = destinationClient.Configuration.GetKeyAsync<ConflictItem>(RavenFileNameHelper.ConflictConfigNameForFile("test.bin")).Result;
 

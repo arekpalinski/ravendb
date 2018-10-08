@@ -44,13 +44,16 @@ namespace Raven.Tests.FileSystem.Synchronization
 
             var secondServer1Synchronization = await server1.Synchronization.StartAsync();
             Assert.Null(secondServer1Synchronization[0].Exception);
-            Assert.Equal(SynchronizationType.Rename, secondServer1Synchronization[0].Reports.ToArray()[0].Type);
+            Assert.Equal(SynchronizationType.Delete, secondServer1Synchronization[0].Reports.ToArray()[0].Type);
+            Assert.Equal(SynchronizationType.ContentUpdate, secondServer1Synchronization[0].Reports.ToArray()[1].Type);
 
             SyncTestUtils.TurnOnSynchronization(server2, server3);
 
             var secondServer2Synchronization = await server2.Synchronization.StartAsync();
             Assert.Null(secondServer2Synchronization[0].Exception);
-            Assert.Equal(SynchronizationType.Rename, secondServer2Synchronization[0].Reports.ToArray()[0].Type);
+            Assert.Equal(SynchronizationType.Delete, secondServer2Synchronization[0].Reports.ToArray()[0].Type);
+            Assert.Equal(SynchronizationType.ContentUpdate, secondServer2Synchronization[0].Reports.ToArray()[1].Type);
+
 
             // On all servers should be file named "rename.bin"
             var server1BrowseResult = await server1.BrowseAsync();

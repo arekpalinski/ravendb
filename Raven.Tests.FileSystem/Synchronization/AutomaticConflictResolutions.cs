@@ -241,7 +241,12 @@ namespace Raven.Tests.FileSystem.Synchronization
             var report = await sourceClient.Synchronization.StartAsync("test", destinationClient);
 
             Assert.Null(report.Exception);
-            Assert.Equal(SynchronizationType.Rename, report.Type);
+            Assert.Equal(SynchronizationType.Delete, report.Type);
+
+            var report2 = await sourceClient.Synchronization.StartAsync("renamed", destinationClient);
+
+            Assert.Null(report2.Exception);
+            Assert.Equal(SynchronizationType.ContentUpdate, report2.Type);
         }
 
         [Fact]

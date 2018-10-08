@@ -291,7 +291,7 @@ namespace Raven.Tests.FileSystem.Synchronization
             // we need to indicate old file name, otherwise content update would be performed because renamed file does not exist on dest
             var report = sourceClient.Synchronization.StartAsync("test.bin", destinationClient).Result;
 
-            Assert.Equal(SynchronizationType.Rename, report.Type);
+            Assert.Equal(SynchronizationType.Delete, report.Type);
             Assert.Equal(string.Format("File {0} is conflicted", FileHeader.Canonize("test.bin")), report.Exception.Message);
         }
 

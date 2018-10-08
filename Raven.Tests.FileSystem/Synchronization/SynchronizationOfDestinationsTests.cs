@@ -238,7 +238,7 @@ namespace Raven.Tests.FileSystem.Synchronization
             await sourceClient.UploadAsync("test2.bin", new RandomStream(1));
 
             await sourceClient.Synchronization.SetDestinationsAsync(destinationClient.ToSynchronizationDestination());
-            await sourceClient.Synchronization.StartAsync();
+            var a = await sourceClient.Synchronization.StartAsync();
 
             var pendingSynchronizations = await sourceClient.Synchronization.GetPendingAsync();
 
@@ -326,11 +326,11 @@ namespace Raven.Tests.FileSystem.Synchronization
                     if (destinationSyncResult.Reports == null)
                         continue;
 
-                    foreach (var report in destinationSyncResult.Reports)
-                    {
-                        Assert.Null(report.Exception);
-                        Assert.Equal(SynchronizationType.Rename, report.Type);
-                    }
+                    Assert.Null(destinationSyncResult.Reports.ToArray()[0].Exception);
+                    Assert.Equal(SynchronizationType.Delete, destinationSyncResult.Reports.ToArray()[0].Type);
+
+                    Assert.Null(destinationSyncResult.Reports.ToArray()[1].Exception);
+                    Assert.Equal(SynchronizationType.ContentUpdate, destinationSyncResult.Reports.ToArray()[1].Type);
                 }
             }
 

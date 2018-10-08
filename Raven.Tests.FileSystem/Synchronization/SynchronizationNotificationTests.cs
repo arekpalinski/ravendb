@@ -90,10 +90,29 @@ namespace Raven.Tests.FileSystem.Synchronization
 
             Assert.Equal(SynchronizationAction.Start, synchronizationUpdates[0].Action);
             Assert.Equal(FileHeader.Canonize("test.bin"), synchronizationUpdates[0].FileName);
-            Assert.Equal(SynchronizationType.Rename, synchronizationUpdates[0].Type);
+            Assert.Equal(SynchronizationType.Delete, synchronizationUpdates[0].Type);
             Assert.Equal(SynchronizationAction.Finish, synchronizationUpdates[1].Action);
             Assert.Equal(FileHeader.Canonize("test.bin"), synchronizationUpdates[1].FileName);
-            Assert.Equal(SynchronizationType.Rename, synchronizationUpdates[1].Type);
+            Assert.Equal(SynchronizationType.Delete, synchronizationUpdates[1].Type);
+
+            notificationTask = sourceStore.Changes().ForSynchronization()
+                .Where(s => s.Direction == SynchronizationDirection.Outgoing)
+                .Timeout(TimeSpan.FromSeconds(20))
+                .Take(2).ToArray()
+                .ToTask();
+
+            report = await sourceClient.Synchronization.StartAsync("rename.bin", destinationClient);
+
+            Assert.Null(report.Exception);
+
+            synchronizationUpdates = await notificationTask;
+
+            Assert.Equal(SynchronizationAction.Start, synchronizationUpdates[0].Action);
+            Assert.Equal(FileHeader.Canonize("rename.bin"), synchronizationUpdates[0].FileName);
+            Assert.Equal(SynchronizationType.ContentUpdate, synchronizationUpdates[0].Type);
+            Assert.Equal(SynchronizationAction.Finish, synchronizationUpdates[1].Action);
+            Assert.Equal(FileHeader.Canonize("rename.bin"), synchronizationUpdates[1].FileName);
+            Assert.Equal(SynchronizationType.ContentUpdate, synchronizationUpdates[1].Type);
 
             // delete update
             await sourceClient.DeleteAsync("rename.bin");
@@ -184,11 +203,25 @@ namespace Raven.Tests.FileSystem.Synchronization
 
             Assert.Equal(SynchronizationAction.Start, synchronizationUpdates[0].Action);
             Assert.Equal(FileHeader.Canonize("test.bin"), synchronizationUpdates[0].FileName);
-            Assert.Equal(SynchronizationType.Rename, synchronizationUpdates[0].Type);
+            Assert.Equal(SynchronizationType.Delete, synchronizationUpdates[0].Type);
 
             Assert.Equal(SynchronizationAction.Finish, synchronizationUpdates[1].Action);
             Assert.Equal(FileHeader.Canonize("test.bin"), synchronizationUpdates[1].FileName);
-            Assert.Equal(SynchronizationType.Rename, synchronizationUpdates[1].Type);
+            Assert.Equal(SynchronizationType.Delete, synchronizationUpdates[1].Type);
+
+            report = await sourceClient.Synchronization.StartAsync("rename.bin", destinationClient);
+
+            Assert.Null(report.Exception);
+
+            synchronizationUpdates = await notificationTask;
+
+            Assert.Equal(SynchronizationAction.Start, synchronizationUpdates[0].Action);
+            Assert.Equal(FileHeader.Canonize("test.bin"), synchronizationUpdates[0].FileName);
+            Assert.Equal(SynchronizationType.Delete, synchronizationUpdates[0].Type);
+
+            Assert.Equal(SynchronizationAction.Finish, synchronizationUpdates[1].Action);
+            Assert.Equal(FileHeader.Canonize("test.bin"), synchronizationUpdates[1].FileName);
+            Assert.Equal(SynchronizationType.Delete, synchronizationUpdates[1].Type);
 
             // delete update
             await sourceClient.DeleteAsync("rename.bin");

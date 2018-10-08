@@ -223,16 +223,16 @@ namespace Raven.Database.FileSystem.Synchronization
                         var result = Execute(true);
                         var synchronizations = result.Values.SelectMany(x => x.Result as IEnumerable<Task>).ToArray();
 
-                        if (systemConfiguration.FileSystem.SynchronizationBatchProcessing)
-                        {
+                        //if (systemConfiguration.FileSystem.SynchronizationBatchProcessing)
+                        //{
                             Task.WaitAll(synchronizations);
-                        }
-                        else
-                        {
-                            // if any synchronization slot gets released try to schedule another synchronization 
+                        //}
+                        //else
+                        //{
+                        //    // if any synchronization slot gets released try to schedule another synchronization 
 
-                            Task.WaitAny(synchronizations); 
-                        }
+                        //    Task.WaitAny(synchronizations); 
+                        //}
                     }
                     catch (Exception e)
                     {
@@ -369,7 +369,7 @@ namespace Raven.Database.FileSystem.Synchronization
 
             do
             {
-                if (synchronizationQueue.NumberOfPendingSynchronizationsFor(destination.Url) < AvailableSynchronizationRequestsTo(destination.Url))
+                if (synchronizationQueue.NumberOfPendingSynchronizationsFor(destination.Url) == 0)
                 {
                     var activeTasks = synchronizationQueue.Active;
                     var filesNeedConfirmation = GetSyncingConfigurations(destination).Where(sync => activeTasks.All(x => x.FileName != sync.FileName)).ToList();
@@ -656,7 +656,15 @@ namespace Raven.Database.FileSystem.Synchronization
         {
             var destinationUrl = destinationCommands.BaseUrl;
 
-            while (AvailableSynchronizationRequestsTo(destinationUrl) > 0)
+            var tasks = new List<Task<SynchronizationReport>>();
+
+            var availableSynchronizationRequestsTo = AvailableSynchronizationRequestsTo(destinationUrl);
+
+            var toRun = new List<SynchronizationWorkItem>();
+
+            bool deleteWorkFound = false;
+
+            for (int i = 0; i < availableSynchronizationRequestsTo; i++)
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
 
@@ -688,15 +696,37 @@ namespace Raven.Database.FileSystem.Synchronization
                     continue;
                 }
 
+                toRun.Add(work);
+                
+                if (work.SynchronizationType == SynchronizationType.Delete)
+                    deleteWorkFound = true;
+            }
+
+            foreach (var work in toRun)
+            {
                 var workTask = PerformSynchronizationAsync(destinationCommands, work);
 
-                if (forceSyncingAll)
+                if (deleteWorkFound)
                 {
-                    workTask.ContinueWith(_ => context.NotifyAboutWork()); // synchronization slot released, next file can be synchronized
-                }
+                    // if we have deletion work then let's process entire batch one by one to ensure that deletion of renamed file
+                    // will be finished before we start sending content of renamed one
 
-                yield return workTask;
+                    var result = workTask.Result;
+
+                    tasks.Add(new CompletedTask<SynchronizationReport>(result));
+                }
+                else
+                {
+                    tasks.Add(workTask);
+                }
             }
+
+            if (forceSyncingAll)
+            {
+                context.NotifyAboutWork(); // synchronization slot released, next file can be synchronized
+            }
+
+            return tasks;
         }
 
         private async Task<SynchronizationReport> PerformSynchronizationAsync(ISynchronizationServerClient synchronizationServerClient,
