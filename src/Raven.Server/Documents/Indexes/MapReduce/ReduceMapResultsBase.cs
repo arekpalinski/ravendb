@@ -219,7 +219,10 @@ namespace Raven.Server.Documents.Indexes.MapReduce
 
             var tree = modifiedStore.Tree;
 
-            tree.ValidateTree_References();
+            if (reduceKeyHash == "15467709870019659167")
+            {
+                tree.ValidateTree_References();
+            }
 
             //if (reduceKeyHash == "4450026199287070408")
             //{
@@ -334,6 +337,11 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                             if (leafPage.PageNumber == 105433)
                             {
 
+                            }
+
+                            if (leafPage.PageNumber == 136140)
+                            {
+                                //modifiedStore.Tree.RemoveEmptyDecompressedPage((DecompressedLeafPage)leafPage);
                             }
 
                             compressedEmptyLeafs.Add(leafPage.PageNumber);

@@ -259,7 +259,7 @@ namespace Voron.Data.BTrees
         {
             var tombstoneNodeSize = page.GetRequiredSpace(keyToDelete, 0);
 
-            page = ModifyPage(page);
+            page = ModifyPage(page, "DeleteOnCompressedPage ");
 
             if (page.HasSpaceFor(_llt, tombstoneNodeSize))
             {
@@ -267,6 +267,12 @@ namespace Voron.Data.BTrees
                     RemoveLeafNode(page);
 
                 page.AddCompressionTombstoneNode(page.LastSearchPosition, keyToDelete);
+
+                if (_llt.DebugStuff && page.PageNumber == 136140)
+                {
+                    Console.WriteLine("Deleted on compressed - had space for");
+                }
+
                 return;
             }
 
@@ -293,11 +299,21 @@ namespace Voron.Data.BTrees
                     }
                 }
 
+                if (_llt.DebugStuff && page.PageNumber == 136140)
+                {
+                    Console.WriteLine("Deleted on compressed - had to decompress page");
+                }
+
                 page.DebugValidate(this, State.RootPageNumber);
             }
             finally
             {
                 decompressed.CopyToOriginal(_llt, defragRequired: true, wasModified: true);
+            }
+
+            if (Name.ToString().Contains("15467709870019659167"))
+            {
+                ValidateTree_References();
             }
         }
 

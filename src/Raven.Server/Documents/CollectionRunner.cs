@@ -117,7 +117,7 @@ namespace Raven.Server.Documents
             // send initial progress with total count set, and 0 as processed count
             onProgress(progress);
 
-            long startEtag = 0;//401409;//350209;//301057;//200705;//104449;
+            long startEtag = 679937;// 401409 /*778241*/;//401409;//350209;//301057;//200705;//104449;
             using (var rateGate = options.MaxOpsPerSecond.HasValue
                     ? new RateGate(options.MaxOpsPerSecond.Value, TimeSpan.FromSeconds(1))
                     : null)
@@ -144,9 +144,16 @@ namespace Raven.Server.Documents
 
                             Console.WriteLine("Collection runner, start: " + startEtag);
 
-                            //if (startEtag > 400_000)
+                            //if (startEtag >= 778241)
                             //{
                             //    Console.WriteLine("STOP: " + startEtag);
+
+                            //    Console.ReadKey();
+                            //}
+
+                            //if (total >= 278528)
+                            //{
+                            //    Console.WriteLine("STOP: it processed  " + total + " start etag: " + startEtag);
 
                             //    Console.ReadKey();
                             //}

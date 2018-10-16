@@ -1231,11 +1231,11 @@ namespace Raven.Server.Documents.Indexes
                             batchCompletedAction?.Invoke((Name, didWork));
                         }
 
-                            if (FlushCounter++ % 3 == 0)
-                            {
-                                Console.WriteLine("Flushing index");
-                                _environment.FlushLogToDataFile();
-                            }
+                            //if (FlushCounter++ % 3 == 0)
+                            //{
+                            //    Console.WriteLine("Flushing index");
+                            //    _environment.FlushLogToDataFile();
+                            //}
 
                         }
                         finally
@@ -1610,6 +1610,8 @@ namespace Raven.Server.Documents.Indexes
                 using (CurrentIndexingScope.Current =
                     new CurrentIndexingScope(DocumentDatabase.DocumentsStorage, databaseContext, Definition, indexContext, GetOrAddSpatialField, _unmanagedBuffersPool))
                 {
+                    tx.InnerTransaction.LowLevelTransaction.DebugStuff = true;
+
                     var writeOperation = new Lazy<IndexWriteOperation>(() => IndexPersistence.OpenIndexWriter(indexContext.Transaction.InnerTransaction, indexContext));
 
                     try

@@ -46,9 +46,18 @@ namespace SlowTests.Issues
 
                 Assert.True(tree.State.Flags.HasFlag(TreeFlags.LeafsCompressed));
 
-                for (int i = 0; i < 25_000; i++)
+                for (int i = 0; i < 40_000; i += 4)
                 {
                     tree.Delete(GetKey(i));
+                }
+
+                tree.Delete(GetKey(33392));
+
+                for (int i = 25_000; i >= 0 ; i--)
+                {
+                    tree.Delete(GetKey(i));
+
+                    tree.ValidateTree_References();
                 }
 
                 tx.Commit();

@@ -373,6 +373,21 @@ namespace Voron.Impl
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal Page ModifyPage(long num)
         {
+            if (num == 136148)
+            {
+
+            }
+
+            if (num == 136140)
+            {
+
+            }
+
+            if (num == 135044)
+            {
+
+            }
+
             _env.Options.AssertNoCatastrophicFailure();
 
             if (_pageLocator.TryGetWritablePage(num, out Page result))
@@ -598,6 +613,14 @@ namespace Voron.Impl
             VerifyNoDuplicateScratchPages();
 #endif
 
+            if (pageNumber == 136140 && DebugStuff)
+            {
+                Console.WriteLine("136140 was allocated ");
+
+                //Debugger.Launch();
+                //Debugger.Break();
+            }
+
             return newPage;
         }
 
@@ -702,6 +725,7 @@ namespace Voron.Impl
 
         public bool IsDisposed => _disposed;
         public NativeMemory.ThreadStats CurrentTransactionHolder { get; set; }
+        public bool DebugStuff { get; set; }
 
         public void Dispose()
         {

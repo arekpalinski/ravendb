@@ -6,7 +6,10 @@ using Sparrow.Binary;
 using Sparrow.Json;
 using Voron;
 using Voron.Data.BTrees;
+using Voron.Data.Compression;
+using Voron.Debugging;
 using Voron.Impl;
+using Voron.Util;
 
 namespace Raven.Server.Documents.Indexes.MapReduce
 {
@@ -56,6 +59,58 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             var treeName = ReduceTreePrefix + _reduceKeyHash;
             var options = _tx.LowLevelTransaction.Environment.Options.RunningOn32Bits ? TreeFlags.None : TreeFlags.LeafsCompressed;
             Tree = create ? _tx.CreateTree(treeName, flags: options) : _tx.ReadTree(treeName);
+
+            //if (_reduceKeyHash == 15467709870019659167)
+            //{
+            //   DebugStuff.RenderAndShow(Tree);
+
+            //    Tree.ValidateTree_References();
+
+
+            //    TreePage parent = Tree.GetReadOnlyTreePage(136148);
+
+            //    TreePage page = Tree.GetReadOnlyTreePage(136140);
+
+
+
+            //    long parentPageOf = Tree.GetParentPageOf(Tree.DecompressPage(page, skipCache: true));
+
+
+            //    //page.GetNodeKey(_tx.LowLevelTransaction, 0, out var key);
+
+            //    //Slice separator = Slices.Empty;
+            //    //for (int i = 0; i < parent.NumberOfEntries; i++)
+            //    //{
+            //    //    if (parent.GetNode(i)->PageNumber == page.PageNumber)
+            //    //    {
+            //    //        parent.GetNodeKey(_tx.LowLevelTransaction, i, out separator);
+
+            //    //        int compare = SliceComparer.Compare(key, separator);
+            //    //    }
+            //    //}
+
+            //    //int hit = 0;
+
+            //    //for (int i = 0; i < page.NumberOfEntries; i++)
+            //    //{
+            //    //    using (page.GetNodeKey(_tx.LowLevelTransaction, i, out var key2))
+            //    //    {
+            //    //        if (SliceComparer.Compare(key2, separator) < 0)
+            //    //        {
+            //    //            System.Console.WriteLine($"DDDDDDDD: {key2}, {separator}, {i}");
+
+            //    //            hit++;
+
+            //    //            //Debugger.Launch();
+            //    //            //Debugger.Break();
+            //    //        }
+            //    //    }
+            //    //}
+
+            //    //var decompressed = Tree.DecompressPage(page, skipCache: true);
+
+            //    //Tree.RemoveEmptyDecompressedPage(decompressed);
+            //}
 
             ModifiedPages = new HashSet<long>();
             FreedPages = new HashSet<long>();
@@ -148,12 +203,24 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                     Slice entrySlice;
                     using (Slice.External(_indexContext.Allocator, (byte*)&id, sizeof(long), out entrySlice))
                     {
-                        var read = Tree.ReadDecompressed(entrySlice);
+                        if (Tree.IsLeafCompressionSupported)
+                        {
+                            var read = Tree.ReadDecompressed(entrySlice);
 
-                        if (read == null)
-                            throw new InvalidOperationException($"Could not find a map result with id '{id}' in '{Tree.Name}' tree");
+                            if (read == null)
+                                throw new InvalidOperationException($"Could not find a map result with id '{id}' in '{Tree.Name}' tree");
 
-                        return new ReadMapEntryScope(read);
+                            return new ReadMapEntryScope(read);
+                        }
+                        else
+                        {
+                            var read = Tree.Read(entrySlice);
+
+                            if (read == null)
+                                throw new InvalidOperationException($"Could not find a map result with id '{id}' in '{Tree.Name}' tree");
+
+                            return new ReadMapEntryScope(PtrSize.Create(read.Reader.Base, read.Reader.Length));
+                        }
                     }
                 case MapResultsStorageType.Nested:
                     var section = GetNestedResultsSection();

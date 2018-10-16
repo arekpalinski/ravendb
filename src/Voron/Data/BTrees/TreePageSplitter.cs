@@ -38,7 +38,7 @@ namespace Voron.Data.BTrees
             _nodeType = nodeType;
             _cursor = cursor;
             TreePage page = _cursor.Pages.Peek();
-            _page = _tree.ModifyPage(page);
+            _page = _tree.ModifyPage(page, "splitter 1");
             _cursor.Pop();
         }
 
@@ -73,7 +73,7 @@ namespace Voron.Data.BTrees
                 {
                     // we already popped the page, so the current one on the stack is the parent of the page
 
-                    _parentPage = _tree.ModifyPage(_cursor.CurrentPage);
+                    _parentPage = _tree.ModifyPage(_cursor.CurrentPage, "splitter 2");
 
                     _cursor.Update(_cursor.Pages, _parentPage);
                 }
