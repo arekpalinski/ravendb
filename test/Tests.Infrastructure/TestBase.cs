@@ -277,16 +277,22 @@ namespace FastTests
                     if (copyGlobalServer == null)
                         return;
 
+                    Console.WriteLine("Unloading global server");
+
                     try
                     {
                         using (copyGlobalServer.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
                         using (context.OpenReadTransaction())
                         {
+                            Console.WriteLine("Getting list of non-deleted databases");
+
                             var databases = copyGlobalServer
                                 .ServerStore
                                 .Cluster
                                 .ItemsStartingWith(context, Constants.Documents.Prefix, 0, int.MaxValue)
                                 .ToList();
+
+                            Console.WriteLine("List count: " + databases.Count);
 
                             if (databases.Count > 0)
                             {
@@ -299,6 +305,8 @@ namespace FastTests
 
                                     try
                                     {
+                                        Console.WriteLine($"Deleting database: {databaseName}");
+
                                         AsyncHelpers.RunSync(() => copyGlobalServer.ServerStore.DeleteDatabaseAsync(databaseName, hardDelete: true, null));
                                     }
                                     catch (Exception)
@@ -320,14 +328,29 @@ namespace FastTests
                         Console.WriteLine($"Could not retrieve list of non-deleted databases. Exception: {e}");
                     }
 
+                    Console.WriteLine("Disposing global server");
+
                     copyGlobalServer.Dispose();
 
+                    Console.WriteLine("Global server disposed");
+
+                    Console.WriteLine("GC.Collect");
                     GC.Collect(2);
+                    Console.WriteLine("GC.Collect - done");
+
+                    Console.WriteLine("GC.WaitForPendingFinalizers");
+
                     GC.WaitForPendingFinalizers();
+
+                    Console.WriteLine("GC.WaitForPendingFinalizers- done");
+
 
                     var exceptionAggregator = new ExceptionAggregator("Failed to cleanup test databases");
 
+                    Console.WriteLine("Delete paths");
                     RavenTestHelper.DeletePaths(GlobalPathsToDelete, exceptionAggregator);
+                    Console.WriteLine("Delete paths - done");
+
 
                     exceptionAggregator.ThrowIfNeeded();
                 }
