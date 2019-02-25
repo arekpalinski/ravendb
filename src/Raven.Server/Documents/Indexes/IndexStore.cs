@@ -44,7 +44,7 @@ namespace Raven.Server.Documents.Indexes
         private readonly ServerStore _serverStore;
 
         private readonly CollectionOfIndexes _indexes = new CollectionOfIndexes();
-        private readonly ConcurrentDictionary<string, object> _indexLocks = new ConcurrentDictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> _indexLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
 
         private bool _initialized;
 
@@ -104,7 +104,11 @@ namespace Raven.Server.Documents.Indexes
 
         private void HandleAutoIndexChange(string name, AutoIndexDefinitionBase definition)
         {
-            lock (GetIndexLock(name))
+            var indexLock = GetIndexLock(name);
+
+            indexLock.Wait();
+            
+            try
             {
                 var creationOptions = IndexCreationOptions.Create;
                 var existingIndex = GetIndex(name);
@@ -157,6 +161,10 @@ namespace Raven.Server.Documents.Indexes
                     throw new NotImplementedException($"Unknown index definition type: {definition.GetType().FullName}");
 
                 CreateIndexInternal(index);
+            }
+            finally
+            {
+                indexLock.Release();
             }
         }
 
@@ -254,7 +262,11 @@ namespace Raven.Server.Documents.Indexes
 
         private void HandleStaticIndexChange(string name, IndexDefinition definition)
         {
-            lock (GetIndexLock(name))
+            var indexLock = GetIndexLock(name);
+
+            indexLock.Wait();
+
+            try
             {
                 var creationOptions = IndexCreationOptions.Create;
                 var currentIndex = GetIndex(name);
@@ -329,6 +341,10 @@ namespace Raven.Server.Documents.Indexes
                 }
 
                 CreateIndexInternal(index);
+            }
+            finally
+            {
+                indexLock.Release();
             }
         }
 
@@ -1266,11 +1282,22 @@ namespace Raven.Server.Documents.Indexes
             }
         }
 
-        public bool TryReplaceIndexes(string oldIndexName, string replacementIndexName)
+        public bool TryReplaceIndexes(string oldIndexName, string replacementIndexName, CancellationToken token = default)
         {
             try
             {
-                lock (GetIndexLock(oldIndexName))
+                var indexLock = GetIndexLock(oldIndexName);
+                try
+                {
+
+                    indexLock.Wait(token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return false;
+                }
+
+                try
                 {
                     if (_indexes.TryGetByName(replacementIndexName, out Index newIndex) == false)
                         return true;
@@ -1380,6 +1407,10 @@ namespace Raven.Server.Documents.Indexes
 
                     return true;
                 }
+                finally
+                {
+                    indexLock.Release();
+                }
             }
             catch (IOException)
             {
@@ -1395,9 +1426,9 @@ namespace Raven.Server.Documents.Indexes
             }
         }
 
-        private object GetIndexLock(string name)
+        private SemaphoreSlim GetIndexLock(string name)
         {
-            return _indexLocks.GetOrAdd(name, n => new object());
+            return _indexLocks.GetOrAdd(name, n => new SemaphoreSlim(1, 1));
         }
 
         private void ExecuteIndexAction(Action action)
