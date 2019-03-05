@@ -679,20 +679,30 @@ namespace Voron.Data.Tables
 
         internal FixedSizeTree GetFixedSizeTree(Tree parent, Slice name, ushort valSize, bool isGlobal, bool isIndexTree = false)
         {
-            if (_fixedSizeTreeCache.TryGetValue(parent.Name, out Dictionary<Slice, FixedSizeTree> cache) == false)
+            try
             {
-                cache = new Dictionary<Slice, FixedSizeTree>(SliceStructComparer.Instance);
-                _fixedSizeTreeCache[parent.Name] = cache;
+                if (_fixedSizeTreeCache.TryGetValue(parent.Name, out Dictionary<Slice, FixedSizeTree> cache) == false)
+                {
+                    cache = new Dictionary<Slice, FixedSizeTree>(SliceStructComparer.Instance);
+                    _fixedSizeTreeCache[parent.Name] = cache;
+                }
+
+                if (cache.TryGetValue(name, out FixedSizeTree tree) == false)
+                {
+                    var allocator = isGlobal ? _globalPageAllocator : _tablePageAllocator;
+                    var fixedSizeTree = new FixedSizeTree(_tx.LowLevelTransaction, parent, name, valSize, isIndexTree: isIndexTree | parent.IsIndexTree, newPageAllocator: allocator);
+                    return cache[fixedSizeTree.Name] = fixedSizeTree;
+                }
+
+                return tree;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+                throw;
             }
 
-            if (cache.TryGetValue(name, out FixedSizeTree tree) == false)
-            {
-                var allocator = isGlobal ? _globalPageAllocator : _tablePageAllocator;
-                var fixedSizeTree = new FixedSizeTree(_tx.LowLevelTransaction, parent, name, valSize, isIndexTree: isIndexTree | parent.IsIndexTree, newPageAllocator: allocator);
-                return cache[fixedSizeTree.Name] = fixedSizeTree;
-            }
-
-            return tree;
+            
         }
 
         private long AllocateFromSmallActiveSection(TableValueBuilder builder, int size)
@@ -1345,6 +1355,22 @@ namespace Voron.Data.Tables
             }
 
             return deleted;
+        }
+
+        public bool DeleteByIndex(TableSchema.FixedSizeSchemaIndexDef index, long value)
+        {
+            AssertWritableTable();
+
+            var fst = GetFixedSizeTree(index);
+
+            using (var it = fst.Iterate())
+            {
+                if (it.Seek(value) == false)
+                    return true;
+
+                Delete(it.CreateReaderForCurrent().ReadLittleEndianInt64());
+                return true;
+            }
         }
 
         public bool DeleteByPrimaryKeyPrefix(Slice startSlice, Action<TableValueHolder> beforeDelete = null, Func<TableValueHolder, bool> shouldAbort = null)

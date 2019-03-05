@@ -34,7 +34,68 @@ using Constants = Voron.Global.Constants;
 
 namespace Voron
 {
-    public delegate bool UpgraderDelegate(Transaction readTx, Transaction writeTx, int currentVersion, out int versionAfterUpgrade);
+    public class SchemaUpgradeTransactions : IDisposable
+    {
+        private readonly StorageEnvironment _env;
+
+        public SchemaUpgradeTransactions(StorageEnvironment env)
+        {
+            _env = env;
+
+            OpenRead();
+            OpenWrite();
+        }
+
+        public Transaction Read { get; private set; }
+        public Transaction Write { get; private set; }
+
+        public void OpenRead()
+        {
+            var readPersistentContext = new TransactionPersistentContext(true);
+
+            Read = new Transaction(_env.NewLowLevelTransaction(readPersistentContext, TransactionFlags.Read));
+        }
+
+        private void OpenWrite()
+        {
+            var writePersistentContext = new TransactionPersistentContext(true);
+
+            Write = new Transaction(_env.NewLowLevelTransaction(writePersistentContext, TransactionFlags.ReadWrite));
+        }
+
+        public void Commit()
+        {
+            using (Write)
+            {
+                Write?.Commit();
+            }
+
+            Write = null;
+        }
+
+        public void Renew()
+        {
+            Read?.Dispose();
+            Write?.Dispose();
+
+            OpenRead();
+            OpenWrite();
+        }
+
+        public void Dispose()
+        {
+            Commit();
+
+            using (Read)
+            {
+                Read?.Commit();
+            }
+
+            Read = null;
+        }
+    }
+
+    public delegate bool UpgraderDelegate(SchemaUpgradeTransactions transactions, int currentVersion, out int versionAfterUpgrade);
 
     public class StorageEnvironment : IDisposable
     {
@@ -323,22 +384,16 @@ namespace Voron
         {
             while (schemaVersionVal < Options.SchemaVersion)
             {
-                var readPersistentContext = new TransactionPersistentContext(true);
-                var writePersistentContext = new TransactionPersistentContext(true);
-                using (var readTxInner = NewLowLevelTransaction(readPersistentContext, TransactionFlags.Read))
-                using (var readTx = new Transaction(readTxInner))
-                using (var writeTxInner = NewLowLevelTransaction(writePersistentContext, TransactionFlags.ReadWrite))
-                using (var writeTx = new Transaction(writeTxInner))
+                using (var transactions = new SchemaUpgradeTransactions(this))
                 {
                     // ReSharper disable once PossibleNullReferenceException
-                    if (upgrader(readTx, writeTx, schemaVersionVal, out schemaVersionVal) == false)
+                    if (upgrader(transactions, schemaVersionVal, out schemaVersionVal) == false)
                         break;
 
-                    var metadataTree = writeTx.ReadTree(Constants.MetadataTreeNameSlice);
+                    var metadataTree = transactions.Write.ReadTree(Constants.MetadataTreeNameSlice);
                     //schemaVersionVal++;
 
                     metadataTree.Add("schema-version", EndianBitConverter.Little.GetBytes(schemaVersionVal));
-                    writeTx.Commit();
                 }
             }
 
