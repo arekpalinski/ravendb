@@ -256,7 +256,14 @@ namespace Raven.Server.Documents.Queries
                         if (left is RavenBooleanQuery rbq)
                         {
                             if (rbq.TryAnd(right) == false)
-                                rbq = new RavenBooleanQuery(left, right, OperatorType.And);
+                            {
+                                if (rbq.CanConvertToTermsMatchQuery)
+                                {
+                                    left = rbq.ConvertToTermsMatchQuery();
+                                }
+
+                                    rbq = new RavenBooleanQuery(left, right, OperatorType.And);
+                            }
                         }
                         else
                         {
@@ -276,12 +283,25 @@ namespace Raven.Server.Documents.Queries
                         if (left is RavenBooleanQuery rbq)
                         {
                             if (rbq.TryOr(right) == false)
+                            {
+                                if (rbq.CanConvertToTermsMatchQuery)
+                                {
+
+                                }
+
                                 rbq = new RavenBooleanQuery(left, right, OperatorType.Or);
+                                    
+                            }
                         }
                         else
                         {
                             rbq = new RavenBooleanQuery(OperatorType.Or);
                             rbq.Or(left, right);
+                        }
+
+                        if (rbq.CanConvertToTermsMatchQuery)
+                        {
+                            var termsMatch = rbq.ConvertToTermsMatchQuery();
                         }
 
                         return rbq;

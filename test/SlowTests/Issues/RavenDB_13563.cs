@@ -50,6 +50,12 @@ namespace SlowTests.Issues
                             .Where(x => x.Name == "John" || x.Name == "Bob" && x.Name == "George" || x.Name == "Georgina" && x.Name == "Jane");
 
                         Assert.Equal("Name:john (+Name:bob +Name:george) (+Name:georgina +Name:jane)", GetLuceneQuery(usersOrAndMixed3, context, serializer));
+
+                        var usersOrAndMixed4 = session.Query<User>()
+                            .Customize(x => x.NoCaching())
+                            .Where(x => (x.Name == "John" || x.Name == "Bob" || x.Name == "George") && x.Name == "Georgina" && x.Name == "Jane");
+
+                        Assert.Equal("Name:john (+Name:bob +Name:george) (+Name:georgina +Name:jane)", GetLuceneQuery(usersOrAndMixed4, context, serializer));
                     }
                 }
             }
