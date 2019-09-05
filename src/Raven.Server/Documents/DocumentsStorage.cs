@@ -747,6 +747,26 @@ namespace Raven.Server.Documents
             }
         }
 
+        public IEnumerable<Document> GetDocumentsFrom(DocumentsOperationContext context, Dictionary<string, long> collectionsAndStartEtags, int take)
+        {
+            foreach (var item in collectionsAndStartEtags)
+            {
+                if (take <= 0)
+                    yield break;
+
+                var collection = item.Key;
+                var etag = item.Value;
+
+                foreach (var document in GetDocumentsFrom(context, collection, etag, 0, int.MaxValue))
+                {
+                    if (take-- <= 0)
+                        yield break;
+
+                    yield return document;
+                }
+            }
+        }
+
         public IEnumerable<Document> GetDocumentsFrom(DocumentsOperationContext context, List<string> collections, long etag, int take)
         {
             foreach (var collection in collections)

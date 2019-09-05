@@ -129,19 +129,59 @@ namespace Raven.Server.Smuggler.Documents
             return databaseRecord;
         }
 
+        public class DocumentsIterationState
+        {
+            public Dictionary<string, long> IteratedEtagsByCollectionToExport = new Dictionary<string, long>();
+
+            public long LastIteratedEtag;
+        }
+
         public IEnumerable<DocumentItem> GetDocuments(List<string> collectionsToExport, INewDocumentActions actions)
         {
             Debug.Assert(_context != null);
 
-            var documents = collectionsToExport.Count != 0
-                ? _database.DocumentsStorage.GetDocumentsFrom(_context, collectionsToExport, _startDocumentEtag, int.MaxValue)
-                : _database.DocumentsStorage.GetDocumentsFrom(_context, _startDocumentEtag, 0, int.MaxValue);
+            var enumerator = new PulseReadTransactionEnumerator<Document, DocumentsIterationState>(state =>
+                {
+                    if (collectionsToExport.Count != 0)
+                    {
+                        return _database.DocumentsStorage.GetDocumentsFrom(_context,
+                            collectionsToExport.ToDictionary(x => x, x => state.IteratedEtagsByCollectionToExport[x]), int.MaxValue);
+                    }
 
-            foreach (var document in documents)
+                    return _database.DocumentsStorage.GetDocumentsFrom(_context, state.LastIteratedEtag, 0, int.MaxValue);
+                },
+                new DocumentsIterationState // initial state
+                {
+                    LastIteratedEtag = _startDocumentEtag, IteratedEtagsByCollectionToExport = collectionsToExport.ToDictionary(x => x, x => _startDocumentEtag)
+                },
+                (item, state) =>
+                {
+                    if (collectionsToExport.Count != 0)
+                    {
+                        // TODO - get rid of getting collection from metadata - maybe GetDocumentsFrom should return IEnumerable<(Document Doc, string collection)>
+                        if (item.TryGetMetadata(out var metadata) == false)
+                        {
+
+                        }
+
+                        if (metadata.TryGet(Client.Constants.Documents.Metadata.Collection, out string collection) == false)
+                        {
+
+                        }
+
+                        state.IteratedEtagsByCollectionToExport[collection] = item.Etag;
+                    }
+                    else
+                    {
+                        state.LastIteratedEtag = item.Etag;
+                    }
+                });
+
+            while (enumerator.MoveNext())
             {
                 yield return new DocumentItem
                 {
-                    Document = document
+                    Document = enumerator.Current
                 };
             }
         }
