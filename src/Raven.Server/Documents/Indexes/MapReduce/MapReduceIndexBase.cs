@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Raven.Client.Documents.Indexes;
 using Raven.Server.Documents.Includes;
+using Raven.Server.Documents.Indexes.MapReduce.Static;
 using Raven.Server.Documents.Indexes.Persistence.Lucene;
 using Raven.Server.Documents.Queries;
 using Raven.Server.Documents.Queries.Results;
@@ -24,6 +25,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce
         internal const string MapPhaseTreeName = "MapPhaseTree";
         internal const string ReducePhaseTreeName = "ReducePhaseTree";
         internal const string ResultsStoreTypesTreeName = "ResultsStoreTypes";
+        internal const string ReduceOutputsTreeName = "ReduceOutputsTreeName";
         
         internal readonly MapReduceIndexingContext MapReduceWorkContext = new MapReduceIndexingContext();
 
@@ -47,6 +49,9 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                    Slices.Empty,
                    sizeof(ulong),
                    clone: false);
+            
+            if (Definition is MapReduceIndexDefinition def && string.IsNullOrEmpty(def.OutputReduceToCollection) == false)
+                MapReduceWorkContext.ReduceOutputsTree = GetReduceOutputsTree(indexContext.Transaction.InnerTransaction);
 
             return MapReduceWorkContext;
         }
@@ -97,6 +102,11 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             // 2) { #reduceValues- hash of a reduce key, nested values section } 
 
             return tx.CreateTree(ReducePhaseTreeName);
+        }
+
+        private static Tree GetReduceOutputsTree(Transaction tx)
+        {
+            return tx.CreateTree(ReduceOutputsTreeName);
         }
 
         protected unsafe int PutMapResults(LazyStringValue lowerId, LazyStringValue id, IEnumerable<MapResult> mappedResults, TransactionOperationContext indexContext, IndexingStatsScope stats)
@@ -269,10 +279,9 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             {
                 var mapEntries = tx.InnerTransaction.ReadTree(MapPhaseTreeName);
 
-                if (mapEntries == null)
-                    return;
+                var reduceOutputs = tx.InnerTransaction.ReadTree(ReduceOutputsTreeName);
 
-                MapReduceWorkContext.Initialize(mapEntries);
+                MapReduceWorkContext.Initialize(mapEntries, reduceOutputs);
             }
         }
 

@@ -361,6 +361,11 @@ namespace Raven.Client.Documents.Indexes
         /// </summary>
         public string OutputReduceToCollection { get; set; }
 
+        /// <summary>
+        /// Inf not null then this number will be part of identifier of a created document being output of reduce function
+        /// </summary>
+        public long? ReduceOutputIndex { get; set; }
+
         public override string ToString()
         {
             return Name;
@@ -403,7 +408,8 @@ namespace Raven.Client.Documents.Indexes
 #if FEATURE_TEST_INDEX
                 IsTestIndex = IsTestIndex,
 #endif
-                OutputReduceToCollection = OutputReduceToCollection
+                OutputReduceToCollection = OutputReduceToCollection,
+                ReduceOutputIndex = ReduceOutputIndex,
             };
 
             foreach (var kvp in _configuration)
@@ -430,7 +436,7 @@ namespace Raven.Client.Documents.Indexes
         Priority = 1 << 8,
         State = 1 << 9,
         AdditionalSources = 1 << 10,
-
+        // TODO arek - don't we need to take into account that OutputReduceToCollection could change?
         All = Maps | MapsFormatting | Reduce | ReduceFormatting | Fields | Configuration | LockMode | Priority | State | AdditionalSources
     }
 }

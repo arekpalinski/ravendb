@@ -175,6 +175,46 @@ namespace SlowTests.Server.Documents.Indexing.MapReduce
             }
         }
 
+        [Fact]
+        public async Task CanUpdateIndexAsSideBySide()
+        {
+            using (var store = GetDocumentStore())
+            {
+                store.ExecuteIndex(new DailyInvoicesIndex());
+
+                var date = new DateTime(2017, 1, 1);
+
+                using (var session = store.OpenAsyncSession())
+                {
+                    for (int i = 0; i < 30; i++)
+                    {
+                        await session.StoreAsync(new Invoice { Amount = 1, IssuedAt = date.AddHours(i * 6) });
+                    }
+                    
+                    date = date.AddYears(1);
+
+                    for (int i = 0; i < 30; i++)
+                    {
+                        await session.StoreAsync(new Invoice { Amount = 1, IssuedAt = date.AddMonths(i).AddHours(i * 6) });
+                        await session.StoreAsync(new Invoice { Amount = 1, IssuedAt = date.AddMonths(i).AddHours(i * 12) });
+                        await session.StoreAsync(new Invoice { Amount = 1, IssuedAt = date.AddMonths(i).AddHours(i * 18) });
+                    }
+                    await session.SaveChangesAsync();
+                }
+
+                WaitForIndexing(store);
+
+                await store.ExecuteIndexAsync(new Replacement.DailyInvoicesIndex());
+
+                WaitForIndexing(store);
+
+                using (var session = store.OpenAsyncSession())
+                {
+                    Assert.Equal(93, await session.Query<DailyInvoice>().CountAsync());
+                }
+            }
+        }
+
         private async Task CreateDataAndIndexes(DocumentStore store)
         {
             var date = new DateTime(2017, 1, 1);

@@ -12,9 +12,13 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Static
         {
             GroupByFields = new HashSet<CompiledIndexField>(groupByFields);
             OutputReduceToCollection = definition.OutputReduceToCollection;
+            ReduceOutputIndex = definition.ReduceOutputIndex;
         }
 
         public HashSet<CompiledIndexField> GroupByFields { get; }
         public string OutputReduceToCollection { get; }
+        public long? ReduceOutputIndex { get; set; }
+
+        // TODO arek - don't we need to persist  GroupByFields, OutputReduceToCollection, ReduceOutputVersion ?
     }
 }

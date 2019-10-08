@@ -118,6 +118,15 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Static
                     var sideBySideIndex = definition.Name.StartsWith(Constants.Documents.Indexing.SideBySideIndexNamePrefix, StringComparison.OrdinalIgnoreCase);
                     if (sideBySideIndex)
                     {
+                        var originalName = definition.Name.Replace(Constants.Documents.Indexing.SideBySideIndexNamePrefix, string.Empty,
+                            StringComparison.OrdinalIgnoreCase);
+
+                        if (otherIndex is MapReduceIndex mapReduceIndex && originalName.Equals(mapReduceIndex.Name))
+                        {
+                            if (definition.OutputReduceToCollection.Equals(mapReduceIndex.Definition.OutputReduceToCollection, StringComparison.OrdinalIgnoreCase)) // we have handling for side by side indexing with OutputReduceToCollection
+                                continue;
+                        }
+
                         throw new IndexInvalidException($"In order to create the '{definition.Name}' side by side index " +
                                                         $"you firstly need to set {nameof(IndexDefinition.OutputReduceToCollection)} to be null " +
                                                         $"on the '{otherIndex.Name}' index " +
@@ -149,6 +158,24 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Static
                                                     $"lead to an infinite loop." +
                                                     Environment.NewLine + description);
                 }
+            }
+
+            var existingIndexOrSideBySide = (MapReduceIndex)database.IndexStore.GetIndexes()
+                .FirstOrDefault(x =>
+                {
+                    if (x.Type != IndexType.MapReduce)
+                        return false;
+
+                    var name = definition.Name.Replace(Constants.Documents.Indexing.SideBySideIndexNamePrefix, string.Empty,
+                        StringComparison.OrdinalIgnoreCase);
+
+                    return x.Name.Equals(name, StringComparison.OrdinalIgnoreCase);
+                });
+
+            if (existingIndexOrSideBySide != null)
+            {
+                if (definition.OutputReduceToCollection.Equals(existingIndexOrSideBySide.Definition.OutputReduceToCollection, StringComparison.OrdinalIgnoreCase)) // we have handling for side by side indexing with OutputReduceToCollection
+                    checkIfCollectionEmpty = false;
             }
 
             if (checkIfCollectionEmpty)
@@ -251,7 +278,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Static
         protected override IIndexingWork[] CreateIndexWorkExecutors()
         {
             var workers = new List<IIndexingWork>();
-            workers.Add(new CleanupDeletedDocuments(this, DocumentDatabase.DocumentsStorage, _indexStorage, Configuration, MapReduceWorkContext));
+            workers.Add(new CleanupDocuments(this, DocumentDatabase.DocumentsStorage, _indexStorage, Configuration, MapReduceWorkContext));
 
             if (_referencedCollections.Count > 0)
                 workers.Add(_handleReferences = new HandleReferences(this, _compiled.ReferencedCollections, DocumentDatabase.DocumentsStorage, _indexStorage, Configuration));
@@ -299,6 +326,17 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Static
         protected override bool IsStale(DocumentsOperationContext databaseContext, TransactionOperationContext indexContext, long? cutoff = null, long? referenceCutoff = null, List<string> stalenessReasons = null)
         {
             var isStale = base.IsStale(databaseContext, indexContext, cutoff, referenceCutoff, stalenessReasons);
+
+            if (isStale == false && string.IsNullOrEmpty(Definition.OutputReduceToCollection) == false &&
+                MapReduceWorkContext.HasPrefixesOfReduceOutputDocumentsToDelete(indexContext))
+            {
+
+                if (stalenessReasons != null)
+                {
+                    TODO arek
+                }
+            }
+
             if (isStale && stalenessReasons == null || _referencedCollections.Count == 0)
                 return isStale;
 
@@ -357,6 +395,19 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Static
 
                     return canReplace;
                 }
+            }
+        }
+
+        internal void AddPrefixOfReduceOutputDocumentsToDelete(string prefix)
+        {
+            using (_contextPool.AllocateOperationContext(out TransactionOperationContext context))
+            using (var tx = context.OpenWriteTransaction())
+            {
+                var reduceOutputs = tx.InnerTransaction.ReadTree(ReduceOutputsTreeName);
+
+                MapReduceWorkContext.AddPrefixOfReduceOutputDocumentsToDelete(reduceOutputs, prefix);
+
+                tx.Commit();
             }
         }
 

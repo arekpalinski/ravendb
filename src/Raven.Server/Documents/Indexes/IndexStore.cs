@@ -1458,6 +1458,19 @@ namespace Raven.Server.Documents.Indexes
 
                     if (oldIndex != null)
                     {
+                        if (oldIndex is MapReduceIndex oldMapReduceIndex && oldMapReduceIndex.Definition.ReduceOutputIndex != null)
+                        {
+                            if (newIndex is MapReduceIndex newMapReduceIndex)
+                            {
+                                var oldDefinition = oldMapReduceIndex.Definition;
+
+                                var prefix = OutputReduceIndexWriteOperation.OutputReduceToCollectionCommand.GetOutputDocumentPrefix(
+                                    oldDefinition.OutputReduceToCollection, oldDefinition.ReduceOutputIndex);
+
+                                newMapReduceIndex.AddPrefixOfReduceOutputDocumentsToDelete(prefix);
+                            }
+                        }
+
                         do
                         {
                             try

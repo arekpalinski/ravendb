@@ -1,17 +1,22 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using Raven.Client;
 using Raven.Client.Documents.Indexes;
 using Raven.Server.Config.Categories;
+using Raven.Server.Documents.Handlers;
 using Raven.Server.Documents.Indexes.MapReduce;
+using Raven.Server.Documents.Indexes.MapReduce.Static;
+using Raven.Server.Documents.Indexes.Persistence;
 using Raven.Server.Documents.Indexes.Persistence.Lucene;
+using Raven.Server.Exceptions;
 using Raven.Server.ServerWide.Context;
 using Sparrow.Logging;
 
 namespace Raven.Server.Documents.Indexes.Workers
 {
-    public class CleanupDeletedDocuments : IIndexingWork
+    public class CleanupDocuments : IIndexingWork
     {
         private readonly Logger _logger;
 
@@ -21,7 +26,7 @@ namespace Raven.Server.Documents.Indexes.Workers
         private readonly IndexStorage _indexStorage;
         private readonly MapReduceIndexingContext _mapReduceContext;
 
-        public CleanupDeletedDocuments(Index index, DocumentsStorage documentsStorage, IndexStorage indexStorage,
+        public CleanupDocuments(Index index, DocumentsStorage documentsStorage, IndexStorage indexStorage,
             IndexingConfiguration configuration, MapReduceIndexingContext mapReduceContext)
         {
             _index = index;
@@ -30,7 +35,7 @@ namespace Raven.Server.Documents.Indexes.Workers
             _documentsStorage = documentsStorage;
             _indexStorage = indexStorage;
             _logger = LoggingSource.Instance
-                .GetLogger<CleanupDeletedDocuments>(indexStorage.DocumentDatabase.Name);
+                .GetLogger<CleanupDocuments>(indexStorage.DocumentDatabase.Name);
         }
 
         public string Name => "Cleanup";
@@ -132,7 +137,53 @@ namespace Raven.Server.Documents.Indexes.Workers
                 }
             }
 
+            if (_index is MapReduceIndex mapReduceIndex && 
+                string.IsNullOrEmpty(mapReduceIndex.Definition.OutputReduceToCollection) == false &&
+                mapReduceIndex.MapReduceWorkContext.HasPrefixesOfReduceOutputDocumentsToDelete())
+            {
+                HandleDeletionOfReduceOutputs(mapReduceIndex, stats, ref moreWorkFound);
+            }
+
             return moreWorkFound;
+        }
+
+        private void HandleDeletionOfReduceOutputs(MapReduceIndex mapReduceIndex, IndexingStatsScope stats, ref bool moreWorkFound)
+        {
+            var database = _documentsStorage.DocumentDatabase;
+
+            const int deleteBatchSize = 1024;
+
+            var prefixesToDelete = new List<string>();
+
+            foreach (var prefix in mapReduceIndex.MapReduceWorkContext.GetPrefixesOfReduceOutputDocumentsToDelete())
+            {
+                var command = new DeleteReduceOutputDocumentsCommand(database, prefix, deleteBatchSize);
+
+                var enqueue = database.TxMerger.Enqueue(command);
+
+                try
+                {
+                    using (stats.For(IndexingOperation.Reduce.DeleteOutputDocuments))
+                    {
+                        enqueue.GetAwaiter().GetResult();
+                    }
+                }
+                catch (Exception e)
+                {
+                    throw new IndexWriteException("Failed to delete output reduce documents", e);
+                }
+
+                if (command.DeleteCount < deleteBatchSize)
+                    prefixesToDelete.Add(prefix);
+
+                if (command.DeleteCount > 0)
+                    moreWorkFound = true;
+            }
+
+            foreach (var prefix in prefixesToDelete)
+            {
+                mapReduceIndex.MapReduceWorkContext.DeletePrefixOfReduceOutputDocumentsToDelete(prefix);
+            }
         }
 
         public bool CanContinueBatch(

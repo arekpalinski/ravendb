@@ -42,6 +42,8 @@ namespace Raven.Client.Documents.Indexes
             set => _definition.OutputReduceToCollection = value;
         }
 
+        // TODO arek
+
         /// <inheritdoc />
         public override IndexDefinition CreateIndexDefinition()
         {

@@ -109,6 +109,11 @@ namespace Raven.Client.Documents.Indexes
         public string OutputReduceToCollection { get; set; }
 
         /// <summary>
+        /// Inf not null then this number will be part of identifier of a created document being output of reduce function
+        /// </summary>
+        public long? ReduceOutputVersion { get; set; }
+
+        /// <summary>
         /// Add additional sources to be compiled with the index on the server.
         /// </summary>
         public Dictionary<string, string> AdditionalSources { get; set; }
@@ -159,7 +164,8 @@ namespace Raven.Client.Documents.Indexes
                     Reduce = IndexDefinitionHelper.PruneToFailureLinqQueryAsStringToWorkableCode<TDocument, TReduceResult>(Reduce, conventions, "results", translateIdentityProperty: false),
                     LockMode = LockMode,
                     Priority = Priority,
-                    OutputReduceToCollection = OutputReduceToCollection
+                    OutputReduceToCollection = OutputReduceToCollection,
+                    ReduceOutputIndex = ReduceOutputVersion
                 };
 
                 var indexes = ConvertToStringDictionary(Indexes);
