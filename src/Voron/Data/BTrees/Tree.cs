@@ -598,8 +598,23 @@ namespace Voron.Data.BTrees
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal TreePage GetReadOnlyTreePage(long pageNumber)
         {
-            var page = _llt.GetPage(pageNumber);
-            return new TreePage(page.Pointer, Constants.Storage.PageSize);
+            try
+            {
+                var page = _llt.GetPage(pageNumber);
+                return new TreePage(page.Pointer, Constants.Storage.PageSize);
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - GetReadOnlyTreePage:  {IsNull(_llt, nameof(_llt))}", e);
+            }
+        }
+
+        private static string IsNull(object obj, string name)
+        {
+            if (obj == null)
+                return $"{name} IS NULL";
+
+            return $"{name} is NOT null";
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -646,7 +661,15 @@ namespace Voron.Data.BTrees
 
         private TreePage SearchForPage(Slice key, out TreeNodeHeader* node)
         {
-            var p = GetReadOnlyTreePage(State.RootPageNumber);
+            TreePage p;
+            try
+            {
+                p = GetReadOnlyTreePage(State.RootPageNumber);
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - SearchForPage 1:  {IsNull(State, nameof(State))}", e);
+            }
 
             if (_cursorPathBuffer == null)
                 _cursorPathBuffer = new FastList<long>();
@@ -658,31 +681,39 @@ namespace Voron.Data.BTrees
             bool rightmostPage = true;
             bool leftmostPage = true;
 
-            while ((p.TreeFlags & TreePageFlags.Branch) == TreePageFlags.Branch)
+            try
             {
-                int nodePos;
-
-                if (key.Options == SliceOptions.Key)
+                while ((p.TreeFlags & TreePageFlags.Branch) == TreePageFlags.Branch)
                 {
-                    nodePos = SetLastSearchPosition(key, p, ref leftmostPage, ref rightmostPage);
-                }
-                else if (key.Options == SliceOptions.BeforeAllKeys)
-                {
-                    p.LastSearchPosition = nodePos = 0;
-                    rightmostPage = false;
-                }
-                else // if (key.Options == SliceOptions.AfterAllKeys)
-                {
-                    p.LastSearchPosition = nodePos = (ushort)(p.NumberOfEntries - 1);
-                    leftmostPage = false;
-                }
+                    int nodePos;
 
-                var pageNode = p.GetNode(nodePos);
-                p = GetReadOnlyTreePage(pageNode->PageNumber);
-                Debug.Assert(pageNode->PageNumber == p.PageNumber,
-                    string.Format("Requested Page: #{0}. Got Page: #{1}", pageNode->PageNumber, p.PageNumber));
+                    if (key.Options == SliceOptions.Key)
+                    {
+                        nodePos = SetLastSearchPosition(key, p, ref leftmostPage, ref rightmostPage);
+                    }
+                    else if (key.Options == SliceOptions.BeforeAllKeys)
+                    {
+                        p.LastSearchPosition = nodePos = 0;
+                        rightmostPage = false;
+                    }
+                    else // if (key.Options == SliceOptions.AfterAllKeys)
+                    {
+                        p.LastSearchPosition = nodePos = (ushort)(p.NumberOfEntries - 1);
+                        leftmostPage = false;
+                    }
 
-                _cursorPathBuffer.Add(p.PageNumber);
+                    var pageNode = p.GetNode(nodePos);
+                    p = GetReadOnlyTreePage(pageNode->PageNumber);
+                    Debug.Assert(pageNode->PageNumber == p.PageNumber,
+                        string.Format("Requested Page: #{0}. Got Page: #{1}", pageNode->PageNumber, p.PageNumber));
+
+                    _cursorPathBuffer.Add(p.PageNumber);
+                }
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - SearchForPage 2:  {IsNull(State, nameof(State))}", e);
+
             }
 
             if (p.IsLeaf == false)
@@ -691,9 +722,26 @@ namespace Voron.Data.BTrees
             if (p.IsCompressed)
                 ThrowOnCompressedPage(p);
 
-            node = p.Search(_llt, key); // will set the LastSearchPosition
+            try
+            {
+                node = p.Search(_llt, key); // will set the LastSearchPosition
 
-            AddToRecentlyFoundPages(_cursorPathBuffer, p, leftmostPage, rightmostPage);
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - SearchForPage 3:  {IsNull(_llt, nameof(_llt))}", e);
+
+            }
+
+            try
+            {
+                AddToRecentlyFoundPages(_cursorPathBuffer, p, leftmostPage, rightmostPage);
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - SearchForPage 4: ", e);
+
+            }
 
             return p;
         }

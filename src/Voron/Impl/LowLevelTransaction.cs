@@ -287,65 +287,132 @@ namespace Voron.Impl
             if (flags == TransactionFlags.ReadWrite)
                 env.Options.AssertNoCatastrophicFailure();
 
-            DataPager = env.Options.DataPager;
-            _env = env;
-            _journal = env.Journal;
-            _id = id;
-            _freeSpaceHandling = freeSpaceHandling;
-            _allocator = context ?? new ByteStringContext(SharedMultipleUseFlag.None);
-
-            _allocator.AllocationFailed += MarkTransactionAsFailed;
-
-            _disposeAllocator = context == null;
-            _pagerStates = new HashSet<PagerState>(ReferenceEqualityComparer<PagerState>.Default);
-
-            PersistentContext = transactionPersistentContext;
-            Flags = flags;
-
-            var scratchPagerStates = env.ScratchBufferPool.GetPagerStatesOfAllScratches();
-            foreach (var scratchPagerState in scratchPagerStates.Values)
+            try
             {
-                scratchPagerState.AddRef();
-                _pagerStates.Add(scratchPagerState);
+                DataPager = env.Options.DataPager;
+                _env = env;
+                _journal = env.Journal;
+                _id = id;
+                _freeSpaceHandling = freeSpaceHandling;
+                _allocator = context ?? new ByteStringContext(SharedMultipleUseFlag.None);
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - LLT ctor 1: {IsNull(env, nameof(env))}, {IsNull(env.Options, nameof(env.Options))}", e);
             }
 
-            _pageLocator = transactionPersistentContext.AllocatePageLocator(this);
-
-            if (flags != TransactionFlags.ReadWrite)
+            try
             {
-                // for read transactions, we need to keep the pager state frozen
-                // for write transactions, we can use the current one (which == null)
-                _scratchPagerStates = scratchPagerStates;
+                _allocator.AllocationFailed += MarkTransactionAsFailed;
 
-                _state = env.State.Clone();
+                _disposeAllocator = context == null;
+                _pagerStates = new HashSet<PagerState>(ReferenceEqualityComparer<PagerState>.Default);
 
-                InitializeRoots();
+                PersistentContext = transactionPersistentContext;
+                Flags = flags;
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - LLT ctor 2: {IsNull(_allocator, nameof(_allocator))}", e);
+            }
 
-                JournalSnapshots = _journal.GetSnapshots();
+            Dictionary<int, PagerState> scratchPagerStates;
+            try
+            {
+                scratchPagerStates = env.ScratchBufferPool.GetPagerStatesOfAllScratches();
+                foreach (var scratchPagerState in scratchPagerStates.Values)
+                {
+                    scratchPagerState.AddRef();
+                    _pagerStates.Add(scratchPagerState);
+                }
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - LLT ctor 3: {IsNull(env.ScratchBufferPool, nameof(env.ScratchBufferPool))}, {IsNull(_pagerStates, nameof(_pagerStates))}", e);
+            }
 
-                return;
+            try
+            {
+                _pageLocator = transactionPersistentContext.AllocatePageLocator(this);
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - LLT ctor 4: {IsNull(transactionPersistentContext, nameof(transactionPersistentContext))}", e);
+            }
+
+            try
+            {
+                if (flags != TransactionFlags.ReadWrite)
+                {
+                    // for read transactions, we need to keep the pager state frozen
+                    // for write transactions, we can use the current one (which == null)
+                    _scratchPagerStates = scratchPagerStates;
+
+                    _state = env.State.Clone();
+
+                    InitializeRoots();
+
+                    JournalSnapshots = _journal.GetSnapshots();
+
+                    return;
+                }
+
+                JournalFiles = _journal.Files;
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - LLT ctor 5: {IsNull(env.State, nameof(env.State))}, {IsNull(_journal, nameof(_journal))}", e);
             }
 
             EnsureNoDuplicateTransactionId(id);
             // we keep this copy to make sure that if we use async commit, we have a stable copy of the jounrals
             // as they were at the time we started the original transaction, this is required because async commit
             // may modify the list of files we have available
-            JournalFiles = _journal.Files;
             foreach (var journalFile in JournalFiles)
             {
-                journalFile.AddRef();
+                try
+                {
+                    journalFile.AddRef();
+                }
+                catch (Exception e)
+                {
+                    throw new InvalidOperationException($"Voron NRE debug - LLT ctor 6: {IsNull(journalFile, nameof(journalFile))}: number - {journalFile.Number}", e);
+                }
             }
-            _env.WriteTransactionPool.Reset();
-            _scratchPagesTable = _env.WriteTransactionPool.ScratchPagesInUse;
-            _dirtyPages = _env.WriteTransactionPool.DirtyPagesPool;
-            _freedPages = new HashSet<long>(NumericEqualityComparer.BoxedInstanceInt64);
-            _unusedScratchPages = new List<PageFromScratchBuffer>();
-            _transactionPages = new HashSet<PageFromScratchBuffer>(PageFromScratchBufferEqualityComparer.Instance);
-            _pagesToFreeOnCommit = new Stack<long>();
 
-            _state = env.State.Clone();
-            InitializeRoots();
-            InitTransactionHeader();
+            try
+            {
+                _env.WriteTransactionPool.Reset();
+                _scratchPagesTable = _env.WriteTransactionPool.ScratchPagesInUse;
+                _dirtyPages = _env.WriteTransactionPool.DirtyPagesPool;
+                _freedPages = new HashSet<long>(NumericEqualityComparer.BoxedInstanceInt64);
+                _unusedScratchPages = new List<PageFromScratchBuffer>();
+                _transactionPages = new HashSet<PageFromScratchBuffer>(PageFromScratchBufferEqualityComparer.Instance);
+                _pagesToFreeOnCommit = new Stack<long>();
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - LLT ctor 7: {IsNull(_env.WriteTransactionPool, nameof(_env.WriteTransactionPool))}", e);
+            }
+
+            try
+            {
+                _state = env.State.Clone();
+                InitializeRoots();
+                InitTransactionHeader();
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - LLT ctor 8:  {IsNull(env.State, nameof(env.State))}", e);
+            }
+        }
+
+        private static string IsNull(object obj, string name)
+        {
+            if (obj == null)
+                return $"{name} IS NULL";
+
+            return $"{name} is NOT null";
         }
 
         [Conditional("DEBUG")]
@@ -390,32 +457,46 @@ namespace Voron.Impl
 
         private void InitializeRoots()
         {
-            if (_state.Root != null)
+            try
             {
-                _root = new Tree(this, null, Constants.RootTreeNameSlice, _state.Root);
+                if (_state.Root != null)
+                {
+                    _root = new Tree(this, null, Constants.RootTreeNameSlice, _state.Root);
+                }
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - InitializeRoots: {IsNull(_state, nameof(_state))}", e);
             }
         }
 
         private void InitTransactionHeader()
         {
-            Allocator.Allocate(sizeof(TransactionHeader), out _txHeaderMemory);
-            Memory.Set(_txHeaderMemory.Ptr, 0, sizeof(TransactionHeader));
+            try
+            {
+                Allocator.Allocate(sizeof(TransactionHeader), out _txHeaderMemory);
+                Memory.Set(_txHeaderMemory.Ptr, 0, sizeof(TransactionHeader));
 
-            _txHeader = (TransactionHeader*)_txHeaderMemory.Ptr;
-            _txHeader->HeaderMarker = Constants.TransactionHeaderMarker;
+                _txHeader = (TransactionHeader*)_txHeaderMemory.Ptr;
+                _txHeader->HeaderMarker = Constants.TransactionHeaderMarker;
 
-            if (_id > 1 && _state.NextPageNumber <= 1)
-                ThrowNextPageNumberCannotBeSmallerOrEqualThanOne();
+                if (_id > 1 && _state.NextPageNumber <= 1)
+                    ThrowNextPageNumberCannotBeSmallerOrEqualThanOne();
 
-            _txHeader->TransactionId = _id;
-            _txHeader->NextPageNumber = _state.NextPageNumber;
-            _txHeader->LastPageNumber = -1;
-            _txHeader->PageCount = -1;
-            _txHeader->Hash = 0;
-            _txHeader->TimeStampTicksUtc = DateTime.UtcNow.Ticks;
-            _txHeader->TxMarker = TransactionMarker.None;
-            _txHeader->CompressedSize = 0;
-            _txHeader->UncompressedSize = 0;
+                _txHeader->TransactionId = _id;
+                _txHeader->NextPageNumber = _state.NextPageNumber;
+                _txHeader->LastPageNumber = -1;
+                _txHeader->PageCount = -1;
+                _txHeader->Hash = 0;
+                _txHeader->TimeStampTicksUtc = DateTime.UtcNow.Ticks;
+                _txHeader->TxMarker = TransactionMarker.None;
+                _txHeader->CompressedSize = 0;
+                _txHeader->UncompressedSize = 0;
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - InitTransactionHeader: {IsNull(Allocator, nameof(Allocator))}, {IsNull(_state, nameof(_state))}", e);
+            }
         }
 
         internal HashSet<PageFromScratchBuffer> GetTransactionPages()
@@ -515,10 +596,22 @@ namespace Voron.Impl
             if (_disposed != TxState.None)
                 ThrowObjectDisposed();
 
-            if (_pageLocator.TryGetReadOnlyPage(pageNumber, out Page result))
-                return result;
+            if (_pageLocator != null)
+            {
+                if (_pageLocator.TryGetReadOnlyPage(pageNumber, out Page result))
+                    return result;
+            }
+            else
+            {
+                ThrowPageLocatorIsNull();
+            }
 
             return GetPageInternal(pageNumber);
+        }
+
+        private static void ThrowPageLocatorIsNull()
+        {
+            throw new NullReferenceException("Page locator is null");
         }
 
         private Page GetPageInternal(long pageNumber)
