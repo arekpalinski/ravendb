@@ -69,6 +69,9 @@ namespace Voron
 
         public void FreePageLocator(PageLocator locator)
         {
+            if (locator == null)
+                throw new NullReferenceException($"Voron NRE debug - Locator is NULL. Stack trace: {Environment.StackTrace}");
+
             Debug.Assert(locator != null);
             locator.Release();
             if (_pageLocators.Count < 1024)
