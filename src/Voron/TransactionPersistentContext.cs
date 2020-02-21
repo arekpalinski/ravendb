@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Voron.Impl;
@@ -30,18 +31,40 @@ namespace Voron
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public PageLocator AllocatePageLocator(LowLevelTransaction tx)
         {
-            PageLocator locator;
+            PageLocator locator = null;
             if (_pageLocators.Count != 0)
             {
-                locator = _pageLocators.Pop();
-                locator.Renew(tx, _cacheSize);
+                try
+                {
+                    locator = _pageLocators.Pop();
+                    locator.Renew(tx, _cacheSize);
+                }
+                catch (Exception e)
+                {
+                    throw new InvalidOperationException($"Voron NRE debug - AllocatePageLocator 1: {IsNull(locator, nameof(locator))}", e);
+                }
             }
             else
             {
-                locator = new PageLocator(tx, _cacheSize);
+                try
+                {
+                    locator = new PageLocator(tx, _cacheSize);
+                }
+                catch (Exception e)
+                {
+                    throw new InvalidOperationException($"Voron NRE debug - AllocatePageLocator 2:", e);
+                }
             }
             return locator;
 
+        }
+
+        private static string IsNull(object obj, string name)
+        {
+            if (obj == null)
+                return $"{name} IS NULL";
+
+            return $"{name} is NOT null";
         }
 
         public void FreePageLocator(PageLocator locator)

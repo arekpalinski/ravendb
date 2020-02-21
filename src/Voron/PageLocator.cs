@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Sparrow.Binary;
@@ -45,20 +46,46 @@ namespace Voron
             Debug.Assert(cacheSize > 0);
             Debug.Assert(cacheSize <= 1024);
 
-            if (!Bits.IsPowerOfTwo(cacheSize))
-                cacheSize = Bits.PowerOf2(cacheSize);
+            try
+            {
+                if (!Bits.IsPowerOfTwo(cacheSize))
+                    cacheSize = Bits.PowerOf2(cacheSize);
 
-            int shiftRight = Bits.CeilLog2(cacheSize);
-            _andMask = (int) (0xFFFFFFFF >> (sizeof(uint) * 8 - shiftRight));
+                int shiftRight = Bits.CeilLog2(cacheSize);
+                _andMask = (int) (0xFFFFFFFF >> (sizeof(uint) * 8 - shiftRight));
 
-            _tx = tx;
+                _tx = tx;
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - PageLocator.Renew 1", e);
+            }
 
-            tx.Allocator.Allocate(cacheSize * sizeof(PageData), out _cacheMemory);
+            try
+            {
+                tx.Allocator.Allocate(cacheSize * sizeof(PageData), out _cacheMemory);
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException($"Voron NRE debug - PageLocator.Renew 2", e);
+            }
+
             _cache = (PageData*)_cacheMemory.Ptr;
+
+            if (_cache == null)
+                throw new InvalidOperationException($"Voron NRE debug - PageLocator.Renew 3 - CACHE IS NULL. Cache size: {cacheSize}");
 
             for (var i = 0; i < cacheSize; i++)
             {
-                _cache[i].PageNumber = Invalid;
+                try
+                {
+                    _cache[i].PageNumber = Invalid;
+                }
+                catch (Exception e)
+                {
+                    throw new InvalidOperationException($"Voron NRE debug - PageLocator.Renew 4 Iteration; {i}, Cache size: {cacheSize}", e);
+
+                }
             }
         }
 
