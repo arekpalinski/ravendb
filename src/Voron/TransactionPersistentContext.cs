@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Voron.Impl;
 
 namespace Voron
@@ -28,35 +29,59 @@ namespace Voron
             LongLivedTransactions = longLivedTransactions;
         }
 
+        public Guid ID = Guid.NewGuid();
+
+        private object locker = new object();
+
+        public int ThreadIdHoldingLock;
+
+        public string ThreadNamHoldingLock;
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public PageLocator AllocatePageLocator(LowLevelTransaction tx)
         {
-            PageLocator locator = null;
-            if (_pageLocators.Count != 0)
+            if (Monitor.TryEnter(locker, TimeSpan.Zero) == false)
             {
-                try
-                {
-                    locator = _pageLocators.Pop();
-                    locator.Renew(tx, _cacheSize);
-                }
-                catch (Exception e)
-                {
-                    throw new InvalidOperationException($"Voron NRE debug - AllocatePageLocator 1: {IsNull(locator, nameof(locator))}", e);
-                }
+                Console.WriteLine($"AAAAAAAAAAAA: {ThreadNamHoldingLock} - id: {ThreadIdHoldingLock}");
+                Debugger.Launch();
+                Debugger.Break();
             }
-            else
-            {
-                try
-                {
-                    locator = new PageLocator(tx, _cacheSize);
-                }
-                catch (Exception e)
-                {
-                    throw new InvalidOperationException($"Voron NRE debug - AllocatePageLocator 2:", e);
-                }
-            }
-            return locator;
 
+            ThreadIdHoldingLock = Thread.CurrentThread.ManagedThreadId;
+            ThreadNamHoldingLock = Thread.CurrentThread.Name;
+
+            try
+            {
+                PageLocator locator = null;
+                if (_pageLocators.Count != 0)
+                {
+                    try
+                    {
+                        locator = _pageLocators.Pop();
+                        locator.Renew(tx, _cacheSize);
+                    }
+                    catch (Exception e)
+                    {
+                        throw new InvalidOperationException($"Voron NRE debug - AllocatePageLocator 1: {IsNull(locator, nameof(locator))}", e);
+                    }
+                }
+                else
+                {
+                    try
+                    {
+                        locator = new PageLocator(tx, _cacheSize);
+                    }
+                    catch (Exception e)
+                    {
+                        throw new InvalidOperationException($"Voron NRE debug - AllocatePageLocator 2:", e);
+                    }
+                }
+                return locator;
+            }
+            finally
+            {
+                Monitor.Exit(locker);
+            }
         }
 
         private static string IsNull(object obj, string name)
