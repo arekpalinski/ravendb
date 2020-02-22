@@ -33,22 +33,36 @@ namespace Voron
 
         private object locker = new object();
 
-        public int ThreadIdHoldingLock;
+        public int CurrentThreadIdHoldingLock;
 
-        public string ThreadNamHoldingLock;
+        public string CurrentThreadNamHoldingLock;
+
+        public int PreviousThreadIdHoldingLock;
+
+        public string PreviousThreadNamHoldingLock;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public PageLocator AllocatePageLocator(LowLevelTransaction tx)
         {
             if (Monitor.TryEnter(locker, TimeSpan.Zero) == false)
             {
-                Console.WriteLine($"AAAAAAAAAAAA: {ThreadNamHoldingLock} - id: {ThreadIdHoldingLock}");
+                string currentThreadNamHoldingLock = CurrentThreadNamHoldingLock;
+                int currentThreadIdHoldingLock = CurrentThreadIdHoldingLock;
+                string previousThreadNamHoldingLock = PreviousThreadNamHoldingLock;
+                int previousThreadIdHoldingLock = PreviousThreadIdHoldingLock;
+
+                Debugger.Break();
+
+                Console.WriteLine(
+                    $"Could not get lock in thread {Thread.CurrentThread}." +
+                    $" Current holder: {currentThreadNamHoldingLock} - id: {currentThreadIdHoldingLock}, " +
+                    $"Previous holder: {previousThreadNamHoldingLock} - id: {previousThreadIdHoldingLock}");
                 Debugger.Launch();
                 Debugger.Break();
             }
 
-            ThreadIdHoldingLock = Thread.CurrentThread.ManagedThreadId;
-            ThreadNamHoldingLock = Thread.CurrentThread.Name;
+            CurrentThreadIdHoldingLock = Thread.CurrentThread.ManagedThreadId;
+            CurrentThreadNamHoldingLock = Thread.CurrentThread.Name;
 
             try
             {
@@ -80,6 +94,14 @@ namespace Voron
             }
             finally
             {
+                PreviousThreadNamHoldingLock = CurrentThreadNamHoldingLock;
+                PreviousThreadIdHoldingLock = CurrentThreadIdHoldingLock;
+
+                CurrentThreadIdHoldingLock = -1;
+                CurrentThreadNamHoldingLock = null;
+
+                //Thread.Sleep(100);
+
                 Monitor.Exit(locker);
             }
         }
