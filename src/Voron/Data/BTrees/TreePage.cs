@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Sparrow;
@@ -311,7 +312,36 @@ namespace Voron.Data.BTrees
             Debug.Assert(index <= NumberOfEntries && index >= 0);
             Debug.Assert(IsBranch == false || index != 0 || key.Size == 0);// branch page's first item must be the implicit ref
             if (HasSpaceFor(key, len) == false)
-                throw new InvalidOperationException(string.Format("The page is full and cannot add an entry, this is probably a bug. Key: {0}, data length: {1}, size left: {2}", key, len, SizeLeft));
+            {
+                var tempFilePath = Path.Combine(Path.GetTempPath(), $"page_{PageNumber}_{DateTime.UtcNow.Ticks}.data");
+
+                string message = $"The page #{PageNumber} is full and cannot add an entry, this is probably a bug. Key: {key}, data length: {len}, flags: {flags} size left: {SizeLeft}";
+
+                try
+                {
+                    using (var tempFile = File.Create(tempFilePath))
+                    {
+                        var buffer = new byte[PageSize];
+
+                        fixed (byte* b = buffer)
+                        {
+                            Memory.Copy(b, Base, PageSize);
+                        }
+
+                        tempFile.Write(buffer);
+
+                        tempFile.Flush(true);
+                    }
+
+                    message += $"Page data was copied to {tempFilePath}";
+                }
+                catch (Exception e)
+                {
+                    message += "Failed to copy page data to a temp file: " + e;
+                }
+
+                throw new InvalidOperationException(message);
+            }
 
             // move higher pointers up one slot
             ushort* offsets = KeysOffsets;
@@ -502,7 +532,7 @@ namespace Voron.Data.BTrees
             return sb.ToString();
         }
 
-        public bool HasSpaceFor(LowLevelTransaction tx, int len)
+        public bool HasSpaceForAndDefragIfNeeded(LowLevelTransaction tx, int len)
         {
             if (len <= SizeLeft)
                 return true;
@@ -512,6 +542,28 @@ namespace Voron.Data.BTrees
             Defrag(tx);
 
             Debug.Assert(len <= SizeLeft);
+
+            return true;
+        }
+
+        public bool HasSpaceForAndDefragIfNeeded(LowLevelTransaction tx, int len, out bool wasDefrag)
+        {
+            if (len <= SizeLeft)
+            {
+                wasDefrag = false;
+                return true;
+            }
+
+            if (len > CalcSizeLeft())
+            {
+                wasDefrag = false;
+                return false;
+            }
+
+            Defrag(tx);
+
+            Debug.Assert(len <= SizeLeft);
+            wasDefrag = true;
 
             return true;
         }
@@ -556,10 +608,10 @@ namespace Voron.Data.BTrees
             return len <= SizeLeft;
         }
 
-        public bool HasSpaceFor(LowLevelTransaction tx, Slice key, int len)
+        public bool HasSpaceForAndDefragIfNeeded(LowLevelTransaction tx, Slice key, int len)
         {
             var requiredSpace = GetRequiredSpace(key, len);
-            return HasSpaceFor(tx, requiredSpace);
+            return HasSpaceForAndDefragIfNeeded(tx, requiredSpace);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -720,7 +772,7 @@ namespace Voron.Data.BTrees
 
         public void EnsureHasSpaceFor(LowLevelTransaction tx, Slice key, int len)
         {
-            if (HasSpaceFor(tx, key, len) == false)
+            if (HasSpaceForAndDefragIfNeeded(tx, key, len) == false)
                 throw new InvalidOperationException("Could not ensure that we have enough space, this is probably a bug");
         }
 

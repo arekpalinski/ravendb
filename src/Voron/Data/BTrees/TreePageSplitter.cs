@@ -387,7 +387,7 @@ namespace Voron.Data.BTrees
 
             var newKeyToInsert = _newKey;
 
-            if (p.HasSpaceFor(_tx, p.GetRequiredSpace(newKeyToInsert, _len)) == false)
+            if (p.HasSpaceForAndDefragIfNeeded(_tx, p.GetRequiredSpace(newKeyToInsert, _len)) == false)
             {
                 _cursor.Push(p);
 

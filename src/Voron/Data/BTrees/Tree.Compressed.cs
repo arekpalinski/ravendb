@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using Sparrow;
 using Voron.Global;
 using Voron.Impl;
@@ -155,81 +156,116 @@ namespace Voron.Data.BTrees
             int numberOfEntries = p.NumberOfEntries;
             for (var i = 0; i < numberOfEntries; i++)
             {
-                var uncompressedNode = p.GetNode(i);
-
-                Slice nodeKey;
-                using (TreeNodeHeader.ToSlicePtr(_tx.Allocator, uncompressedNode, out nodeKey))
+                bool wasDefrag = false;
+                try
                 {
-                    if (uncompressedNode->Flags == TreeNodeFlags.CompressionTombstone)
+                    var uncompressedNode = p.GetNode(i);
+
+                    Slice nodeKey;
+                    using (TreeNodeHeader.ToSlicePtr(_tx.Allocator, uncompressedNode, out nodeKey))
                     {
-                        HandleTombstone(decompressedPage, nodeKey, usage);
-                        continue;
-                    }
-
-                    if (decompressedPage.HasSpaceFor(_llt, TreeSizeOf.NodeEntry(uncompressedNode)) == false)
-                        throw new InvalidOperationException("Could not add uncompressed node to decompressed page");
-
-                    int index;
-
-                    if (decompressedPage.NumberOfEntries > 0)
-                    {
-                        Slice lastKey;
-                        using (decompressedPage.GetNodeKey(_llt, decompressedPage.NumberOfEntries - 1, out lastKey))
+                        if (uncompressedNode->Flags == TreeNodeFlags.CompressionTombstone)
                         {
-                            // optimization: it's very likely that uncompressed nodes have greater keys than compressed ones 
-                            // when we insert sequential keys
+                            HandleTombstone(decompressedPage, nodeKey, usage);
+                            continue;
+                        }
 
-                            var cmp = SliceComparer.CompareInline(nodeKey, lastKey);
+                        if (decompressedPage.HasSpaceForAndDefragIfNeeded(_llt, TreeSizeOf.NodeEntry(uncompressedNode) /* + Constants.Tree.NodeOffsetSize* TODO arek*/, out wasDefrag) == false)
+                            throw new InvalidOperationException("Could not add uncompressed node to decompressed page");
 
-                            if (cmp > 0)
-                                index = decompressedPage.NumberOfEntries;
-                            else
+                        int index;
+
+                        if (decompressedPage.NumberOfEntries > 0)
+                        {
+                            Slice lastKey;
+                            using (decompressedPage.GetNodeKey(_llt, decompressedPage.NumberOfEntries - 1, out lastKey))
                             {
-                                if (cmp == 0)
-                                {
-                                    // update of the last entry, just decrement NumberOfEntries in the page and
-                                    // put it at the last position
+                                // optimization: it's very likely that uncompressed nodes have greater keys than compressed ones 
+                                // when we insert sequential keys
 
-                                    index = decompressedPage.NumberOfEntries - 1;
-                                    decompressedPage.Lower -= Constants.Tree.NodeOffsetSize;
-                                }
+                                var cmp = SliceComparer.CompareInline(nodeKey, lastKey);
+
+                                if (cmp > 0)
+                                    index = decompressedPage.NumberOfEntries;
                                 else
                                 {
-                                    index = decompressedPage.NodePositionFor(_llt, nodeKey);
-
-                                    if (decompressedPage.LastMatch == 0) // update
+                                    if (cmp == 0)
                                     {
-                                        decompressedPage.RemoveNode(index);
+                                        // update of the last entry, just decrement NumberOfEntries in the page and
+                                        // put it at the last position
 
-                                        if (usage == DecompressionUsage.Write)
-                                            State.NumberOfEntries--;
+                                        index = decompressedPage.NumberOfEntries - 1;
+                                        decompressedPage.Lower -= Constants.Tree.NodeOffsetSize;
+                                    }
+                                    else
+                                    {
+                                        index = decompressedPage.NodePositionFor(_llt, nodeKey);
+
+                                        if (decompressedPage.LastMatch == 0) // update
+                                        {
+                                            decompressedPage.RemoveNode(index);
+
+                                            if (usage == DecompressionUsage.Write)
+                                                State.NumberOfEntries--;
+                                        }
                                     }
                                 }
                             }
                         }
+                        else
+                        {
+                            // all uncompressed nodes were compresion tombstones which deleted all entries from the decompressed page
+                            index = 0;
+                        }
+
+                        switch (uncompressedNode->Flags)
+                        {
+                            case TreeNodeFlags.PageRef:
+                                decompressedPage.AddPageRefNode(index, nodeKey, uncompressedNode->PageNumber);
+                                break;
+                            case TreeNodeFlags.Data:
+                                var pos = decompressedPage.AddDataNode(index, nodeKey, uncompressedNode->DataSize);
+                                var nodeValue = TreeNodeHeader.Reader(_llt, uncompressedNode);
+                                Memory.Copy(pos, nodeValue.Base, nodeValue.Length);
+                                break;
+                            case TreeNodeFlags.MultiValuePageRef:
+                                throw new NotSupportedException("Multi trees do not support compression");
+
+                            default:
+                                throw new NotSupportedException("Invalid node type to copye: " + uncompressedNode->Flags);
+                        }
                     }
-                    else
+                }
+                catch (Exception ex)
+                {
+                    var tempFilePath = Path.Combine(Path.GetTempPath(), $"compressed_page_{p.PageNumber}_{DateTime.UtcNow.Ticks}.data");
+
+                    string message = $"Could not handle uncompressed node at position {i}. Was defrag: {wasDefrag}";
+
+                    try
                     {
-                        // all uncompressed nodes were compresion tombstones which deleted all entries from the decompressed page
-                        index = 0;
+                        using (var tempFile = File.Create(tempFilePath))
+                        {
+                            var buffer = new byte[p.PageSize];
+
+                            fixed (byte* b = buffer)
+                            {
+                                Memory.Copy(b, p.Base, p.PageSize);
+                            }
+
+                            tempFile.Write(buffer);
+
+                            tempFile.Flush(true);
+                        }
+
+                        message += $"Compressed page data was copied to {tempFilePath}";
+                    }
+                    catch (Exception e)
+                    {
+                        message += "Failed to copy compressed page data to a temp file: " + e;
                     }
 
-                    switch (uncompressedNode->Flags)
-                    {
-                        case TreeNodeFlags.PageRef:
-                            decompressedPage.AddPageRefNode(index, nodeKey, uncompressedNode->PageNumber);
-                            break;
-                        case TreeNodeFlags.Data:
-                            var pos = decompressedPage.AddDataNode(index, nodeKey, uncompressedNode->DataSize);
-                            var nodeValue = TreeNodeHeader.Reader(_llt, uncompressedNode);
-                            Memory.Copy(pos, nodeValue.Base, nodeValue.Length);
-                            break;
-                        case TreeNodeFlags.MultiValuePageRef:
-                            throw new NotSupportedException("Multi trees do not support compression");
-
-                        default:
-                            throw new NotSupportedException("Invalid node type to copye: " + uncompressedNode->Flags);
-                    }
+                    throw new InvalidOperationException(message, ex);
                 }
             }
         }
@@ -263,7 +299,7 @@ namespace Voron.Data.BTrees
 
             page = ModifyPage(page);
 
-            if (page.HasSpaceFor(_llt, tombstoneNodeSize))
+            if (page.HasSpaceForAndDefragIfNeeded(_llt, tombstoneNodeSize))
             {
                 if (page.LastMatch == 0)
                     RemoveLeafNode(page);

@@ -381,7 +381,7 @@ namespace Voron.Data.BTrees
             }
 
             byte* dataPos;
-            if (page.HasSpaceFor(_llt, key, len) == false)
+            if (page.HasSpaceForAndDefragIfNeeded(_llt, key, len) == false)
             {
                 if (IsLeafCompressionSupported == false || TryCompressPageNodes(key, len, page) == false)
                 {
