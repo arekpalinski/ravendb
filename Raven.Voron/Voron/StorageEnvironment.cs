@@ -9,6 +9,7 @@ using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Raven.Abstractions.Logging;
 using Voron.Debugging;
 using Voron.Exceptions;
 using Voron.Impl;
@@ -24,6 +25,8 @@ namespace Voron
 {
     public class StorageEnvironment : IDisposable
     {
+        protected static readonly ILog log = LogManager.GetCurrentClassLogger();
+
         private readonly StorageEnvironmentOptions _options;
 
         private readonly ConcurrentSet<Transaction> _activeTransactions = new ConcurrentSet<Transaction>();
@@ -72,6 +75,10 @@ namespace Voron
 
         public StorageEnvironment(StorageEnvironmentOptions options)
         {
+            log.Debug("Starting " + options.ToString());
+            log.Info("Starting info " + options.ToString());
+
+
             try
             {
                 _options = options;

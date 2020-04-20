@@ -68,6 +68,11 @@ namespace Voron.Impl.Journal
             return false;
         }
 
+        public void SetJournalFile(JournalFile journal)
+        {
+            
+        }
+
         public void Dispose()
         {
             Disposed = true;

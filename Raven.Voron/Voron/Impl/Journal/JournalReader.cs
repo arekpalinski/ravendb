@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using Voron.Impl.Paging;
 using Voron.Util;
 
@@ -50,6 +51,8 @@ namespace Voron.Impl.Journal
 
         public long? MaxPageToRead { get; set; }
 
+        private int numberOfTransactions = 0;
+
         public bool ReadOneTransaction(StorageEnvironmentOptions options, bool checkCrc = true)
         {
             if (_readingPage >= _pager.NumberOfAllocatedPages)
@@ -62,6 +65,9 @@ namespace Voron.Impl.Journal
             if (!TryReadAndValidateHeader(options, out current))
                 return false;
 
+            numberOfTransactions++;
+
+
             var transactionSize = GetNumberOfPagesFromSize(current->Compressed ? current->CompressedSize : current->UncompressedSize);
 
             if (current->TransactionId <= _lastSyncedTransactionId)
@@ -71,11 +77,19 @@ namespace Voron.Impl.Journal
                 return true; // skipping
             }
 
+
+            if (current->TransactionId == 95289953)
+            {
+
+            }
+
             if (checkCrc && !ValidatePagesCrc(options, transactionSize, current))
                 return false;
 
             _recoveryPager.EnsureContinuous(null, _recoveryPage, (current->PageCount + current->OverflowPageCount) + 1);
             var dataPage = _recoveryPager.AcquirePagePointer(null, _recoveryPage);
+
+            
 
             UnmanagedMemory.Set(dataPage, 0, (current->PageCount + current->OverflowPageCount) * AbstractPager.PageSize);
             if (current->Compressed)
@@ -96,6 +110,16 @@ namespace Voron.Impl.Journal
                 Debug.Assert(_recoveryPager.Disposed == false);
 
                 var page = _recoveryPager.Read(null, _recoveryPage);
+
+                if (page.PageNumber == 4189020990130776420)
+                {
+                    var data = new byte[4096];
+
+                    fixed(byte* p = data)
+                        Memory.Copy(p, page.Base, 4096);
+
+                    var s = Encoding.UTF8.GetString(data);
+                }
 
                 var pagePosition = new RecoveryPagePosition
                 {
@@ -126,6 +150,11 @@ namespace Voron.Impl.Journal
 
             foreach (var pagePosition in tempTransactionPageTranslaction)
             {
+                if (pagePosition.Key == 4189020990130776420)
+                {
+
+                }
+
                 _transactionPageTranslation[pagePosition.Key] = pagePosition.Value;
 
                 if (pagePosition.Value.IsOverflow)

@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using Raven.Abstractions.Logging;
 using Voron.Exceptions;
 using Voron.Impl.FileHeaders;
 using Voron.Impl.Paging;
@@ -21,6 +22,8 @@ namespace Voron.Impl.Journal
 {
     public unsafe class WriteAheadJournal : IDisposable
     {
+        protected static readonly ILog log = LogManager.GetCurrentClassLogger();
+
         private readonly StorageEnvironment _env;
         private readonly IVirtualPager _dataPager;
 
@@ -595,14 +598,29 @@ namespace Voron.Impl.Journal
 
                 UpdateFileHeaderAfterDataFileSync(_lastFlushedJournal, _lastSyncedTransactionId);
 
-                var lastBackedUpJournal = _waj._env.HeaderAccessor.Get(header => header->IncrementalBackup).LastBackedUpJournal;
+                var incrementalBackupInfo = _waj._env.HeaderAccessor.Get(header => header->IncrementalBackup);
+
+                var lastBackedUpJournal = incrementalBackupInfo.LastBackedUpJournal;
+                var lastBackedUpJournalPage = incrementalBackupInfo.LastBackedUpJournalPage;
+                var lastCreatedJournal = incrementalBackupInfo.LastCreatedJournal;
+
+
                 foreach (var toDelete in _journalsToDelete.Values)
                 {
                     if (_waj._env.Options.IncrementalBackupEnabled &&
                         toDelete.Number > lastBackedUpJournal)
                         continue;
 
+                    if (_waj._env.Options.IncrementalBackupEnabled && toDelete.Number == lastBackedUpJournal)
+                    {
+                        log.Info("Journal Applicator SyncDataFile -> __About___ to mark file " + toDelete.Number + " as ready to delete. Forcing continue. Last backed up journal: " + lastBackedUpJournal + ". Last Backed Up Journal Page: " + lastBackedUpJournalPage + " LastCreatedJournal: " + lastCreatedJournal + ". Journal details: " + toDelete.GetDebugDetails());
+                        continue;
+                    }
+
                     toDelete.DeleteOnClose = true;
+
+                    log.Info("Journal Applicator SyncDataFile -> Marking journal file " + toDelete.Number + " as ready to delete. Last backed up journal: " + lastBackedUpJournal + ". Last Backed Up Journal Page: " + lastBackedUpJournalPage + " LastCreatedJournal: "+ lastCreatedJournal + ". Journal details: " + toDelete.GetDebugDetails());
+                    
                     toDelete.Release();
                 }
 
@@ -831,9 +849,14 @@ namespace Voron.Impl.Journal
                 if (_waj._env.NextWriteTransactionId - 1 != _lastSyncedTransactionId)
                     throw new InvalidOperationException();
 
+                var incrementalBackupInfo = _waj._env.HeaderAccessor.Get(header => header->IncrementalBackup);
+                var lastBackedUpJournal = incrementalBackupInfo.LastBackedUpJournal;
+                var lastBackedUpJournalPage = incrementalBackupInfo.LastBackedUpJournalPage;
+                var lastCreatedJournal = incrementalBackupInfo.LastCreatedJournal;
+
+
                 if (_waj._env.Options.IncrementalBackupEnabled)
                 {
-                    var lastBackedUpJournal = _waj._env.HeaderAccessor.Get(header => header->IncrementalBackup).LastBackedUpJournal;
                     if(current.Number <= lastBackedUpJournal)
                         return;
                 }
@@ -842,6 +865,9 @@ namespace Voron.Impl.Journal
                 _waj.CurrentFile = null;
 
                 current.DeleteOnClose = true;
+
+                log.Info("Journal Applicator DeleteCurrentAlreadyFlushedJournal -> Marking journal file " + current.Number + " as ready to delete. Last backed up journal: " + lastBackedUpJournal + ". Last Backed Up Journal Page: " + lastBackedUpJournalPage + " LastCreatedJournal: " + lastCreatedJournal + ". Journal details: " + current.GetDebugDetails());
+
                 current.Release();
 
                 _waj._headerAccessor.Modify(header => _waj._updateLogInfo(header));
