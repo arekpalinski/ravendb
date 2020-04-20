@@ -142,5 +142,10 @@ namespace Voron.Platform.Posix
             }
             return true;
         }
+
+        public void SetJournalFile(JournalFile journal)
+        {
+            
+        }
     }
 }

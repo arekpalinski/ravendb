@@ -11,6 +11,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Threading;
+using Raven.Abstractions.Logging;
 using Voron.Impl.Journal;
 using Voron.Impl.Paging;
 using Voron.Platform.Win32;
@@ -21,6 +22,8 @@ namespace Voron.Impl.Backup
 {
     public unsafe class IncrementalBackup
     {
+        protected static readonly ILog log = LogManager.GetCurrentClassLogger();
+
         public class IncrementalRestorePaths
         {
             private string _journalLocation;
@@ -38,6 +41,8 @@ namespace Voron.Impl.Backup
             Action<string> infoNotify = null,
             Action backupStarted = null)
         {
+            log.Info("Starting incremental backup of " + env.Options + " to path " + backupPath);
+
             infoNotify = infoNotify ?? (s => { });
 
             if (env.Options.IncrementalBackupEnabled == false)
@@ -69,16 +74,20 @@ namespace Voron.Impl.Backup
                         // txw.Commit(); intentionally not committing
                     }
 
+                    log.Info("Incremental backup info before backup: " + backupInfo);
+
                     using (env.NewTransaction(TransactionFlags.Read))
                     {
                         if (backupStarted != null)
                             backupStarted();// we let call know that we have started the backup 
                         var usedJournals = new List<JournalFile>();
 
+                        long lastBackedUpPage = -1;
+                        long lastBackedUpFile = -1;
+
                         try
                         {
-                            long lastBackedUpPage = -1;
-                            long lastBackedUpFile = -1;
+                            
 
                             var firstJournalToBackup = backupInfo.LastBackedUpJournal;
 
@@ -142,9 +151,12 @@ namespace Voron.Impl.Backup
                                 header->IncrementalBackup.LastBackedUpJournalPage = lastBackedUpPage;
                             });
                         }
-                        catch (Exception)
+                        catch (Exception e)
                         {
                             backupSuccess = false;
+
+                            log.ErrorException("Incremental backup error of " + env.Options, e);
+
                             throw;
                         }
                         finally
@@ -159,6 +171,15 @@ namespace Voron.Impl.Backup
                                         jrnl.Number < lastSyncedJournal) // prevent deletion of journals that aren't synced with the data file
                                     {
                                         jrnl.DeleteOnClose = true;
+
+                                        log.Info("Incremental Backup -> Marking journal file " + jrnl.Number + " as ready to delete" +
+                                                 ". Last written log file: " + lastWrittenLogFile +
+                                                 ". Last synced journal: " + lastSyncedJournal +
+                                                 ". lastBackedUpPage: " + lastBackedUpPage +
+                                                 ". lastBackedUpFile: " + lastBackedUpFile +
+                                                 ". Journal details: " + jrnl.GetDebugDetails() +
+                                                 "Env: " + env.Options);
+
                                     }
                                 }
 
@@ -169,6 +190,14 @@ namespace Voron.Impl.Backup
                     }
                 }
                 file.Flush(true); // make sure that this is actually persisted fully to disk
+
+                var backupInfoAfterBackup = env.HeaderAccessor.Get(header => header->IncrementalBackup);
+
+                log.Info("Incremental backup completed of " + env.Options +"" +
+                         ". Last written log file: " + lastWrittenLogFile +
+                         ". Incremental backup info: " + backupInfoAfterBackup +
+                         "Env: " + env.Options);
+
                 return numberOfBackedUpPages;
             }
         }

@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
+using Raven.Abstractions.Logging;
 using Voron.Exceptions;
 using Voron.Impl;
 using Voron.Impl.Journal;
@@ -18,6 +19,7 @@ namespace Voron.Platform.Win32
     /// </summary>
     public unsafe class Win32FileJournalWriter : IJournalWriter
     {
+        protected static readonly ILog log = LogManager.GetCurrentClassLogger();
 
 
         private readonly string _filename;
@@ -46,15 +48,18 @@ namespace Voron.Platform.Win32
             }
             catch (Exception ex)
             {
+                log.ErrorException("Error when setting journal file length of file " + filename +" size: " + journalSize, ex);
                 try
                 {
                     _handle?.Dispose();
                     _handle = null;
                     File.Delete(_filename);
                 }
-                catch (Exception)
+                catch (Exception deleteEx)
                 {
                     // there's nothing we can do about it
+                    log.ErrorException("Failed to delete " + filename, deleteEx);
+
                 }
                 throw new IOException("When SetFileLength file " + filename + " to " + journalSize, ex);
             }
@@ -176,6 +181,13 @@ namespace Voron.Platform.Win32
             }
         }
 
+        private JournalFile _journalReference;
+
+        public void SetJournalFile(JournalFile journal)
+        {
+            _journalReference = journal;
+        }
+
         public void Dispose()
         {
             Disposed = true;
@@ -198,6 +210,14 @@ namespace Voron.Platform.Win32
 
             if (DeleteOnClose)
             {
+                string journalDetails = string.Empty;
+
+                if (_journalReference != null)
+                    journalDetails = _journalReference.GetDebugDetails();
+
+                log.Info("Deleting journal file " + _filename +  ". Journal details: " + journalDetails);
+
+
                 try
                 {
                     File.Delete(_filename);

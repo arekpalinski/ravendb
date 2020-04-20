@@ -35,6 +35,8 @@ namespace Voron.Impl.Journal
             Number = journalNumber;
             _journalWriter = journalWriter;
             _writePage = 0;
+
+            journalWriter.SetJournalFile(this);
         }
 
         public override string ToString()
@@ -263,6 +265,11 @@ namespace Voron.Impl.Journal
 
                 tx.Environment.ScratchBufferPool.Free(page.ScratchNumber, page.ScratchPos, tx.Id);
             }
+        }
+
+        public string GetDebugDetails()
+        {
+            return "Journal number: " + _journalWriter.NumberOfAllocatedPages + ". Number of allocated pages: " + _journalWriter.NumberOfAllocatedPages + ". Number of available pages: " + AvailablePages + ". Write page position: " + WritePagePosition + ". Refs: " + _refs;
         }
     }
 }

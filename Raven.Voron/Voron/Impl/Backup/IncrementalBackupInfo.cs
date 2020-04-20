@@ -19,5 +19,10 @@ namespace Voron.Impl.Backup
 
         [FieldOffset(16)]
         public long LastCreatedJournal;
+
+        public override string ToString()
+        {
+            return "LastBackedUpJournal : " + LastBackedUpJournal + " LastBackedUpJournalPage: " + LastBackedUpJournalPage + " LastCreatedJournal: " + LastCreatedJournal;
+        }
     }
 }

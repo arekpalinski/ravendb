@@ -12,6 +12,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Raven.Abstractions.Logging;
 using Voron.Impl.FileHeaders;
 using Voron.Impl.Journal;
 using Voron.Impl.Paging;
@@ -21,11 +22,14 @@ namespace Voron.Impl.Backup
 {
     public unsafe class FullBackup
     {
+        protected static readonly ILog log = LogManager.GetCurrentClassLogger();
 
         public void ToFile(StorageEnvironment env, string backupPath, CancellationToken token, CompressionLevel compression = CompressionLevel.Optimal,
             Action<string> infoNotify = null,
             Action backupStarted = null)
         {
+            log.Info("Starting full backup of " + env.Options + " to path " + backupPath);
+
             infoNotify = infoNotify ?? (s => { });
 
             var dataPager = env.Options.DataPager;
@@ -157,6 +161,8 @@ namespace Voron.Impl.Backup
                                         journalFile.Number < lastSyncedJournal) // prevent deletion of journals that aren't synced with the data file
                                     {
                                         journalFile.DeleteOnClose = true;
+
+                                        log.Info("Full Backup -> Marking journal file " + journalFile.Number + " as ready to delete. Last written log file: " + lastWrittenLogFile + ". Last synced journal: " + lastSyncedJournal + ". Journal details: " + journalFile.GetDebugDetails());
                                     }
                                 }
 

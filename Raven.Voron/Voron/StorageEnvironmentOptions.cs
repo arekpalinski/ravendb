@@ -172,6 +172,11 @@ namespace Voron
                 });
             }
 
+            public override string ToString()
+            {
+                return " [ Base path: " + _basePath + ". Journal path: " + _journalPath + " ] ";
+            }
+
             public string FilePath { get; private set; }
 
             public override IVirtualPager DataPager
