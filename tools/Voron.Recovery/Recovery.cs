@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -28,8 +27,8 @@ using Voron.Data;
 using Voron.Data.BTrees;
 using Voron.Data.RawData;
 using Voron.Data.Tables;
-using Voron.Exceptions;
 using Voron.Impl.Paging;
+using Voron.Recovery.Journals;
 using static System.String;
 using static Voron.Data.BTrees.Tree;
 using Constants = Voron.Global.Constants;
@@ -38,6 +37,8 @@ namespace Voron.Recovery
 {
     public unsafe class Recovery : IDisposable
     {
+        private readonly ExecutionStatus _status = new ExecutionStatus();
+
         public Recovery(VoronRecoveryConfiguration config)
         {
             _datafile = config.PathToDataFile;
@@ -49,9 +50,10 @@ namespace Voron.Recovery
             _masterKey = config.MasterKey;
 
             // by default CopyOnWriteMode will be true
+
             _copyOnWrite = !config.DisableCopyOnWriteMode;
             _config = config;
-            _option = CreateOptions();
+            _options = CreateOptions();
 
             _progressIntervalInSec = config.ProgressIntervalInSec;
             _previouslyWrittenDocs = new Dictionary<string, long>();
@@ -86,106 +88,38 @@ namespace Voron.Recovery
             return (long)position - offset;
         }
 
-        public RecoveryStatus Execute(TextWriter writer, CancellationToken ct)
+        public RecoveryStatus Execute(TextWriter writer, CancellationToken token)
         {
-            void PrintRecoveryProgress(long startOffset, byte* mem, byte* eof, DateTime now)
-            {
-                var currPos = GetFilePosition(startOffset, mem);
-                var eofPos = GetFilePosition(startOffset, eof);
-                writer.WriteLine(
-                    $"{now:hh:MM:ss}: Recovering page at position {currPos:#,#;;0}/{eofPos:#,#;;0} ({(double)currPos / eofPos:p}) - Last recovered doc is {_lastRecoveredDocumentKey}");
-            }
-
-            StorageEnvironment se = null;
-            TempPagerTransaction tx = null;
+            StorageEnvironment environment = null;
+            TempPagerTransaction tempTx = null;
             try
             {
                 if (IsEncrypted)
                 {
-                    //We need a tx for the encryption pager and we can't dispose of it while reading the page.
-                    tx = new TempPagerTransaction();
+                    // We need a tx for the encryption pager and we can't dispose of it while reading the page
+                    tempTx = new TempPagerTransaction();
                 }
-                var sw = new Stopwatch();
-                sw.Start();
-                byte* mem = null;
+
+                var sw = Stopwatch.StartNew();
+
                 if (_copyOnWrite)
                 {
-                    writer.WriteLine("Recovering journal files, this may take a while...");
+                    var journalsRecovery = new JournalsRecovery(() => _options = CreateOptions(), writer);
 
-                    bool optionOwnsPagers = _option.OwnsPagers;
-                    try
-                    {
-                        _option.OwnsPagers = false;
-
-                        while (true)
-                        {
-                            try
-                            {
-                                se = new StorageEnvironment(_option);
-                                break;
-                            }
-                            catch (IncreasingDataFileInCopyOnWriteModeException ex)
-                            {
-                                _option.Dispose();
-
-                                using (var file = File.Open(ex.DataFilePath, FileMode.Open))
-                                {
-                                    file.SetLength(ex.RequestedSize);
-                                }
-
-                                _option = CreateOptions();
-                            }
-                            catch (OutOfMemoryException e)
-                            {
-                                if (e.InnerException is Win32Exception)
-                                    throw;
-                            }
-                        }
-
-                        //for encrypted database the pointer points to the buffer and this is not what we want.
-                        mem = se.Options.DataPager.PagerState.MapBase;
-                        writer.WriteLine(
-                            $"Journal recovery has completed successfully within {sw.Elapsed.TotalSeconds:N1} seconds");
-                    }
-                    catch (Exception e)
-                    {
-                        se?.Dispose();
-
-                        if (e is OutOfMemoryException && e.InnerException is Win32Exception)
-                        {
-                            e.Data["ReturnCode"] = 0xDEAD;
-                            writer.WriteLine($"{e.InnerException.Message}. {e.Message}.");
-                            writer.WriteLine();
-                            writer.WriteLine("Journal recovery failed. To continue, please backup your files and run again with --DisableCopyOnWriteMode flag.");
-                            writer.WriteLine("Please note that this is usafe operation and we highly recommend to backup you files.");
-
-                            throw;
-                        }
-                        writer.WriteLine("Journal recovery failed, don't worry we will continue with data recovery.");
-                        writer.WriteLine("The reason for the Jornal recovery failure was:");
-                        writer.WriteLine(e);
-                    }
-                    finally
-                    {
-                        _option.OwnsPagers = optionOwnsPagers;
-                    }
+                    environment = journalsRecovery.RecoverByLoadingEnvironment(_options);
                 }
 
-                if (mem == null)
-                {
-                    //for encrypted database the pointer points to the buffer and this is not what we want.
-                    if (se == null /*journal recovery failed or copy on write is set to false*/)
-                    {
-                        mem = _option.DataPager.PagerState.MapBase;
-                    }
-                    else
-                    {
-                        mem = se.Options.DataPager.PagerState.MapBase;
-                    }
-                }
+                byte* mem;
+
+                if (environment == null) // journal recovery failed or copy on write is set to false
+                    mem = _options.DataPager.PagerState.MapBase;
+                else
+                    mem = environment.Options.DataPager.PagerState.MapBase;
+
                 long startOffset = (long)mem;
                 var fi = new FileInfo(_datafile);
                 var fileSize = fi.Length;
+
                 //making sure eof is page aligned
                 var eof = mem + (fileSize / _pageSize) * _pageSize;
 
@@ -212,38 +146,20 @@ namespace Voron.Recovery
                     WriteSmugglerHeader(revisionsWriter, ServerVersion.Build, nameof(DatabaseItemType.RevisionDocuments));
                     WriteSmugglerHeader(conflictsWriter, ServerVersion.Build, nameof(DatabaseItemType.Conflicts));
                     WriteSmugglerHeader(countersWriter, ServerVersion.Build, nameof(DatabaseItemType.CounterGroups));
-
-                    while (mem < eof)
+                    while (mem < eof && token.IsCancellationRequested)
                     {
                         try
                         {
-                            var page = DecryptPageIfNeeded(mem, startOffset, ref tx, maybePulseTransaction: true);
+                            ReportProgress();
 
-                            if (ct.IsCancellationRequested)
-                            {
-                                if (_logger.IsOperationsEnabled)
-                                    _logger.Operations($"Cancellation requested while recovery was in position {GetFilePosition(startOffset, mem)}");
-                                _cancellationRequested = true;
-                                break;
-                            }
-
-                            var now = DateTime.UtcNow;
-                            if ((now - lastProgressReport).TotalSeconds >= _progressIntervalInSec)
-                            {
-                                if (lastProgressReport != DateTime.MinValue)
-                                {
-                                    writer.WriteLine("Press 'q' to quit the recovery process");
-                                }
-
-                                lastProgressReport = now;
-                                PrintRecoveryProgress(startOffset, mem, eof, now);
-                            }
+                            var page = DecryptPageIfNeeded(mem, startOffset, ref tempTx, maybePulseTransaction: true);
 
                             var pageHeader = (PageHeader*)page;
 
-                            //this page is not raw data section move on
                             if ((pageHeader->Flags).HasFlag(PageFlags.RawData) == false && pageHeader->Flags.HasFlag(PageFlags.Stream) == false)
                             {
+                                // this page is not raw data section move on
+
                                 mem += _pageSize;
                                 continue;
                             }
@@ -252,7 +168,8 @@ namespace Voron.Recovery
                                 pageHeader->Flags.HasFlag(PageFlags.Overflow))
                             {
                                 var message =
-                                    $"page #{pageHeader->PageNumber} (offset={GetFilePosition(startOffset, mem)}) has both Overflow and Single flag turned";
+                                    $"Page #{pageHeader->PageNumber} (offset={GetFilePosition(startOffset, mem)}) has both {nameof(PageFlags.Single)} and {nameof(PageFlags.Overflow)} flag turned";
+
                                 mem = PrintErrorAndAdvanceMem(message, mem);
                                 continue;
                             }
@@ -285,9 +202,8 @@ namespace Voron.Recovery
                                         rc = Sodium.crypto_generichash_init(hashStatePtr, null, UIntPtr.Zero, (UIntPtr)_streamHashResult.Length);
                                         if (rc != 0)
                                         {
-                                            if (_logger.IsOperationsEnabled)
-                                                _logger.Operations(
-                                                    $"page #{pageHeader->PageNumber} (offset={(long)pageHeader}) failed to initialize Sodium for hash computation will skip this page.");
+                                            Log($"page #{pageHeader->PageNumber} (offset={(long)pageHeader}) failed to initialize Sodium for hash computation will skip this page.", LogMode.Operations);
+                                            
                                             mem += numberOfPages * _pageSize;
                                             continue;
                                         }
@@ -314,9 +230,8 @@ namespace Voron.Recovery
                                             rc = Sodium.crypto_generichash_update(hashStatePtr, dataStart, (ulong)streamPageHeader->ChunkSize);
                                             if (rc != 0)
                                             {
-                                                if (_logger.IsOperationsEnabled)
-                                                    _logger.Operations(
-                                                        $"page #{pageHeader->PageNumber} (offset={(long)pageHeader}) failed to compute chunk hash, will skip it.");
+                                                Log($"page #{pageHeader->PageNumber} (offset={(long)pageHeader}) failed to compute chunk hash, will skip it.", LogMode.Operations);
+
                                                 valid = false;
                                                 break;
                                             }
@@ -328,21 +243,20 @@ namespace Voron.Recovery
                                             }
 
                                             var nextStreamHeader = (byte*)(streamPageHeader->StreamNextPageNumber * _pageSize) + startOffset;
-                                            nextPage = (PageHeader*)DecryptPageIfNeeded(nextStreamHeader, startOffset, ref tx, false);
+                                            nextPage = (PageHeader*)DecryptPageIfNeeded(nextStreamHeader, startOffset, ref tempTx, false);
 
                                             //This is the case that the next page isn't a stream page
                                             if (nextPage->Flags.HasFlag(PageFlags.Stream) == false || nextPage->Flags.HasFlag(PageFlags.Overflow) == false)
                                             {
+                                                Log($"page #{nextPage->PageNumber} (offset={(long)nextPage}) was suppose to be a stream chunk but isn't marked as Overflow | Stream", LogMode.Operations);
+                                                
                                                 valid = false;
-                                                if (_logger.IsOperationsEnabled)
-                                                    _logger.Operations(
-                                                        $"page #{nextPage->PageNumber} (offset={(long)nextPage}) was suppose to be a stream chunk but isn't marked as Overflow | Stream");
                                                 break;
                                             }
 
                                             valid = ValidateOverflowPage(nextPage, eof, startOffset, ref mem);
 
-                                            //we already advance the pointer inside the validation
+                                            // we already advance the pointer inside the validation
                                             if (valid == false)
                                             {
                                                 break;
@@ -351,7 +265,7 @@ namespace Voron.Recovery
 
                                         if (valid == false)
                                         {
-                                            //The first page was valid so we can skip the entire overflow
+                                            // The first page was valid so we can skip the entire overflow
                                             mem += numberOfPages * _pageSize;
                                             continue;
                                         }
@@ -383,7 +297,7 @@ namespace Voron.Recovery
                                 {
                                     mem += numberOfPages * _pageSize;
                                 }
-                                else //write document failed
+                                else // write document failed
                                 {
                                     mem += _pageSize;
                                 }
@@ -472,6 +386,21 @@ namespace Voron.Recovery
                             }
 
                             mem += _pageSize;
+
+                            void ReportProgress()
+                            {
+                                var now = DateTime.UtcNow;
+                                if ((now - lastProgressReport).TotalSeconds >= _progressIntervalInSec)
+                                {
+                                    if (lastProgressReport != DateTime.MinValue)
+                                    {
+                                        writer.WriteLine("Press 'q' to quit the recovery process");
+                                    }
+
+                                    lastProgressReport = now;
+                                    PrintRecoveryProgress(startOffset, mem, eof, now);
+                                }
+                            }
                         }
                         catch (InvalidOperationException ioe) when (ioe.Message == EncryptedDatabaseWithoutMasterkeyErrorMessage)
                         {
@@ -487,7 +416,7 @@ namespace Voron.Recovery
 
                     PrintRecoveryProgress(startOffset, mem, eof, DateTime.UtcNow);
 
-                    ReportOrphanAttachmentsAndMissingAttachments(writer, documentsWriter, ct);
+                    ReportOrphanAttachmentsAndMissingAttachments(writer, documentsWriter, token);
                     //This will only be the case when we don't have orphan attachments and we wrote the last attachment after we wrote the
                     //last document
                     if (_lastWriteIsDocument == false && _lastAttachmentInfo.HasValue)
@@ -495,7 +424,7 @@ namespace Voron.Recovery
                         WriteDummyDocumentForAttachment(documentsWriter, _lastAttachmentInfo.Value.hash, _lastAttachmentInfo.Value.size, _lastAttachmentInfo.Value.tag);
                     }
 
-                    ReportOrphanCountersAndMissingCounters(writer, documentsWriter, ct);
+                    ReportOrphanCountersAndMissingCounters(writer, documentsWriter, token);
 
                     documentsWriter.WriteEndArray();
                     conflictsWriter.WriteEndArray();
@@ -506,25 +435,59 @@ namespace Voron.Recovery
                     revisionsWriter.WriteEndObject();
                     countersWriter.WriteEndObject();
 
-                    if (_logger.IsOperationsEnabled)
-                    {
-                        _logger.Operations(Environment.NewLine +
-                            $"Discovered a total of {_numberOfDocumentsRetrieved:#,#;00} documents within {sw.Elapsed.TotalSeconds::#,#.#;;00} seconds." + Environment.NewLine +
-                            $"Discovered a total of {_attachmentsHashs.Count:#,#;00} attachments. " + Environment.NewLine +
-                            $"Discovered a total of {_numberOfCountersRetrieved:#,#;00} counters. " + Environment.NewLine +
-                            $"Discovered a total of {_numberOfFaultedPages::#,#;00} faulted pages.");
-                    }
+                    Log(Environment.NewLine +
+                        $"Discovered a total of {_status.NumberOfDocumentsRetrieved:#,#;00} documents within {sw.Elapsed.TotalSeconds::#,#.#;;00} seconds." + Environment.NewLine +
+                        $"Discovered a total of {_attachmentsHashs.Count:#,#;00} attachments. " + Environment.NewLine +
+                        $"Discovered a total of {_status.NumberOfCountersRetrieved:#,#;00} counters. " + Environment.NewLine +
+                        $"Discovered a total of {_status.NumberOfFaultedPages::#,#;00} faulted pages.", LogMode.Operations);
                 }
-                if (_cancellationRequested)
+
+                if (token.IsCancellationRequested)
+                {
+                    Log($"Cancellation requested while recovery was in position {GetFilePosition(startOffset, mem)}", LogMode.Operations);
+
                     return RecoveryStatus.CancellationRequested;
+                }
+
                 return RecoveryStatus.Success;
             }
             finally
             {
-                tx?.Dispose();
-                se?.Dispose();
+                tempTx?.Dispose();
+                environment?.Dispose();
                 if (_config.LoggingMode != LogMode.None)
                     LoggingSource.Instance.EndLogging();
+            }
+
+            void PrintRecoveryProgress(long startOffset, byte* mem, byte* eof, DateTime now)
+            {
+                var currPos = GetFilePosition(startOffset, mem);
+                var eofPos = GetFilePosition(startOffset, eof);
+                writer.WriteLine(
+                    $"{now:hh:MM:ss}: Recovering page at position {currPos:#,#;;0}/{eofPos:#,#;;0} ({(double)currPos / eofPos:p}) - Last recovered doc is {_lastRecoveredDocumentKey}");
+            }
+        }
+
+        private void Log(string message, LogMode logMode)
+        {
+            switch (logMode)
+            {
+                case LogMode.Operations:
+                {
+                    if (_logger.IsOperationsEnabled)
+                        _logger.Operations(message);
+                    break;
+                }
+                case LogMode.Information:
+                {
+                    if (_logger.IsInfoEnabled)
+                        _logger.Info(message);
+                    break;
+                }
+                case LogMode.None:
+                    break;
+                default:
+                    throw new ArgumentException($"Unknown log mode option: {logMode}");
             }
         }
 
@@ -1054,7 +1017,7 @@ namespace Voron.Recovery
 
                 _lastRecoveredDocumentKey = counterGroup.DocumentId;
                 _uniqueCountersDiscovered.Add((null, counterGroup.DocumentId));
-                _numberOfCountersRetrieved++;
+                _status.NumberOfCountersRetrieved++;
 
                 return true;
             }
@@ -1111,7 +1074,7 @@ namespace Voron.Recovery
                 context.Write(writer, document.Data);
 
                 _documentWritten = true;
-                _numberOfDocumentsRetrieved++;
+                _status.NumberOfDocumentsRetrieved++;
                 if (_logger.IsInfoEnabled)
                     _logger.Info($"Found document with key={document.Id}");
                 _lastRecoveredDocumentKey = document.Id;
@@ -1206,7 +1169,7 @@ namespace Voron.Recovery
                 context.Write(writer, revision.Data);
 
                 _revisionWritten = true;
-                _numberOfDocumentsRetrieved++;
+                _status.NumberOfDocumentsRetrieved++;
                 if (_logger.IsInfoEnabled)
                     _logger.Info($"Found revision document with key={revision.Id}");
                 _lastRecoveredDocumentKey = revision.Id;
@@ -1253,7 +1216,7 @@ namespace Voron.Recovery
                 context.Write(writer, conflict.Doc);
 
                 _conflictWritten = true;
-                _numberOfDocumentsRetrieved++;
+                _status.NumberOfDocumentsRetrieved++;
                 if (_logger.IsInfoEnabled)
                     _logger.Info($"Found conflict document with key={conflict.Id}");
                 _lastRecoveredDocumentKey = conflict.Id;
@@ -1270,29 +1233,25 @@ namespace Voron.Recovery
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private byte* PrintErrorAndAdvanceMem(string message, byte* mem)
         {
-            if (_logger.IsOperationsEnabled)
-            {
-                _logger.Operations(message);
-            }
-            _numberOfFaultedPages++;
+            Log(message, LogMode.Operations);
+
+            _status.NumberOfFaultedPages++;
             return mem + _pageSize;
         }
 
         private readonly string _output;
         private readonly int _pageSize;
-        private AbstractPager Pager => _option.DataPager;
+        private AbstractPager Pager => _options.DataPager;
         private const string LogFileName = "recovery.log";
-        private long _numberOfFaultedPages;
-        private long _numberOfDocumentsRetrieved;
+
         private readonly int _initialContextSize;
         private readonly int _initialContextLongLivedSize;
         private bool _documentWritten;
         private bool _revisionWritten;
         private bool _conflictWritten;
         private bool _counterWritten;
-        private StorageEnvironmentOptions _option;
+        private StorageEnvironmentOptions _options;
         private readonly int _progressIntervalInSec;
-        private bool _cancellationRequested;
         private string _lastRecoveredDocumentKey = "No documents recovered yet";
         private readonly string _datafile;
         private readonly bool _copyOnWrite;
@@ -1301,7 +1260,6 @@ namespace Voron.Recovery
         private readonly List<(string name, string docId)> _documentsCounters = new List<(string name, string docId)>();
         private readonly SortedSet<(string name, string docId)> _uniqueCountersDiscovered = new SortedSet<(string name, string docId)>(new ByDocIdAndCounterName());
 
-        private long _numberOfCountersRetrieved;
         private int _dummyDocNumber;
         private int _dummyAttachmentNumber;
         private bool _lastWriteIsDocument;
@@ -1331,7 +1289,7 @@ namespace Voron.Recovery
 
         public void Dispose()
         {
-            _option?.Dispose();
+            _options?.Dispose();
         }
     }
 }
