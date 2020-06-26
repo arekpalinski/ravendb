@@ -120,7 +120,7 @@ namespace Raven.Server.Web.Studio
                     var dbDriver = DatabaseDriverDispatcher.CreateDriver(sourceSqlDatabase.Provider, sourceSqlDatabase.ConnectionString);
                     var schema = dbDriver.FindSchema();
                     
-                    var (testResultDocument, documentId) = dbDriver.Test(testRequest.Settings, schema, context);
+                    var (testResultDocument, documentId) = dbDriver.Test(testRequest.Settings, schema, Database, context);
                     
                     using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
                     {

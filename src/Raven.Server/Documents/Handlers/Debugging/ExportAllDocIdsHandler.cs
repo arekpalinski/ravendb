@@ -20,7 +20,7 @@ namespace Raven.Server.Documents.Handlers.Debugging
             using (var writer = new StreamWriter(ResponseBodyStream(), Encoding.UTF8, 4096))
             using (context.OpenReadTransaction())
             {
-                foreach (var id in context.DocumentDatabase.DocumentsStorage.GetAllIds(context))
+                foreach (var id in context.DocumentsStorage.GetAllIds(context))
                     writer.Write($"{id}{Environment.NewLine}");
 
                 writer.Flush();

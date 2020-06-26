@@ -860,7 +860,7 @@ namespace Raven.Server.Smuggler.Documents
                 _documentIdsOfMissingAttachments = documentIdsOfMissingAttachments;
                 if (_database.Is32Bits)
                 {
-                    using (var ctx = DocumentsOperationContext.ShortTermSingleUse(database))
+                    using (var ctx = DocumentsOperationContext.ShortTermSingleUse(database.DocumentsStorage))
                     using (ctx.OpenReadTransaction())
                     {
                         _collectionNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -310,7 +310,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce.OutputToCollection
                     var doc = item.Json;
 
                     _database.DocumentsStorage.Put(context, id, null, doc, flags: DocumentFlags.Artificial | DocumentFlags.FromIndex);
-                    context.DocumentDatabase.HugeDocuments.AddIfDocIsHuge(id, doc.Size);
+                    context.DocumentsStorage.HugeDocuments.AddIfDocIsHuge(id, doc.Size);
 
                     if (item.ReferenceDocId != null)
                         _outputToCollectionReferences?.Add(item.ReferenceDocId, id);
@@ -347,7 +347,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce.OutputToCollection
                     using (item.Json) // TODO arek item.ReferenceDocumentId
                     {
                         _database.DocumentsStorage.Put(context, key, null, item.Json, flags: DocumentFlags.Artificial | DocumentFlags.FromIndex);
-                        context.DocumentDatabase.HugeDocuments.AddIfDocIsHuge(key, item.Json.Size);
+                        context.DocumentsStorage.HugeDocuments.AddIfDocIsHuge(key, item.Json.Size);
                     }
                 }
             }

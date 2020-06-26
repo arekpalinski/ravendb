@@ -20,6 +20,7 @@ using Raven.Client.Json;
 using Raven.Server.Documents;
 using Raven.Server.Documents.Handlers.Admin;
 using Raven.Server.Documents.Patch;
+using Raven.Server.Documents.Revisions;
 using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Context;
 using Raven.Tests.Core.Utils.Entities;
@@ -1054,7 +1055,7 @@ namespace FastTests.Server.Documents.Revisions
                 }
                 else
                 {
-                    database.DocumentsStorage.RevisionsStorage.Operations.DeleteRevisionsBefore("Users", DateTime.UtcNow);
+                    database.TxMerger.Enqueue(new RevisionsOperations.DeleteRevisionsBeforeCommand("Users", DateTime.UtcNow, database)).GetAwaiter().GetResult();
                 }
 
                 statistics = store.Maintenance.Send(new GetStatisticsOperation());

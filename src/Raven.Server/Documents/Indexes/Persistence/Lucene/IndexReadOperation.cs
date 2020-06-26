@@ -657,7 +657,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             {
                 if (query.Metadata.HasCmpXchg)
                 {
-                    releaseServerContext = context.DocumentDatabase.ServerStore.ContextPool.AllocateOperationContext(out serverContext);
+                    releaseServerContext = context.DocumentsStorage.ServerStore.ContextPool.AllocateOperationContext(out serverContext);
                     closeServerTransaction = serverContext.OpenReadTransaction();
                 }
 
@@ -674,7 +674,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             HashSet<string> stopWords = null;
             if (string.IsNullOrWhiteSpace(options.StopWordsDocumentId) == false)
             {
-                var stopWordsDoc = context.DocumentDatabase.DocumentsStorage.Get(context, options.StopWordsDocumentId);
+                var stopWordsDoc = context.DocumentsStorage.Get(context, options.StopWordsDocumentId);
                 if (stopWordsDoc == null)
                     throw new InvalidOperationException($"Stop words document {options.StopWordsDocumentId} could not be found");
 

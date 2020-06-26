@@ -12,6 +12,7 @@ using Raven.Server.Config;
 using Raven.Server.Documents.Expiration;
 using Raven.Server.Documents.Replication;
 using Raven.Server.Documents.Revisions;
+using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Context;
 using Raven.Server.Storage.Layout;
 using Raven.Server.Storage.Schema;
@@ -56,7 +57,7 @@ namespace Raven.Server.Documents
         public static readonly TableSchema TombstonesSchema = new TableSchema();
         public static readonly TableSchema CollectionsSchema = new TableSchema();
 
-        public readonly DocumentDatabase DocumentDatabase;
+        private readonly DatabaseStorageOptions _storageOptions;
 
         private Dictionary<string, CollectionName> _collectionsCache;
 
@@ -176,15 +177,31 @@ namespace Raven.Server.Documents
 
         public DocumentsContextPool ContextPool;
 
-        public DocumentsStorage(DocumentDatabase documentDatabase, Action<string> addToInitLog)
+        public DocumentsStorage(DatabaseStorageOptions storageOptions, Action<string> addToInitLog)
         {
-            DocumentDatabase = documentDatabase;
-            _name = DocumentDatabase.Name;
-            _logger = LoggingSource.Instance.GetLogger<DocumentsStorage>(documentDatabase.Name);
+            _storageOptions = storageOptions;
+            _name = _storageOptions.Name;
+            _logger = LoggingSource.Instance.GetLogger<DocumentsStorage>(storageOptions.Name);
             _addToInitLog = addToInitLog;
         }
 
         public StorageEnvironment Environment { get; private set; }
+
+        public string DbBase64Id => Environment?.Base64Id ?? "";
+
+        public string NodeTag => _storageOptions.NodeTag;
+
+        public DocumentsChanges Changes => _storageOptions.Changes;
+
+        public RavenConfiguration Configuration => _storageOptions.Configuration;
+
+        public string Name => _storageOptions.Name;
+
+        public bool Is32Bits => _storageOptions.Is32Bits;
+
+        public HugeDocuments HugeDocuments { get; set; }
+
+        public ServerStore ServerStore { get; set; }
 
         public RevisionsStorage RevisionsStorage;
         public ExpirationStorage ExpirationStorage;
@@ -221,34 +238,34 @@ namespace Raven.Server.Documents
             if (_logger.IsInfoEnabled)
             {
                 _logger.Info
-                ("Starting to open document storage for " + (DocumentDatabase.Configuration.Core.RunInMemory
+                ("Starting to open document storage for " + (_storageOptions.Configuration.Core.RunInMemory
                      ? "<memory>"
-                     : DocumentDatabase.Configuration.Core.DataDirectory.FullPath));
+                     : _storageOptions.Configuration.Core.DataDirectory.FullPath));
             }
 
-            var options = GetStorageEnvironmentOptionsFromConfiguration(DocumentDatabase.Configuration, DocumentDatabase.IoChanges, DocumentDatabase.CatastrophicFailureNotification);
+            var options = GetStorageEnvironmentOptionsFromConfiguration(_storageOptions.Configuration, _storageOptions.IoChanges, _storageOptions.CatastrophicFailureNotification);
 
-            options.OnNonDurableFileSystemError += DocumentDatabase.HandleNonDurableFileSystemError;
-            options.OnRecoveryError += DocumentDatabase.HandleOnDatabaseRecoveryError;
-            options.OnIntegrityErrorOfAlreadySyncedData += DocumentDatabase.HandleOnDatabaseIntegrityErrorOfAlreadySyncedData;
+            options.OnNonDurableFileSystemError += _storageOptions.HandleNonDurableFileSystemError;
+            options.OnRecoveryError += _storageOptions.HandleOnDatabaseRecoveryError;
+            options.OnIntegrityErrorOfAlreadySyncedData += _storageOptions.HandleOnDatabaseIntegrityErrorOfAlreadySyncedData;
 
             options.GenerateNewDatabaseId = generateNewDatabaseId;
-            options.CompressTxAboveSizeInBytes = DocumentDatabase.Configuration.Storage.CompressTxAboveSize.GetValue(SizeUnit.Bytes);
-            options.ForceUsing32BitsPager = DocumentDatabase.Configuration.Storage.ForceUsing32BitsPager;
-            options.EnablePrefetching = DocumentDatabase.Configuration.Storage.EnablePrefetching;
-            options.TimeToSyncAfterFlushInSec = (int)DocumentDatabase.Configuration.Storage.TimeToSyncAfterFlush.AsTimeSpan.TotalSeconds;
-            options.NumOfConcurrentSyncsPerPhysDrive = DocumentDatabase.Configuration.Storage.NumberOfConcurrentSyncsPerPhysicalDrive;
+            options.CompressTxAboveSizeInBytes = _storageOptions.Configuration.Storage.CompressTxAboveSize.GetValue(SizeUnit.Bytes);
+            options.ForceUsing32BitsPager = _storageOptions.Configuration.Storage.ForceUsing32BitsPager;
+            options.EnablePrefetching = _storageOptions.Configuration.Storage.EnablePrefetching;
+            options.TimeToSyncAfterFlushInSec = (int)_storageOptions.Configuration.Storage.TimeToSyncAfterFlush.AsTimeSpan.TotalSeconds;
+            options.NumOfConcurrentSyncsPerPhysDrive = _storageOptions.Configuration.Storage.NumberOfConcurrentSyncsPerPhysicalDrive;
             options.AddToInitLog = _addToInitLog;
-            options.MasterKey = DocumentDatabase.MasterKey?.ToArray();
-            options.DoNotConsiderMemoryLockFailureAsCatastrophicError = DocumentDatabase.Configuration.Security.DoNotConsiderMemoryLockFailureAsCatastrophicError;
-            if (DocumentDatabase.Configuration.Storage.MaxScratchBufferSize.HasValue)
-                options.MaxScratchBufferSize = DocumentDatabase.Configuration.Storage.MaxScratchBufferSize.Value.GetValue(SizeUnit.Bytes);
-            options.PrefetchSegmentSize = DocumentDatabase.Configuration.Storage.PrefetchBatchSize.GetValue(SizeUnit.Bytes);
-            options.PrefetchResetThreshold = DocumentDatabase.Configuration.Storage.PrefetchResetThreshold.GetValue(SizeUnit.Bytes);
-            options.SyncJournalsCountThreshold = DocumentDatabase.Configuration.Storage.SyncJournalsCountThreshold;
-            options.IgnoreInvalidJournalErrors = DocumentDatabase.Configuration.Storage.IgnoreInvalidJournalErrors;
-            options.SkipChecksumValidationOnDatabaseLoading = DocumentDatabase.Configuration.Storage.SkipChecksumValidationOnDatabaseLoading;
-            options.IgnoreDataIntegrityErrorsOfAlreadySyncedTransactions = DocumentDatabase.Configuration.Storage.IgnoreDataIntegrityErrorsOfAlreadySyncedTransactions;
+            options.MasterKey = _storageOptions.MasterKey?.ToArray();
+            options.DoNotConsiderMemoryLockFailureAsCatastrophicError = _storageOptions.Configuration.Security.DoNotConsiderMemoryLockFailureAsCatastrophicError;
+            if (_storageOptions.Configuration.Storage.MaxScratchBufferSize.HasValue)
+                options.MaxScratchBufferSize = _storageOptions.Configuration.Storage.MaxScratchBufferSize.Value.GetValue(SizeUnit.Bytes);
+            options.PrefetchSegmentSize = _storageOptions.Configuration.Storage.PrefetchBatchSize.GetValue(SizeUnit.Bytes);
+            options.PrefetchResetThreshold = _storageOptions.Configuration.Storage.PrefetchResetThreshold.GetValue(SizeUnit.Bytes);
+            options.SyncJournalsCountThreshold = _storageOptions.Configuration.Storage.SyncJournalsCountThreshold;
+            options.IgnoreInvalidJournalErrors = _storageOptions.Configuration.Storage.IgnoreInvalidJournalErrors;
+            options.SkipChecksumValidationOnDatabaseLoading = _storageOptions.Configuration.Storage.SkipChecksumValidationOnDatabaseLoading;
+            options.IgnoreDataIntegrityErrorsOfAlreadySyncedTransactions = _storageOptions.Configuration.Storage.IgnoreDataIntegrityErrorsOfAlreadySyncedTransactions;
 
             try
             {
@@ -286,9 +303,9 @@ namespace Raven.Server.Documents
             options.SchemaUpgrader = SchemaUpgrader.Upgrader(SchemaUpgrader.StorageType.Documents, null, this, null);
             try
             {
-                DirectoryExecUtils.SubscribeToOnDirectoryInitializeExec(options, DocumentDatabase.Configuration.Storage, DocumentDatabase.Name, DirectoryExecUtils.EnvironmentType.Database, _logger);
+                DirectoryExecUtils.SubscribeToOnDirectoryInitializeExec(options, _storageOptions.Configuration.Storage, _storageOptions.Name, DirectoryExecUtils.EnvironmentType.Database, _logger);
 
-                ContextPool = new DocumentsContextPool(DocumentDatabase);
+                ContextPool = new DocumentsContextPool(this);
                 Environment = StorageLoader.OpenEnvironment(options, StorageEnvironmentWithType.StorageEnvironmentType.Documents);
 
                 Environment.NewTransactionCreated += SetTransactionCache;
@@ -306,19 +323,19 @@ namespace Raven.Server.Documents
 
                     CollectionsSchema.Create(tx, CollectionsSlice, 32);
 
-                    RevisionsStorage = new RevisionsStorage(DocumentDatabase, tx);
-                    ExpirationStorage = new ExpirationStorage(DocumentDatabase, tx);
-                    ConflictsStorage = new ConflictsStorage(DocumentDatabase, tx);
-                    AttachmentsStorage = new AttachmentsStorage(DocumentDatabase, tx);
-                    CountersStorage = new CountersStorage(DocumentDatabase, tx);
+                    RevisionsStorage = new RevisionsStorage(_storageOptions, this, tx);
+                    ExpirationStorage = new ExpirationStorage(_storageOptions, this, tx);
+                    ConflictsStorage = new ConflictsStorage(_storageOptions, this, tx);
+                    AttachmentsStorage = new AttachmentsStorage(_storageOptions, this, tx);
+                    CountersStorage = new CountersStorage(_storageOptions, this, tx);
 
-                    DocumentPut = new DocumentPutAction(this, DocumentDatabase);
+                    DocumentPut = new DocumentPutAction(_storageOptions, this);
 
                     InitializeLastEtag(tx);
                     _collectionsCache = ReadCollections(tx);
 
                     var cv = GetDatabaseChangeVector(tx);
-                    var lastEtagInChangeVector = ChangeVectorUtils.GetEtagById(cv, DocumentDatabase.DbBase64Id);
+                    var lastEtagInChangeVector = ChangeVectorUtils.GetEtagById(cv, Environment.Base64Id);
                     _lastEtag = Math.Max(_lastEtag, lastEtagInChangeVector);
 
                     tx.Commit();
@@ -471,7 +488,7 @@ namespace Raven.Server.Documents
             var databaseChangeVector = context.LastDatabaseChangeVector ?? GetDatabaseChangeVector(context);
             context.SkipChangeVectorValidation = TryRemoveUnusedIds(ref databaseChangeVector);
             changeVector = ChangeVectorUtils.MergeVectors(databaseChangeVector, changeVector);
-            return ChangeVectorUtils.TryUpdateChangeVector(DocumentDatabase, changeVector).ChangeVector;
+            return ChangeVectorUtils.TryUpdateChangeVector(this, changeVector).ChangeVector;
         }
 
         public string GetNewChangeVector(DocumentsOperationContext context, long newEtag)
@@ -483,11 +500,11 @@ namespace Raven.Server.Documents
 
             if (string.IsNullOrEmpty(changeVector))
             {
-                context.LastDatabaseChangeVector = ChangeVectorUtils.NewChangeVector(DocumentDatabase, newEtag);
+                context.LastDatabaseChangeVector = ChangeVectorUtils.NewChangeVector(this, newEtag);
                 return context.LastDatabaseChangeVector;
             }
 
-            var result = ChangeVectorUtils.TryUpdateChangeVector(DocumentDatabase, changeVector, newEtag);
+            var result = ChangeVectorUtils.TryUpdateChangeVector(this, changeVector, newEtag);
             if (result.IsValid)
             {
                 context.LastDatabaseChangeVector = result.ChangeVector;
@@ -909,7 +926,7 @@ namespace Raven.Server.Documents
                 if (take-- <= 0)
                     yield break;
 
-                _forTestingPurposes?.DelayDocumentLoad?.Wait(DocumentDatabase.DatabaseShutdown);
+                _forTestingPurposes?.DelayDocumentLoad?.Wait(_storageOptions.DatabaseShutdown);
 
                 yield return TableValueToDocument(context, ref result.Reader, fields);
             }
@@ -1014,7 +1031,7 @@ namespace Raven.Server.Documents
 
             var doc = TableValueToDocument(context, ref tvr, fields, skipValidationInDebug);
 
-            context.DocumentDatabase.HugeDocuments.AddIfDocIsHuge(doc);
+            context.DocumentsStorage.HugeDocuments.AddIfDocIsHuge(doc);
 
             return doc;
         }
@@ -1453,7 +1470,7 @@ namespace Raven.Server.Documents
                 if (collectionName.IsHiLo == false &&
                     (flags & DocumentFlags.Artificial) != DocumentFlags.Artificial)
                 {
-                    var revisionsStorage = DocumentDatabase.DocumentsStorage.RevisionsStorage;
+                    var revisionsStorage = RevisionsStorage;
                     if (nonPersistentFlags.Contain(NonPersistentDocumentFlags.FromReplication) == false &&
                         (revisionsStorage.Configuration != null || flags.Contain(DocumentFlags.Resolved)))
                     {
@@ -1539,7 +1556,7 @@ namespace Raven.Server.Documents
                 if (collectionName.IsHiLo == false &&
                     (flags & DocumentFlags.Artificial) != DocumentFlags.Artificial)
                 {
-                    var revisionsStorage = DocumentDatabase.DocumentsStorage.RevisionsStorage;
+                    var revisionsStorage = RevisionsStorage;
                     if (nonPersistentFlags.Contain(NonPersistentDocumentFlags.FromReplication) == false &&
                         (revisionsStorage.Configuration != null || flags.Contain(DocumentFlags.Resolved)))
                     {
@@ -1612,7 +1629,7 @@ namespace Raven.Server.Documents
                 return lastModifiedTicks.Value;
             }
 
-            return DocumentDatabase.Time.GetUtcNow().Ticks;
+            return _storageOptions.Time.GetUtcNow().Ticks;
         }
 
         public long GenerateNextEtagForReplicatedTombstoneMissingDocument(DocumentsOperationContext context)
@@ -1709,7 +1726,7 @@ namespace Raven.Server.Documents
                     docChangeVector);
 
                 if (string.IsNullOrEmpty(changeVector))
-                    ChangeVectorUtils.ThrowConflictingEtag(lowerId.ToString(), docChangeVector, newEtag, Environment.Base64Id, DocumentDatabase.ServerStore.NodeTag);
+                    ChangeVectorUtils.ThrowConflictingEtag(lowerId.ToString(), docChangeVector, newEtag, Environment.Base64Id, _storageOptions.NodeTag);
 
                 if (context.LastDatabaseChangeVector == null)
                     context.LastDatabaseChangeVector = GetDatabaseChangeVector(context);
@@ -1821,11 +1838,11 @@ namespace Raven.Server.Documents
         private void ThrowNotSupportedExceptionForCreatingTombstoneWhenItExistsForDifferentCollection(Slice lowerId, CollectionName collectionName,
             CollectionName tombstoneCollectionName, VoronConcurrencyErrorException e)
         {
-            var tombstoneCleanerState = DocumentDatabase.TombstoneCleaner.GetState();
+            var tombstoneCleanerState = _storageOptions.TombstoneCleaner.GetState();
             if (tombstoneCleanerState.TryGetValue(tombstoneCollectionName.Name, out var item) && item.Component != null)
-                throw new NotSupportedException($"Could not delete document '{lowerId}' from collection '{collectionName.Name}' because tombstone for that document already exists but in a different collection ('{tombstoneCollectionName.Name}'). Did you change the document's collection recently? If yes, please give some time for other system components (e.g. Indexing, Replication, Backup) and tombstone cleaner to process that change. At this point of time the component that holds the tombstone is '{item.Component}' with etag '{item.Value}' and tombstone cleaner is executed every '{DocumentDatabase.Configuration.Tombstones.CleanupInterval.AsTimeSpan.TotalMinutes}' minutes.", e);
+                throw new NotSupportedException($"Could not delete document '{lowerId}' from collection '{collectionName.Name}' because tombstone for that document already exists but in a different collection ('{tombstoneCollectionName.Name}'). Did you change the document's collection recently? If yes, please give some time for other system components (e.g. Indexing, Replication, Backup) and tombstone cleaner to process that change. At this point of time the component that holds the tombstone is '{item.Component}' with etag '{item.Value}' and tombstone cleaner is executed every '{_storageOptions.Configuration.Tombstones.CleanupInterval.AsTimeSpan.TotalMinutes}' minutes.", e);
 
-            throw new NotSupportedException($"Could not delete document '{lowerId}' from collection '{collectionName.Name}' because tombstone for that document already exists but in a different collection ('{tombstoneCollectionName.Name}'). Did you change the document's collection recently? If yes, please give some time for other system components (e.g. Indexing, Replication, Backup) and tombstone cleaner to process that change. Tombstone cleaner is executed every '{DocumentDatabase.Configuration.Tombstones.CleanupInterval.AsTimeSpan.TotalMinutes}' minutes.", e);
+            throw new NotSupportedException($"Could not delete document '{lowerId}' from collection '{collectionName.Name}' because tombstone for that document already exists but in a different collection ('{tombstoneCollectionName.Name}'). Did you change the document's collection recently? If yes, please give some time for other system components (e.g. Indexing, Replication, Backup) and tombstone cleaner to process that change. Tombstone cleaner is executed every '{_storageOptions.Configuration.Tombstones.CleanupInterval.AsTimeSpan.TotalMinutes}' minutes.", e);
         }
 
         public struct PutOperationResults

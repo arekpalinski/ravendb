@@ -215,7 +215,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
                     {
                         if (metadata.HasCmpXchg)
                         {
-                            releaseServerContext = context.DocumentDatabase.ServerStore.ContextPool.AllocateOperationContext(out serverContext);
+                            releaseServerContext = context.DocumentsStorage.ServerStore.ContextPool.AllocateOperationContext(out serverContext);
                             closeServerTransaction = serverContext.OpenReadTransaction();
                         }
 

@@ -114,14 +114,14 @@ namespace Raven.Server.Utils
             return num;
         }
 
-        public static (bool IsValid, string ChangeVector) TryUpdateChangeVector(DocumentDatabase database, string oldChangeVector, long? etag = null)
+        public static (bool IsValid, string ChangeVector) TryUpdateChangeVector(DocumentsStorage documentsStorage, string oldChangeVector, long? etag = null)
         {
             if (etag == null)
             {
-                etag = database.DocumentsStorage.GenerateNextEtag();
+                etag = documentsStorage.GenerateNextEtag();
             }
 
-            return TryUpdateChangeVector(database.ServerStore.NodeTag, database.DbBase64Id, etag.Value, oldChangeVector);
+            return TryUpdateChangeVector(documentsStorage.NodeTag, documentsStorage.DbBase64Id, etag.Value, oldChangeVector);
         }
 
         public static (bool IsValid, string ChangeVector) TryUpdateChangeVector(string nodeTag, string dbIdInBase64, long etag, string oldChangeVector)
@@ -239,9 +239,9 @@ namespace Raven.Server.Utils
             return _mergeVectorBuffer.SerializeVector();
         }
 
-        public static string NewChangeVector(DocumentDatabase database, long etag)
+        public static string NewChangeVector(DocumentsStorage documentsStorage, long etag)
         {
-            return NewChangeVector(database.ServerStore.NodeTag, etag, database.DbBase64Id);
+            return NewChangeVector(documentsStorage.NodeTag, etag, documentsStorage.DbBase64Id);
         }
 
         public static string NewChangeVector(string nodeTag, long etag, string dbIdInBase64)

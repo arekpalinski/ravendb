@@ -36,6 +36,7 @@ using Raven.Server.Documents.Handlers;
 using Raven.Server.Documents.Handlers.Admin;
 using Raven.Server.Documents.Queries;
 using Raven.Server.Documents.Replication;
+using Raven.Server.Documents.Revisions;
 using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Context;
 using Raven.Tests.Core.Utils.Entities;
@@ -516,7 +517,7 @@ namespace SlowTests.Server
                 }
 
                 var database = await GetDocumentDatabaseInstanceFor(store);
-                database.DocumentsStorage.RevisionsStorage.Operations.DeleteRevisionsBefore("Users", DateTime.UtcNow);
+                database.TxMerger.Enqueue(new RevisionsOperations.DeleteRevisionsBeforeCommand("Users", DateTime.UtcNow, database)).GetAwaiter().GetResult();
 
                 store.Maintenance.Send(new StopTransactionsRecordingOperation());
             }

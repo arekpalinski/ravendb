@@ -29,7 +29,8 @@ namespace Raven.Server.SqlMigration
             ConnectionString = connectionString;
         }
 
-        public (BlittableJsonReaderObject Document, string Id) Test(MigrationTestSettings settings, DatabaseSchema dbSchema, DocumentsOperationContext context)
+        public (BlittableJsonReaderObject Document, string Id) Test(MigrationTestSettings settings, DatabaseSchema dbSchema, DocumentDatabase database,
+            DocumentsOperationContext context)
         {
             using (var enumerationConnection = OpenConnection())
             using (var referencesConnection = OpenConnection())
@@ -40,7 +41,7 @@ namespace Raven.Server.SqlMigration
 
                 string CollectionNameProvider(string schema, string name) => settings.CollectionsMapping.Single(x => x.TableSchema == schema && x.TableName == name).CollectionName;
                 
-                using (var patcher = new JsPatcher(collectionToImport, context))
+                using (var patcher = new JsPatcher(database, collectionToImport, context))
                 {
                     var references = ResolveReferences(collectionToImport, dbSchema, CollectionNameProvider);
 
@@ -98,7 +99,7 @@ namespace Raven.Server.SqlMigration
 
             using (var enumerationConnection = OpenConnection())
             using (var referencesConnection = OpenConnection())
-            using (var writer = new SqlMigrationWriter(context, settings.BatchSize))
+            using (var writer = new SqlMigrationWriter(db, context, settings.BatchSize))
             {
                 foreach (var collectionToImport in settings.Collections)
                 {
@@ -110,7 +111,7 @@ namespace Raven.Server.SqlMigration
                     var tableSchema = dbSchema.GetTable(collectionToImport.SourceTableSchema, collectionToImport.SourceTableName);
                     var specialColumns = dbSchema.FindSpecialColumns(collectionToImport.SourceTableSchema, collectionToImport.SourceTableName);
 
-                    using (var patcher = new JsPatcher(collectionToImport, context))
+                    using (var patcher = new JsPatcher(db, collectionToImport, context))
                     {
                         var references = ResolveReferences(collectionToImport, dbSchema, CollectionNameProvider);
 

@@ -647,7 +647,7 @@ namespace Raven.Server.Storage.Schema.Updates.Documents
                         break;
                 }
 
-                var counterEtag = context.DocumentDatabase.DocumentsStorage.GenerateNextEtag();
+                var counterEtag = context.DocumentsStorage.GenerateNextEtag();
 
                 var newEntry = (CountersStorage.CounterValues*)newVal.Ptr + dbIdIndex;
                 newEntry->Value = counterDetail.TotalValue;

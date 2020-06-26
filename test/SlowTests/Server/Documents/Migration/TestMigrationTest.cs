@@ -46,7 +46,7 @@ namespace SlowTests.Server.Documents.Migration
                     {
                         var schema = driver.FindSchema();
                         ApplyDefaultColumnNamesMapping(schema, settings.Collection, settings.BinaryToAttachment);
-                        var (document, id) = driver.Test(settings, schema, context);
+                        var (document, id) = driver.Test(settings, schema, db, context);
 
                         Assert.Equal("Orders/1", id);
                         Assert.True(document.TryGet("Total", out double total));
@@ -89,7 +89,7 @@ namespace SlowTests.Server.Documents.Migration
 
                         var exception = Assert.Throws<InvalidOperationException>(() =>
                         {
-                            driver.Test(settings, schema, context);
+                            driver.Test(settings, schema, db, context);
                         });
 
                         Assert.True(exception.Message.StartsWith("Document was skipped"));
@@ -126,7 +126,7 @@ namespace SlowTests.Server.Documents.Migration
                     {
                         var schema = driver.FindSchema();
                         ApplyDefaultColumnNamesMapping(schema, settings.Collection, settings.BinaryToAttachment);
-                        var (document, id) = driver.Test(settings, schema, context);
+                        var (document, id) = driver.Test(settings, schema, db, context);
 
                         Assert.Equal($"{collectionName}/52", id);
                         Assert.True(document.TryGet("Name", out string name));

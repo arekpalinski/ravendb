@@ -268,7 +268,7 @@ namespace Raven.Server.Documents.Queries.Dynamic
 
             if (query.HasCmpXchgSelect)
             {
-                using (context.DocumentDatabase.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext transactionContext))
+                using (context.DocumentsStorage.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext transactionContext))
                 using (transactionContext.OpenReadTransaction())
                 {
                     buffer[bufferSize - 1] = Database.ServerStore.Cluster.GetLastCompareExchangeIndexForDatabase(transactionContext, Database.Name);

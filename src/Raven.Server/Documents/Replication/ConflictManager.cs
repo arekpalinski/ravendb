@@ -115,11 +115,11 @@ namespace Raven.Server.Documents.Replication
                 return false;
             }
 
-            var conflictedDocs = new List<DocumentConflict>(documentsContext.DocumentDatabase.DocumentsStorage.ConflictsStorage.GetConflictsFor(documentsContext, conflict.Id));
+            var conflictedDocs = new List<DocumentConflict>(documentsContext.DocumentsStorage.ConflictsStorage.GetConflictsFor(documentsContext, conflict.Id));
 
             if (conflictedDocs.Count == 0)
             {
-                var relevantLocalDoc = documentsContext.DocumentDatabase.DocumentsStorage
+                var relevantLocalDoc = documentsContext.DocumentsStorage
                     .GetDocumentOrTombstone(
                         documentsContext,
                         conflict.Id);

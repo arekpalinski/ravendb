@@ -22,12 +22,12 @@ namespace Raven.Server.Documents
     public unsafe class DocumentPutAction
     {
         private readonly DocumentsStorage _documentsStorage;
-        private readonly DocumentDatabase _documentDatabase;
+        private readonly DatabaseStorageOptions _storageOptions;
 
-        public DocumentPutAction(DocumentsStorage documentsStorage, DocumentDatabase documentDatabase)
+        public DocumentPutAction(DatabaseStorageOptions storageOptions, DocumentsStorage documentsStorage)
         {
             _documentsStorage = documentsStorage;
-            _documentDatabase = documentDatabase;
+            _storageOptions = storageOptions;
         }
 
         public PutOperationResults PutDocument(DocumentsOperationContext context, string id,
@@ -149,7 +149,7 @@ namespace Raven.Server.Documents
                         CountersStorage.AssertCounters(document, flags);
                     }
 
-                    var shouldVersion = _documentDatabase.DocumentsStorage.RevisionsStorage.ShouldVersionDocument(
+                    var shouldVersion = _documentsStorage.RevisionsStorage.ShouldVersionDocument(
                         collectionName, nonPersistentFlags, oldDoc, document, context, id, lastModifiedTicks, ref flags, out var configuration);
                     
                     if (shouldVersion)
@@ -160,12 +160,12 @@ namespace Raven.Server.Documents
                             var oldChangeVector = TableValueToChangeVector(context, (int)DocumentsTable.ChangeVector, ref oldValue);
                             var oldTicks = TableValueToDateTime((int)DocumentsTable.LastModified, ref oldValue);
                             
-                            _documentDatabase.DocumentsStorage.RevisionsStorage.Put(context, id, oldDoc, oldFlags | DocumentFlags.HasRevisions, NonPersistentDocumentFlags.None,
+                            _documentsStorage.RevisionsStorage.Put(context, id, oldDoc, oldFlags | DocumentFlags.HasRevisions, NonPersistentDocumentFlags.None,
                                 oldChangeVector, oldTicks.Ticks, configuration, collectionName);
                         }
                         
                         flags |= DocumentFlags.HasRevisions;
-                        _documentDatabase.DocumentsStorage.RevisionsStorage.Put(context, id, document, flags, nonPersistentFlags, changeVector, modifiedTicks, configuration, collectionName);
+                        _documentsStorage.RevisionsStorage.Put(context, id, document, flags, nonPersistentFlags, changeVector, modifiedTicks, configuration, collectionName);
                     }
                 }
 
@@ -196,8 +196,8 @@ namespace Raven.Server.Documents
                     _documentsStorage.ExpirationStorage.Put(context, lowerId, document);
                 }
 
-                _documentDatabase.Metrics.Docs.PutsPerSec.MarkSingleThreaded(1);
-                _documentDatabase.Metrics.Docs.BytesPutsPerSec.MarkSingleThreaded(document.Size);
+                _storageOptions.Metrics.Docs.PutsPerSec.MarkSingleThreaded(1);
+                _storageOptions.Metrics.Docs.BytesPutsPerSec.MarkSingleThreaded(document.Size);
 
                 context.Transaction.AddAfterCommitNotification(new DocumentChange
                 {
@@ -347,7 +347,7 @@ namespace Raven.Server.Documents
 
                 if (lastChar == '/')
                 {                    
-                    string nodeTag = _documentDatabase.ServerStore.NodeTag;
+                    string nodeTag = _storageOptions.NodeTag;
 
                     // PERF: we are creating an string and mutating it for performance reasons.
                     //       while nasty this shouldn't have any side effects because value didn't
@@ -604,7 +604,7 @@ namespace Raven.Server.Documents
         {
             if (string.IsNullOrEmpty(oldChangeVector) == false)
             {
-                var result = ChangeVectorUtils.TryUpdateChangeVector(_documentDatabase.ServerStore.NodeTag, _documentsStorage.Environment.Base64Id, newEtag, oldChangeVector);
+                var result = ChangeVectorUtils.TryUpdateChangeVector(_storageOptions.NodeTag, _documentsStorage.Environment.Base64Id, newEtag, oldChangeVector);
                 return result.ChangeVector;
             }
 

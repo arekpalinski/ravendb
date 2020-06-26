@@ -3152,12 +3152,12 @@ namespace Raven.Server.Documents.Indexes
             {
                 Debug.Assert(length > sizeof(long) * 5, "The index-etag buffer does not have enough space for last compare exchange index");
 
-                using (documentsContext.DocumentDatabase.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext transactionContext))
+                using (documentsContext.DocumentsStorage.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext transactionContext))
                 using (transactionContext.OpenReadTransaction())
                 {
                     *(long*)(indexEtagBytes + length - sizeof(long)) =
-                        documentsContext.DocumentDatabase.ServerStore.Cluster
-                            .GetLastCompareExchangeIndexForDatabase(transactionContext, documentsContext.DocumentDatabase.Name);
+                        documentsContext.DocumentsStorage.ServerStore.Cluster
+                            .GetLastCompareExchangeIndexForDatabase(transactionContext, documentsContext.DocumentsStorage.Name);
                 }
 
             }

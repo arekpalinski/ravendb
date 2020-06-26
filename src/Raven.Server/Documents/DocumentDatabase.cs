@@ -141,27 +141,39 @@ namespace Raven.Server.Documents
                 IoChanges = new IoChangesNotifications();
                 Changes = new DocumentsChanges();
                 TombstoneCleaner = new TombstoneCleaner(this);
-                DocumentsStorage = new DocumentsStorage(this, addToInitLog);
+                CatastrophicFailureNotification = new CatastrophicFailureNotification((environmentId, environmentPath, e, stacktrace) =>
+                {
+                    serverStore.DatabasesLandlord.CatastrophicFailureHandler.Execute(name, e, environmentId, environmentPath, stacktrace);
+                });
+                Metrics = new MetricCounters();
+                HugeDocuments = new HugeDocuments(NotificationCenter, ConfigurationStorage.NotificationsStorage, Name,
+                    configuration.PerformanceHints.HugeDocumentsCollectionSize,
+                    configuration.PerformanceHints.HugeDocumentSize.GetValue(SizeUnit.Bytes));
+
+                var databaseStorageOptions = DatabaseStorageOptions.Create(Name, configuration, Is32Bits, new ServerNodeTagHolder(serverStore), MasterKey, Changes, IoChanges, Metrics, Time,
+                    CatastrophicFailureNotification, HandleOnDatabaseRecoveryError, HandleNonDurableFileSystemError, HandleOnDatabaseIntegrityErrorOfAlreadySyncedData, DatabaseShutdown);
+
+                DocumentsStorage = new DocumentsStorage(databaseStorageOptions, addToInitLog)
+                {
+                    // TODO arek - I hope those are temporary hacks
+                    HugeDocuments = HugeDocuments,
+                    ServerStore = serverStore
+                };
+
                 IndexStore = new IndexStore(this, serverStore);
                 QueryRunner = new QueryRunner(this);
                 EtlLoader = new EtlLoader(this, serverStore);
                 ReplicationLoader = new ReplicationLoader(this, serverStore);
                 SubscriptionStorage = new SubscriptionStorage(this, serverStore);
-                Metrics = new MetricCounters();
                 MetricCacher = new DatabaseMetricCacher(this);
                 TxMerger = new TransactionOperationsMerger(this, DatabaseShutdown);
                 ConfigurationStorage = new ConfigurationStorage(this);
                 NotificationCenter = new NotificationCenter.NotificationCenter(ConfigurationStorage.NotificationsStorage, Name, DatabaseShutdown, configuration);
-                HugeDocuments = new HugeDocuments(NotificationCenter, ConfigurationStorage.NotificationsStorage, Name, configuration.PerformanceHints.HugeDocumentsCollectionSize,
-                    configuration.PerformanceHints.HugeDocumentSize.GetValue(SizeUnit.Bytes));
                 Operations = new Operations.Operations(Name, ConfigurationStorage.OperationsStorage, NotificationCenter, Changes, 
                     Is32Bits ? TimeSpan.FromHours(12) : TimeSpan.FromDays(2));
                 DatabaseInfoCache = serverStore.DatabaseInfoCache;
                 RachisLogIndexNotifications = new RachisLogIndexNotifications(DatabaseShutdown);
-                CatastrophicFailureNotification = new CatastrophicFailureNotification((environmentId, environmentPath, e, stacktrace) =>
-                {
-                    serverStore.DatabasesLandlord.CatastrophicFailureHandler.Execute(name, e, environmentId, environmentPath, stacktrace);
-                });
+                
                 _hasClusterTransaction = new AsyncManualResetEvent(DatabaseShutdown);
             }
             catch (Exception)
@@ -192,7 +204,7 @@ namespace Raven.Server.Documents
 
         public Guid DbId => DocumentsStorage.Environment?.DbId ?? Guid.Empty;
 
-        public string DbBase64Id => DocumentsStorage.Environment?.Base64Id ?? "";
+        public string DbBase64Id => DocumentsStorage.DbBase64Id;
 
         public RavenConfiguration Configuration { get; }
 
@@ -870,9 +882,9 @@ namespace Raven.Server.Documents
                     RevisionsCount = DocumentsStorage.RevisionsStorage.GetNumberOfRevisionDocuments(documentsContext),
                     ConflictsCount = DocumentsStorage.ConflictsStorage.GetNumberOfConflicts(documentsContext),
                     CounterEntriesCount = DocumentsStorage.CountersStorage.GetNumberOfCounterEntries(documentsContext),
-                    CompareExchangeCount = ServerStore.Cluster.GetNumberOfCompareExchange(transactionContext, DocumentsStorage.DocumentDatabase.Name),
-                    CompareExchangeTombstonesCount = ServerStore.Cluster.GetNumberOfCompareExchangeTombstones(transactionContext, DocumentsStorage.DocumentDatabase.Name),
-                    IdentitiesCount = ServerStore.Cluster.GetNumberOfIdentities(transactionContext, DocumentsStorage.DocumentDatabase.Name)
+                    CompareExchangeCount = ServerStore.Cluster.GetNumberOfCompareExchange(transactionContext, Name),
+                    CompareExchangeTombstonesCount = ServerStore.Cluster.GetNumberOfCompareExchangeTombstones(transactionContext, Name),
+                    IdentitiesCount = ServerStore.Cluster.GetNumberOfIdentities(transactionContext, Name)
                 };
             }
         }

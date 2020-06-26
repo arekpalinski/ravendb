@@ -14,12 +14,14 @@ namespace Raven.Server.SqlMigration
 {
     internal class SqlMigrationWriter : IDisposable
     {
+        private readonly DocumentDatabase _db;
         private readonly DocumentsOperationContext _context;
         private BatchHandler.MergedBatchCommand _command;
         private readonly int _batchSize;
 
-        public SqlMigrationWriter(DocumentsOperationContext context, int batchSize)
+        public SqlMigrationWriter(DocumentDatabase db, DocumentsOperationContext context, int batchSize)
         {
+            _db = db;
             _context = context;
             _batchSize = batchSize;
 
@@ -50,7 +52,7 @@ namespace Raven.Server.SqlMigration
                 var attachmentStream = new BatchHandler.MergedBatchCommand.AttachmentStream
                 {
                     Stream = stream,
-                    Hash = await AttachmentsStorageHelper.CopyStreamToFileAndCalculateHash(_context, memoryStream, stream, _context.DocumentDatabase.DatabaseShutdown) //TODO: do we need it?
+                    Hash = await AttachmentsStorageHelper.CopyStreamToFileAndCalculateHash(_context, memoryStream, stream, _db.DatabaseShutdown) //TODO: do we need it?
                 };
 
                 stream.Flush();
@@ -80,7 +82,7 @@ namespace Raven.Server.SqlMigration
 
             try
             {
-                await _context.DocumentDatabase.TxMerger.Enqueue(_command);
+                await _db.TxMerger.Enqueue(_command);
             }
             catch (Exception e)
             {
@@ -99,9 +101,9 @@ namespace Raven.Server.SqlMigration
         private void Reset()
         {
             _command?.Dispose();
-            _command = new BatchHandler.MergedBatchCommand(_context.DocumentDatabase)
+            _command = new BatchHandler.MergedBatchCommand(_db)
             {
-                AttachmentStreamsTempFile = _context.DocumentDatabase.DocumentsStorage.AttachmentsStorage.GetTempFile("put")
+                AttachmentStreamsTempFile = _context.DocumentsStorage.AttachmentsStorage.GetTempFile("put")
             };
 
             _commands.Clear();

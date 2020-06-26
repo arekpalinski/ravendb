@@ -48,7 +48,7 @@ namespace Raven.Server.Documents.Revisions
 
         public RevisionsConfiguration ConflictConfiguration;
 
-        private readonly DocumentDatabase _database;
+        private readonly DatabaseStorageOptions _storageOptions;
         private readonly DocumentsStorage _documentsStorage;
         public RevisionsConfiguration Configuration { get; private set; }
         public readonly RevisionsOperations Operations;
@@ -83,12 +83,12 @@ namespace Raven.Server.Documents.Revisions
 
         private readonly RevisionsCollectionConfiguration _emptyConfiguration = new RevisionsCollectionConfiguration { Disabled = true };
 
-        public RevisionsStorage(DocumentDatabase database, Transaction tx)
+        public RevisionsStorage(DatabaseStorageOptions storageOptions, DocumentsStorage documentsStorage, Transaction tx)
         {
-            _database = database;
-            _documentsStorage = _database.DocumentsStorage;
-            _logger = LoggingSource.Instance.GetLogger<RevisionsStorage>(database.Name);
-            Operations = new RevisionsOperations(_database);
+            _storageOptions = storageOptions;
+            _documentsStorage = documentsStorage;
+            _logger = LoggingSource.Instance.GetLogger<RevisionsStorage>(storageOptions.Name);
+            Operations = new RevisionsOperations();
             ConflictConfiguration = new RevisionsConfiguration
             {
                 Default = new RevisionsCollectionConfiguration
@@ -209,12 +209,12 @@ namespace Raven.Server.Documents.Revisions
                 const string message = "Failed to enable revisions for documents as the revisions configuration " +
                           "in the database record is missing or not valid.";
 
-                _database.NotificationCenter.Add(AlertRaised.Create(
-                    _database.Name,
-                    $"Revisions error in {_database.Name}", message,
+                _storageOptions.NotificationCenter.Add(AlertRaised.Create(
+                    _storageOptions.Name,
+                    $"Revisions error in {_storageOptions.Name}", message,
                     AlertType.RevisionsConfigurationNotValid,
                     NotificationSeverity.Error,
-                    _database.Name,
+                    _storageOptions.Name,
                     details: new ExceptionDetails(e)));
 
                 if (_logger.IsOperationsEnabled)
@@ -292,7 +292,7 @@ namespace Raven.Server.Documents.Revisions
 
             if (configuration.MinimumRevisionAgeToKeep.HasValue && lastModifiedTicks.HasValue)
             {
-                if (_database.Time.GetUtcNow().Ticks - lastModifiedTicks.Value > configuration.MinimumRevisionAgeToKeep.Value.Ticks)
+                if (_storageOptions.Time.GetUtcNow().Ticks - lastModifiedTicks.Value > configuration.MinimumRevisionAgeToKeep.Value.Ticks)
                 {
                     DeleteRevisionsFor(context, id);
                     documentFlags = documentFlags.Strip(DocumentFlags.HasRevisions);
@@ -342,7 +342,7 @@ namespace Raven.Server.Documents.Revisions
             BlittableJsonReaderObject.AssertNoModifications(document, id, assertChildren: true);
 
             if (collectionName == null)
-                collectionName = _database.DocumentsStorage.ExtractCollectionName(context, document);
+                collectionName = _documentsStorage.ExtractCollectionName(context, document);
             if (configuration == null)
                 configuration = GetRevisionsConfiguration(collectionName.Name);
 
@@ -377,7 +377,7 @@ namespace Raven.Server.Documents.Revisions
                     return true; 
 
                 flags |= DocumentFlags.Revision;
-                var etag = _database.DocumentsStorage.GenerateNextEtag();
+                var etag = _documentsStorage.GenerateNextEtag();
                 var newEtagSwapBytes = Bits.SwapBytes(etag);
 
                 using (table.Allocate(out TableValueBuilder tvb))
@@ -468,7 +468,7 @@ namespace Raven.Server.Documents.Revisions
 
                 if (flags.Contain(DocumentFlags.Resolved))
                 {
-                    _database.ReplicationLoader.ConflictResolver.SaveLocalAsRevision(context, id);
+                    _storageOptions.ReplicationLoader.ConflictResolver.SaveLocalAsRevision(context, id);
                 }
 
                 if (document == null)
@@ -541,7 +541,7 @@ namespace Raven.Server.Documents.Revisions
                 var newEtag = _documentsStorage.GenerateNextEtag();
                 var changeVector = _documentsStorage.GetNewChangeVector(context, newEtag);
                 context.LastDatabaseChangeVector = changeVector;
-                var lastModifiedTicks = _database.Time.GetUtcNow().Ticks;
+                var lastModifiedTicks = _storageOptions.Time.GetUtcNow().Ticks;
                 DeleteRevisions(context, table, prefixSlice, collectionName, long.MaxValue, null, changeVector, lastModifiedTicks);
                 DeleteCountOfRevisions(context, prefixSlice);
             }
@@ -622,7 +622,7 @@ namespace Raven.Server.Documents.Revisions
                     using (var revision = TableValueToRevision(context, ref tvr))
                     {
                         if (minimumTimeToKeep.HasValue &&
-                            _database.Time.GetUtcNow() - revision.LastModified <= minimumTimeToKeep.Value)
+                            _storageOptions.Time.GetUtcNow() - revision.LastModified <= minimumTimeToKeep.Value)
                             return deletedRevisionsCount;
 
                         hasValue = true;
@@ -656,7 +656,7 @@ namespace Raven.Server.Documents.Revisions
                     break;
             }
 
-            _database.DocumentsStorage.EnsureLastEtagIsPersisted(context, maxEtagDeleted);
+            _documentsStorage.EnsureLastEtagIsPersisted(context, maxEtagDeleted);
             return deletedRevisionsCount;
         }
 
@@ -797,7 +797,7 @@ namespace Raven.Server.Documents.Revisions
 
                 PutFromRevisionIfChangeVectorIsGreater(context, null, id, changeVector, lastModifiedTicks, flags, nonPersistentFlags, collectionName);
 
-                var newEtag = _database.DocumentsStorage.GenerateNextEtag();
+                var newEtag = _documentsStorage.GenerateNextEtag();
                 var newEtagSwapBytes = Bits.SwapBytes(newEtag);
 
                 using (table.Allocate(out TableValueBuilder tvb))
@@ -852,7 +852,7 @@ namespace Raven.Server.Documents.Revisions
 
             var revision = TableValueToRevision(context, ref copyTvr);
             var flags = revision.Flags | DocumentFlags.Conflicted;
-            var newEtag = _database.DocumentsStorage.GenerateNextEtag();
+            var newEtag = _documentsStorage.GenerateNextEtag();
             var deletedEtag = TableValueToEtag((int)RevisionsTable.DeletedEtag, ref tvr);
             var resolvedFlag = TableValueToFlags((int)RevisionsTable.Resolved, ref tvr);
 
@@ -1107,7 +1107,7 @@ namespace Raven.Server.Documents.Revisions
                 token.Delay();
                 sw.Restart();
 
-                using (_database.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext ctx))
+                using (_documentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext ctx))
                 {
                     using (ctx.OpenReadTransaction())
                     {
@@ -1143,7 +1143,7 @@ namespace Raven.Server.Documents.Revisions
 
                     token.Delay();
 
-                    await _database.TxMerger.Enqueue(new EnforceRevisionConfigurationCommand(this, ids, result, token));
+                    await _storageOptions.TxMerger.Enqueue(new EnforceRevisionConfigurationCommand(this, ids, result, token));
                 }
             }
 
@@ -1185,7 +1185,7 @@ namespace Raven.Server.Documents.Revisions
                 var table = EnsureRevisionTableCreated(context.Transaction.InnerTransaction, collectionName);
                 var changeVector = _documentsStorage.GetNewChangeVector(context);
                 context.LastDatabaseChangeVector = changeVector;
-                var lastModifiedTicks = _database.Time.GetUtcNow().Ticks;
+                var lastModifiedTicks = _storageOptions.Time.GetUtcNow().Ticks;
 
                 var prevRevisionsCount = GetRevisionsCount(context, id);
                 var configuration = GetRevisionsConfiguration(collectionName.Name);
@@ -1302,7 +1302,7 @@ namespace Raven.Server.Documents.Revisions
             {
                 token.Delay();
 
-                using (_database.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext writeCtx))
+                using (_documentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext writeCtx))
                 {
                     hasMore = PrepareRevertedRevisions(writeCtx, parameters, result, list, token);
                     await WriteRevertedRevisions(list, token);
@@ -1317,14 +1317,14 @@ namespace Raven.Server.Documents.Revisions
             if (list.Count == 0)
                 return;
 
-            await _database.TxMerger.Enqueue(new RevertDocumentsCommand(list, token));
+            await _storageOptions.TxMerger.Enqueue(new RevertDocumentsCommand(list, token));
 
             list.Clear();
         }
 
         private bool PrepareRevertedRevisions(DocumentsOperationContext writeCtx, Parameters parameters, RevertResult result, List<Document> list, OperationCancelToken token)
         {
-            using (_database.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext readCtx))
+            using (_documentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext readCtx))
             using (readCtx.OpenReadTransaction())
             {
                 var revisions = new Table(RevisionsSchema, readCtx.Transaction.InnerTransaction);
@@ -1426,7 +1426,7 @@ namespace Raven.Server.Documents.Revisions
 
             protected override long ExecuteCmd(DocumentsOperationContext context)
             {
-                var documentsStorage = context.DocumentDatabase.DocumentsStorage;
+                var documentsStorage = context.DocumentsStorage;
                 foreach (var document in _list)
                 {
                     _token.ThrowIfCancellationRequested();

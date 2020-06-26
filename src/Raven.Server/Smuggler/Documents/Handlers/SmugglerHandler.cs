@@ -131,7 +131,7 @@ namespace Raven.Server.Smuggler.Documents.Handlers
                 var fileName = options.FileName;
                 if (string.IsNullOrEmpty(fileName))
                 {
-                    fileName = $"Dump of {context.DocumentDatabase.Name} {SystemTime.UtcNow.ToString("yyyy-MM-dd HH-mm", CultureInfo.InvariantCulture)}";
+                    fileName = $"Dump of {context.DocumentsStorage.Name} {SystemTime.UtcNow.ToString("yyyy-MM-dd HH-mm", CultureInfo.InvariantCulture)}";
                 }
 
                 var contentDisposition = "attachment; filename=" + Uri.EscapeDataString(fileName) + ".ravendbdump";

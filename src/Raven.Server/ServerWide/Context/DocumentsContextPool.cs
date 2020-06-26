@@ -11,24 +11,24 @@ namespace Raven.Server.ServerWide.Context
 {
     public class DocumentsContextPool : JsonContextPoolBase<DocumentsOperationContext>, IDocumentsContextPool
     {
-        private DocumentDatabase _database;
+        private DocumentsStorage _documentsStorage;
 
-        public DocumentsContextPool(DocumentDatabase database)
-            : base(database.Configuration.Memory.MaxContextSizeToKeep)
+        public DocumentsContextPool(DocumentsStorage documentsStorage)
+            : base(documentsStorage.Configuration.Memory.MaxContextSizeToKeep)
         {
-            _database = database;
+            _documentsStorage = documentsStorage;
         }
 
         protected override DocumentsOperationContext CreateContext()
         {
-            return _database.Is32Bits ?
-                new DocumentsOperationContext(_database, 32 * 1024, 4 * 1024, 2 * 1024, LowMemoryFlag) :
-                new DocumentsOperationContext(_database, 64 * 1024, 16 * 1024, 8 * 1024, LowMemoryFlag);
+            return _documentsStorage.Is32Bits ?
+                new DocumentsOperationContext(_documentsStorage, 32 * 1024, 4 * 1024, 2 * 1024, LowMemoryFlag) :
+                new DocumentsOperationContext(_documentsStorage, 64 * 1024, 16 * 1024, 8 * 1024, LowMemoryFlag);
         }
 
         public override void Dispose()
         {
-            _database = null;
+            _documentsStorage = null;
             base.Dispose();
         }
     }

@@ -119,7 +119,7 @@ namespace Raven.Server.Documents.Queries
                 {
                     if (query.Metadata.HasCmpXchg)
                     {
-                        releaseServerContext = context.DocumentDatabase.ServerStore.ContextPool.AllocateOperationContext(out serverContext);
+                        releaseServerContext = context.DocumentsStorage.ServerStore.ContextPool.AllocateOperationContext(out serverContext);
                         closeServerTransaction = serverContext.OpenReadTransaction();
                     }
 

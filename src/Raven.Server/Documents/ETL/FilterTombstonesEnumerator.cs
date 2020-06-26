@@ -55,11 +55,11 @@ namespace Raven.Server.Documents.ETL
                         if (_tombstoneType == Tombstone.TombstoneType.Attachment)
                         {
                             var documentId = AttachmentsStorage.ExtractDocIdAndAttachmentNameFromTombstone(_context, current.LowerId).DocId;
-                            var document = _context.DocumentDatabase.DocumentsStorage.Get(_context, documentId);
+                            var document = _context.DocumentsStorage.Get(_context, documentId);
 
                             if (document != null) // document could be deleted, no need to send DELETE of tombstone, we can filter it out
                             {
-                                tombstoneCollection = _context.DocumentDatabase.DocumentsStorage.ExtractCollectionName(_context, document.Data).Name;
+                                tombstoneCollection = _context.DocumentsStorage.ExtractCollectionName(_context, document.Data).Name;
                             }
                         }
                         else

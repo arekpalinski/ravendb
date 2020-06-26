@@ -14,7 +14,8 @@ namespace Raven.Server.SqlMigration
     {
         DatabaseSchema FindSchema();
         
-        (BlittableJsonReaderObject Document, string Id) Test(MigrationTestSettings settings, DatabaseSchema dbSchema, DocumentsOperationContext context);
+        (BlittableJsonReaderObject Document, string Id) Test(MigrationTestSettings settings, DatabaseSchema dbSchema, DocumentDatabase database,
+            DocumentsOperationContext context);
         
         Task Migrate(MigrationSettings settings, DatabaseSchema schema, DocumentDatabase db, DocumentsOperationContext context,
             MigrationResult result = null, Action<IOperationProgress> onProgress = null, CancellationToken token = default);

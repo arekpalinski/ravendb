@@ -1,5 +1,4 @@
 using System;
-using Raven.Client.Exceptions.Documents.Revisions;
 using Raven.Server.ServerWide.Context;
 using Sparrow.Json;
 
@@ -7,21 +6,6 @@ namespace Raven.Server.Documents.Revisions
 {
     public class RevisionsOperations
     {
-        private readonly DocumentDatabase _database;
-
-        public RevisionsOperations(DocumentDatabase database)
-        {
-            _database = database;
-        }
-
-        public void DeleteRevisionsBefore(string collection, DateTime time)
-        {
-            var revisionsStorage = _database.DocumentsStorage.RevisionsStorage;
-            if (revisionsStorage.Configuration == null)
-                throw new RevisionsDisabledException();
-            _database.TxMerger.Enqueue(new DeleteRevisionsBeforeCommand(collection, time, _database)).GetAwaiter().GetResult();
-        }
-
         internal class DeleteRevisionsBeforeCommand : TransactionOperationsMerger.MergedTransactionCommand
         {
             private readonly string _collection;

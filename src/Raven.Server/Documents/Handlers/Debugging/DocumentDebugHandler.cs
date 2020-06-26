@@ -23,7 +23,7 @@ namespace Raven.Server.Documents.Handlers.Debugging
 
                 var isFirst = true;
 
-                foreach (var pair in context.DocumentDatabase.HugeDocuments.GetHugeDocuments())
+                foreach (var pair in context.DocumentsStorage.HugeDocuments.GetHugeDocuments())
                 {
                     if (isFirst == false)
                         writer.WriteComma();

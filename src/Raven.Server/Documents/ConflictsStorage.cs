@@ -39,7 +39,7 @@ namespace Raven.Server.Documents
             TableType = (byte)TableType.Conflicts
         };
 
-        private readonly DocumentDatabase _documentDatabase;
+        private readonly DatabaseStorageOptions _storageOptions;
         private readonly DocumentsStorage _documentsStorage;
         private readonly Logger _logger;
 
@@ -118,11 +118,11 @@ namespace Raven.Server.Documents
             });
         }
 
-        public ConflictsStorage(DocumentDatabase documentDatabase, Transaction tx)
+        public ConflictsStorage(DatabaseStorageOptions storageOptions, DocumentsStorage documentsStorage, Transaction tx)
         {
-            _documentDatabase = documentDatabase;
-            _documentsStorage = documentDatabase.DocumentsStorage;
-            _logger = LoggingSource.Instance.GetLogger<ConflictsStorage>(documentDatabase.Name);
+            _storageOptions = storageOptions;
+            _documentsStorage = documentsStorage;
+            _logger = LoggingSource.Instance.GetLogger<ConflictsStorage>(storageOptions.Name);
 
             ConflictsSchema.Create(tx, ConflictsSlice, 32);
 
@@ -346,7 +346,7 @@ namespace Raven.Server.Documents
                     {
                         using (Slice.External(context.Allocator, conflicted.LowerId, out var key))
                         {
-                            var lastModifiedTicks = _documentDatabase.Time.GetUtcNow().Ticks;
+                            var lastModifiedTicks = _storageOptions.Time.GetUtcNow().Ticks;
                             _documentsStorage.RevisionsStorage.DeleteRevision(context, key, conflicted.Collection, conflicted.ChangeVector, lastModifiedTicks);
                         }
                     }
@@ -503,7 +503,7 @@ namespace Raven.Server.Documents
                 conflictChangeVectors.Count == 0)
                 return MergeVectorsWithoutConflicts(newEtag, existingChangeVector);
 
-            var newChangeVector = ChangeVectorUtils.NewChangeVector(_documentDatabase.ServerStore.NodeTag, newEtag, _documentsStorage.Environment.Base64Id);
+            var newChangeVector = ChangeVectorUtils.NewChangeVector(_storageOptions.NodeTag, newEtag, _documentsStorage.Environment.Base64Id);
             conflictChangeVectors.Add(newChangeVector);
             return ChangeVectorUtils.MergeVectors(conflictChangeVectors);
         }
@@ -512,10 +512,10 @@ namespace Raven.Server.Documents
         {
             if (existing != null)
             {
-                var result = ChangeVectorUtils.TryUpdateChangeVector(_documentDatabase.ServerStore.NodeTag, _documentsStorage.Environment.Base64Id, newEtag, existing);
+                var result = ChangeVectorUtils.TryUpdateChangeVector(_storageOptions.NodeTag, _documentsStorage.Environment.Base64Id, newEtag, existing);
                 return result.ChangeVector;
             }
-            return ChangeVectorUtils.NewChangeVector(_documentDatabase.ServerStore.NodeTag, newEtag, _documentsStorage.Environment.Base64Id);
+            return ChangeVectorUtils.NewChangeVector(_storageOptions.NodeTag, newEtag, _documentsStorage.Environment.Base64Id);
         }
 
         public bool ShouldThrowConcurrencyExceptionOnConflict(DocumentsOperationContext context, Slice lowerId, long? expectedEtag, out long? currentMaxConflictEtag)
@@ -556,7 +556,7 @@ namespace Raven.Server.Documents
             {
                 documentChangeVector,
                 context.LastDatabaseChangeVector ?? GetDatabaseChangeVector(context),
-                ChangeVectorUtils.NewChangeVector(_documentDatabase, newEtag)
+                ChangeVectorUtils.NewChangeVector(_documentsStorage, newEtag)
             };
             changeVectorList.AddRange(result.ChangeVectors);
             var merged = ChangeVectorUtils.MergeVectors(changeVectorList);
@@ -839,7 +839,7 @@ namespace Raven.Server.Documents
             hasLocalClusterTx = false;
 
             //tombstones also can be a conflict entry
-            var conflicts = context.DocumentDatabase.DocumentsStorage.ConflictsStorage.GetConflictsFor(context, id);
+            var conflicts = context.DocumentsStorage.ConflictsStorage.GetConflictsFor(context, id);
             ConflictStatus status;
             if (conflicts.Count > 0)
             {
@@ -856,7 +856,7 @@ namespace Raven.Server.Documents
                 return ConflictStatus.Update;
             }
 
-            var result = context.DocumentDatabase.DocumentsStorage.GetDocumentOrTombstone(context, id);
+            var result = context.DocumentsStorage.GetDocumentOrTombstone(context, id);
             string local;
 
             if (result.Document != null)
@@ -884,7 +884,7 @@ namespace Raven.Server.Documents
         {
             var originalStatus = ChangeVectorUtils.GetConflictStatus(remote, local);
             if (originalStatus == ConflictStatus.Conflict && 
-                context.DocumentDatabase.DocumentsStorage.HasUnusedDatabaseIds())
+                context.DocumentsStorage.HasUnusedDatabaseIds())
             {
                 // We need to distinguish between few cases here
                 // let's assume that node C was removed
@@ -901,8 +901,8 @@ namespace Raven.Server.Documents
                 // case 3: incoming change vector A:11, B:10, C:10 -> update                (original: update, after: already merged)
                 // case 4: incoming change vector A:11, B:12, C:10 -> update                (original: conflict, after: update)
 
-                context.DocumentDatabase.DocumentsStorage.TryRemoveUnusedIds(ref remote);
-                context.SkipChangeVectorValidation = context.DocumentDatabase.DocumentsStorage.TryRemoveUnusedIds(ref local);
+                context.DocumentsStorage.TryRemoveUnusedIds(ref remote);
+                context.SkipChangeVectorValidation = context.DocumentsStorage.TryRemoveUnusedIds(ref local);
 
                 return ChangeVectorUtils.GetConflictStatus(remote, local);
             }

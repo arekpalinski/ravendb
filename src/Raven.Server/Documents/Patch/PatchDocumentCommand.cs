@@ -273,7 +273,7 @@ namespace Raven.Server.Documents.Patch
         protected string HandleReply(string id, PatchResult patchResult, DynamicJsonArray reply, HashSet<string> modifiedCollections)
         {
             if (patchResult.ModifiedDocument != null)
-                _database.HugeDocuments.AddIfDocIsHuge(id, patchResult.ModifiedDocument.Size);
+                _database.DocumentsStorage.HugeDocuments.AddIfDocIsHuge(id, patchResult.ModifiedDocument.Size);
 
             if (patchResult.Collection != null)
                 modifiedCollections?.Add(patchResult.Collection);
@@ -317,7 +317,7 @@ namespace Raven.Server.Documents.Patch
             if (metadata.Modifications == null)
                 metadata.Modifications = new DynamicJsonValue(metadata);
 
-            var countersFromStorage = context.DocumentDatabase.DocumentsStorage.CountersStorage.GetCountersForDocument(context, id).ToList();
+            var countersFromStorage = context.DocumentsStorage.CountersStorage.GetCountersForDocument(context, id).ToList();
             if (countersFromStorage.Count == 0)
             {
                 metadata.Modifications.Remove(Constants.Documents.Metadata.Counters);

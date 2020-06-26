@@ -128,6 +128,10 @@ namespace Voron.Recovery
                 if (Directory.Exists(Path.GetDirectoryName(_output)) == false)
                     Directory.CreateDirectory(Path.GetDirectoryName(_output));
 
+                var dbCreator = new RecoveredDatabaseCreator(_output);
+
+                DocumentDatabase documentDatabase = dbCreator.CreateStorage();
+
                 using (var destinationStreamDocuments = File.OpenWrite(Path.Combine(Path.GetDirectoryName(_output), Path.GetFileNameWithoutExtension(_output) + "-2-Documents" + Path.GetExtension(_output))))
                 using (var destinationStreamRevisions = File.OpenWrite(Path.Combine(Path.GetDirectoryName(_output), Path.GetFileNameWithoutExtension(_output) + "-3-Revisions" + Path.GetExtension(_output))))
                 using (var destinationStreamConflicts = File.OpenWrite(Path.Combine(Path.GetDirectoryName(_output), Path.GetFileNameWithoutExtension(_output) + "-4-Conflicts" + Path.GetExtension(_output))))
@@ -174,8 +178,6 @@ namespace Voron.Recovery
                                 continue;
                             }
 
-                            //overflow page
-                            ulong checksum;
                             if (pageHeader->Flags.HasFlag(PageFlags.Overflow))
                             {
                                 if (ValidateOverflowPage(pageHeader, eof, startOffset, ref mem) == false)
@@ -308,7 +310,7 @@ namespace Voron.Recovery
                             //We don't have checksum for encrypted pages
                             if (IsEncrypted == false)
                             {
-                                checksum = StorageEnvironment.CalculatePageChecksum((byte*)pageHeader, pageHeader->PageNumber, pageHeader->Flags, 0);
+                                ulong checksum = StorageEnvironment.CalculatePageChecksum((byte*)pageHeader, pageHeader->PageNumber, pageHeader->Flags, 0);
 
                                 if (checksum != pageHeader->Checksum)
                                 {

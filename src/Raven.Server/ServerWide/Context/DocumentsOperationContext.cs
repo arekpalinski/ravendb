@@ -8,7 +8,7 @@ namespace Raven.Server.ServerWide.Context
 {
     public class DocumentsOperationContext : TransactionOperationContext<DocumentsTransaction>
     {
-        private readonly DocumentDatabase _documentDatabase;
+        private readonly DocumentsStorage _documentsStorage;
 
         internal string LastDatabaseChangeVector;
         internal Dictionary<string, long> LastReplicationEtagFrom;
@@ -37,23 +37,23 @@ namespace Raven.Server.ServerWide.Context
             _skipChangeVectorValidation = false;
         }
 
-        public static DocumentsOperationContext ShortTermSingleUse(DocumentDatabase documentDatabase)
+        public static DocumentsOperationContext ShortTermSingleUse(DocumentsStorage documentsStorage)
         {
-            var shortTermSingleUse = new DocumentsOperationContext(documentDatabase, 4096, 1024, 8 * 1024, SharedMultipleUseFlag.None);
+            var shortTermSingleUse = new DocumentsOperationContext(documentsStorage, 4096, 1024, 8 * 1024, SharedMultipleUseFlag.None);
             return shortTermSingleUse;
         }
 
-        public DocumentsOperationContext(DocumentDatabase documentDatabase, int initialSize, int longLivedSize, int maxNumberOfAllocatedStringValues, SharedMultipleUseFlag lowMemoryFlag)
+        public DocumentsOperationContext(DocumentsStorage documentsStorage, int initialSize, int longLivedSize, int maxNumberOfAllocatedStringValues, SharedMultipleUseFlag lowMemoryFlag)
             : base(initialSize, longLivedSize, maxNumberOfAllocatedStringValues, lowMemoryFlag)
         {
-            _documentDatabase = documentDatabase;
+            _documentsStorage = documentsStorage;
         }
 
         protected override DocumentsTransaction CloneReadTransaction(DocumentsTransaction previous)
         {
             var clonedTransaction = new DocumentsTransaction(this,
-                _documentDatabase.DocumentsStorage.Environment.CloneReadTransaction(previous.InnerTransaction, PersistentContext, Allocator),
-                _documentDatabase.Changes
+                _documentsStorage.Environment.CloneReadTransaction(previous.InnerTransaction, PersistentContext, Allocator),
+                _documentsStorage.Changes
             );
 
             previous.Dispose();
@@ -63,16 +63,16 @@ namespace Raven.Server.ServerWide.Context
 
         protected override DocumentsTransaction CreateReadTransaction()
         {
-            return new DocumentsTransaction(this, _documentDatabase.DocumentsStorage.Environment.ReadTransaction(PersistentContext, Allocator), _documentDatabase.Changes);
+            return new DocumentsTransaction(this, _documentsStorage.Environment.ReadTransaction(PersistentContext, Allocator), _documentsStorage.Changes);
         }
 
         protected override DocumentsTransaction CreateWriteTransaction(TimeSpan? timeout = null)
         {
-            var tx = new DocumentsTransaction(this, _documentDatabase.DocumentsStorage.Environment.WriteTransaction(PersistentContext, Allocator, timeout), _documentDatabase.Changes);
+            var tx = new DocumentsTransaction(this, _documentsStorage.Environment.WriteTransaction(PersistentContext, Allocator, timeout), _documentsStorage.Changes);
 
             CurrentTxMarker = (short)tx.InnerTransaction.LowLevelTransaction.Id;
 
-            var options = _documentDatabase.DocumentsStorage.Environment.Options;
+            var options = _documentsStorage.Environment.Options;
 
             if ((options.TransactionsMode == TransactionsMode.Lazy || options.TransactionsMode == TransactionsMode.Danger) &&
                 options.NonSafeTransactionExpiration != null && options.NonSafeTransactionExpiration < DateTime.Now)
@@ -87,9 +87,9 @@ namespace Raven.Server.ServerWide.Context
             return tx;
         }
 
-        public StorageEnvironment Environment => _documentDatabase.DocumentsStorage.Environment;
+        public StorageEnvironment Environment => _documentsStorage.Environment;
 
-        public DocumentDatabase DocumentDatabase => _documentDatabase;
+        public DocumentsStorage DocumentsStorage => _documentsStorage;
 
         public bool ShouldRenewTransactionsToAllowFlushing()
         {
@@ -98,7 +98,7 @@ namespace Raven.Server.ServerWide.Context
             // resources (scratch space, mostly) back to the system, let us continue with the current one.
 
             return Transaction?.InnerTransaction.LowLevelTransaction.Id !=
-                   _documentDatabase.DocumentsStorage.Environment.CurrentReadTransactionId;
+                   _documentsStorage.Environment.CurrentReadTransactionId;
         }
     }
 }

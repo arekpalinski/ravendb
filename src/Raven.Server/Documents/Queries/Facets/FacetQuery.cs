@@ -42,7 +42,7 @@ namespace Raven.Server.Documents.Queries.Facets
                     if (tx == null)
                         tx = context.OpenReadTransaction();
 
-                    var documentJson = context.DocumentDatabase.DocumentsStorage.Get(context, facetField.FacetSetupDocumentId);
+                    var documentJson = context.DocumentsStorage.Get(context, facetField.FacetSetupDocumentId);
                     if (documentJson == null)
                         throw new DocumentDoesNotExistException(facetField.FacetSetupDocumentId);
 

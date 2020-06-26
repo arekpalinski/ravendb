@@ -31,7 +31,7 @@ namespace Raven.Server.Documents
 
         public const int MaxCounterDocumentSize = 2048;
 
-        private readonly DocumentDatabase _documentDatabase;
+        private readonly DatabaseStorageOptions _storageOptions;
         private readonly DocumentsStorage _documentsStorage;
 
         public static readonly Slice AllCountersEtagSlice;
@@ -139,10 +139,10 @@ namespace Raven.Server.Documents
             });
         }
 
-        public CountersStorage(DocumentDatabase documentDatabase, Transaction tx)
+        public CountersStorage(DatabaseStorageOptions storageOptions, DocumentsStorage documentsStorage, Transaction tx)
         {
-            _documentDatabase = documentDatabase;
-            _documentsStorage = documentDatabase.DocumentsStorage;
+            _storageOptions = storageOptions;
+            _documentsStorage = documentsStorage;
 
             tx.CreateTree(CounterKeysSlice);
         }
@@ -422,7 +422,7 @@ namespace Raven.Server.Documents
                 using (table.Allocate(out TableValueBuilder tvb))
                 {
                     tvb.Add(countersGroupKey);
-                    tvb.Add(Bits.SwapBytes(context.DocumentDatabase.DocumentsStorage.GenerateNextEtag()));
+                    tvb.Add(Bits.SwapBytes(context.DocumentsStorage.GenerateNextEtag()));
                     tvb.Add(cv);
                     tvb.Add(fst.BasePointer, fst.Size);
                     tvb.Add(collectionSlice);
@@ -443,8 +443,8 @@ namespace Raven.Server.Documents
                         break;
                 }
 
-                var etag = context.DocumentDatabase.DocumentsStorage.GenerateNextEtag();
-                var cv2 = context.DocumentDatabase.DocumentsStorage.GetNewChangeVector(context, etag);
+                var etag = context.DocumentsStorage.GenerateNextEtag();
+                var cv2 = context.DocumentsStorage.GetNewChangeVector(context, etag);
 
                 using (context.Allocator.Allocate(documentKeyPrefix.Size + firstChange + 1, out ByteString newCounterKey))
                 using (Slice.From(context.Allocator, cv2, out cv))
@@ -469,7 +469,7 @@ namespace Raven.Server.Documents
             int dbIdIndex;
             for (dbIdIndex = 0; dbIdIndex < dbIds.Length; dbIdIndex++)
             {
-                if (dbIds[dbIdIndex].Equals(_documentDatabase.DbBase64Id))
+                if (dbIds[dbIdIndex].Equals(_documentsStorage.DbBase64Id))
                     break;
             }
 
@@ -477,7 +477,7 @@ namespace Raven.Server.Documents
             {
                 dbIds.Modifications = new DynamicJsonArray
                 {
-                    _documentDatabase.DbBase64Id
+                    _documentsStorage.DbBase64Id
                 };
             }
 
@@ -563,7 +563,7 @@ namespace Raven.Server.Documents
                     builder.WritePropertyName(DbIds);
 
                     builder.StartWriteArray();
-                    builder.WriteValue(_documentDatabase.DbBase64Id);
+                    builder.WriteValue(_documentsStorage.DbBase64Id);
                     builder.WriteArrayEnd();
 
                     builder.WritePropertyName(Values);
@@ -869,12 +869,12 @@ namespace Raven.Server.Documents
 
         private void UpdateMetricsForNewCounterGroup(BlittableJsonReaderObject data)
         {
-            _documentDatabase.Metrics.Counters.BytesPutsPerSec.MarkSingleThreaded(data.Size);
+            _storageOptions.Metrics.Counters.BytesPutsPerSec.MarkSingleThreaded(data.Size);
 
             if (data.TryGet(Values, out BlittableJsonReaderObject values) == false)
                 return;
             
-            _documentDatabase.Metrics.Counters.PutsPerSec.MarkSingleThreaded(values.Count);
+            _storageOptions.Metrics.Counters.PutsPerSec.MarkSingleThreaded(values.Count);
 
         }
 
@@ -1138,14 +1138,14 @@ namespace Raven.Server.Documents
 
         private void UpdateMetrics(Slice counterKey, string counterName, string changeVector, string collection)
         {
-            _documentDatabase.Metrics.Counters.PutsPerSec.MarkSingleThreaded(1);
+            _storageOptions.Metrics.Counters.PutsPerSec.MarkSingleThreaded(1);
             var bytesPutsInBytes =
                 counterKey.Size + counterName.Length
                                 + sizeof(long) // etag 
                                 + sizeof(long) // counter value
                                 + changeVector.Length + collection.Length;
 
-            _documentDatabase.Metrics.Counters.BytesPutsPerSec.MarkSingleThreaded(bytesPutsInBytes);
+            _storageOptions.Metrics.Counters.BytesPutsPerSec.MarkSingleThreaded(bytesPutsInBytes);
         }
 
         private HashSet<string> _tableCreated = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1433,8 +1433,8 @@ namespace Raven.Server.Documents
                     continue;
                 }
 
-                newEtag = _documentDatabase.DocumentsStorage.GenerateNextEtag();
-                sb.Append(_documentDatabase.DbBase64Id)
+                newEtag = _documentsStorage.GenerateNextEtag();
+                sb.Append(_documentsStorage.DbBase64Id)
                     .Append(":")
                     .Append(newEtag);
             }
@@ -1446,8 +1446,8 @@ namespace Raven.Server.Documents
                     sb.Append(", ");
                 }
 
-                newEtag = _documentDatabase.DocumentsStorage.GenerateNextEtag();
-                sb.Append(_documentDatabase.DbBase64Id)
+                newEtag = _documentsStorage.GenerateNextEtag();
+                sb.Append(_documentsStorage.DbBase64Id)
                     .Append(":")
                     .Append(newEtag);
             }
@@ -1544,7 +1544,7 @@ namespace Raven.Server.Documents
             using (data)
             {
                 var newDocumentData = context.ReadObject(doc.Data, docId, BlittableJsonDocumentBuilder.UsageMode.ToDisk);
-                var putResult = _documentDatabase.DocumentsStorage.Put(context, docId, null, newDocumentData, flags: flags, nonPersistentFlags: nonPersistentDocumentFlags);
+                var putResult = _documentsStorage.Put(context, docId, null, newDocumentData, flags: flags, nonPersistentFlags: nonPersistentDocumentFlags);
                 return putResult.ChangeVector;
             }
         }

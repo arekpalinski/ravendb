@@ -442,7 +442,7 @@ namespace Raven.Server.Documents.Queries
         {
             var methodType = QueryMethod.GetMethodType(method.Name.Value);
 
-            var server = documentsContext.DocumentDatabase.ServerStore;
+            var server = documentsContext.DocumentsStorage.ServerStore;
             switch (methodType)
             {
                 case MethodType.CompareExchange:
@@ -450,7 +450,7 @@ namespace Raven.Server.Documents.Queries
                     if (v.Type != ValueTokenType.String)
                         throw new InvalidQueryException("Expected value of type string, but got: " + v.Type, query.QueryText, parameters);
 
-                    var prefix = CompareExchangeCommandBase.GetActualKey(documentsContext.DocumentDatabase.Name, v.Value.ToString());
+                    var prefix = CompareExchangeCommandBase.GetActualKey(documentsContext.DocumentsStorage.Name, v.Value.ToString());
                     object value = null;
                     server.Cluster.GetCompareExchangeValue(serverContext, prefix).Value?.TryGetMember("Object", out value);
 

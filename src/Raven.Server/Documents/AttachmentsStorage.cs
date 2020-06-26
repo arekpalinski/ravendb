@@ -9,9 +9,7 @@ using Raven.Client.Exceptions;
 using Raven.Server.Documents.Replication;
 using Raven.Client.Exceptions.Documents;
 using Raven.Client.Exceptions.Documents.Indexes;
-using Raven.Server.Exceptions;
 using Raven.Server.ServerWide.Context;
-using Raven.Server.Utils;
 using Voron;
 using Voron.Data.Tables;
 using Voron.Impl;
@@ -29,7 +27,7 @@ namespace Raven.Server.Documents
 {
     public unsafe class AttachmentsStorage
     {
-        private readonly DocumentDatabase _documentDatabase;
+        private readonly DatabaseStorageOptions _storageOptions;
         private readonly DocumentsStorage _documentsStorage;
 
         internal static readonly Slice AttachmentsSlice;
@@ -85,11 +83,11 @@ namespace Raven.Server.Documents
             });
         }
 
-        public AttachmentsStorage(DocumentDatabase documentDatabase, Transaction tx)
+        public AttachmentsStorage(DatabaseStorageOptions storageOptions, DocumentsStorage documentsStorage, Transaction tx)
         {
-            _documentDatabase = documentDatabase;
-            _documentsStorage = documentDatabase.DocumentsStorage;
-            LoggingSource.Instance.GetLogger<AttachmentsStorage>(documentDatabase.Name);
+            _storageOptions = storageOptions;
+            _documentsStorage = documentsStorage;
+            LoggingSource.Instance.GetLogger<AttachmentsStorage>(storageOptions.Name);
 
             tx.CreateTree(AttachmentsSlice);
             AttachmentsSchema.Create(tx, AttachmentsMetadataSlice, 44);
@@ -248,7 +246,7 @@ namespace Raven.Server.Documents
                                             ref partialTvr, out Slice existingKey))
                                         {
                                             var existingEtag = TableValueToEtag((int)AttachmentsTable.Etag, ref partialTvr);
-                                            var lastModifiedTicks = _documentDatabase.Time.GetUtcNow().Ticks;
+                                            var lastModifiedTicks = _storageOptions.Time.GetUtcNow().Ticks;
                                             DeleteInternal(context, existingKey, existingEtag, existingHash, changeVector, lastModifiedTicks);
                                         }
                                     }
@@ -276,7 +274,7 @@ namespace Raven.Server.Documents
                         }
                     }
 
-                    _documentDatabase.Metrics.Attachments.PutsPerSec.MarkSingleThreaded(1);
+                    _storageOptions.Metrics.Attachments.PutsPerSec.MarkSingleThreaded(1);
 
                     if (updateDocument)
                         UpdateDocumentAfterAttachmentChange(context, lowerDocumentId, documentId, tvr, changeVector);
@@ -325,7 +323,7 @@ namespace Raven.Server.Documents
                 table.Set(tvb);
             }
 
-            _documentDatabase.Metrics.Attachments.PutsPerSec.MarkSingleThreaded(1);
+            _storageOptions.Metrics.Attachments.PutsPerSec.MarkSingleThreaded(1);
         }
 
         /// <summary>
@@ -463,7 +461,7 @@ namespace Raven.Server.Documents
             if (existingStream == null)
                 tree.AddStream(base64Hash, stream, tag: key);
 
-            _documentDatabase.Metrics.Attachments.BytesPutsPerSec.MarkSingleThreaded(stream.Length);
+            _storageOptions.Metrics.Attachments.BytesPutsPerSec.MarkSingleThreaded(stream.Length);
         }
 
         private void DeleteAttachmentStream(DocumentsOperationContext context, Slice hash, int expectedCount = 1)
@@ -892,7 +890,7 @@ namespace Raven.Server.Documents
                 using (GetAttachmentPartialKey(context, lowerDocumentId.Content.Ptr, lowerDocumentId.Size, lowerName.Content.Ptr, lowerName.Size,
                     AttachmentType.Document, null, out Slice partialKeySlice))
                 {
-                    var lastModifiedTicks = _documentDatabase.Time.GetUtcNow().Ticks;
+                    var lastModifiedTicks = _storageOptions.Time.GetUtcNow().Ticks;
                     DeleteAttachmentDirect(context, partialKeySlice, true, name, expectedChangeVector, changeVector, lastModifiedTicks);
                 }
 
@@ -962,7 +960,7 @@ namespace Raven.Server.Documents
                 lowerName.Content.Ptr, lowerName.Size,
                 base64Hash, lowerContentType.Content.Ptr, lowerContentType.Size, AttachmentType.Document, Slices.Empty, out Slice keySlice))
             {
-                var lastModifiedTicks = _documentDatabase.Time.GetUtcNow().Ticks;
+                var lastModifiedTicks = _storageOptions.Time.GetUtcNow().Ticks;
                 DeleteAttachmentDirect(context, keySlice, false, null, null, changeVector, lastModifiedTicks);
             }
         }
@@ -1097,7 +1095,7 @@ namespace Raven.Server.Documents
             var name = $"attachment.{Guid.NewGuid():N}.{prefix}";
             var tempPath = _documentsStorage.Environment.Options.DataPager.Options.TempPath.Combine(name);
 
-            return new StreamsTempFile(tempPath.FullPath, _documentDatabase.DocumentsStorage.Environment);
+            return new StreamsTempFile(tempPath.FullPath, _documentsStorage.Environment);
         }
 
         public static (LazyStringValue DocId, LazyStringValue AttachmentName) ExtractDocIdAndAttachmentNameFromTombstone(JsonOperationContext context,
