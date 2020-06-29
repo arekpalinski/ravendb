@@ -111,7 +111,7 @@ namespace Raven.Server.Documents.Handlers
                 Database,
                 $"Enforce revision configuration in database '{Database.Name}'.",
                 Operations.Operations.OperationType.EnforceRevisionConfiguration,
-                onProgress => Database.DocumentsStorage.RevisionsStorage.EnforceConfiguration(onProgress, token),
+                onProgress => Database.DocumentsStorage.RevisionsStorage.EnforceConfiguration(Database.TxMerger, onProgress, token),
                 operationId,
                 token: token);
 
@@ -173,7 +173,7 @@ namespace Raven.Server.Documents.Handlers
                 Database,
                 $"Revert database '{Database.Name}' to {configuration.Time} UTC.",
                 Operations.Operations.OperationType.DatabaseRevert,
-                onProgress => Database.DocumentsStorage.RevisionsStorage.RevertRevisions(configuration.Time, TimeSpan.FromSeconds(configuration.WindowInSec), onProgress, token),
+                onProgress => Database.DocumentsStorage.RevisionsStorage.RevertRevisions(configuration.Time, TimeSpan.FromSeconds(configuration.WindowInSec), Database.TxMerger, onProgress, token),
                 operationId,
                 token: token);
 

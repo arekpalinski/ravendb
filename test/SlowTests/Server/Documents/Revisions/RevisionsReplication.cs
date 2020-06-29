@@ -277,7 +277,7 @@ namespace SlowTests.Server.Documents.Revisions
                 var db = await GetDocumentDatabaseInstanceFor(store1);
 
                 using (var token = new OperationCancelToken(db.Configuration.Databases.OperationTimeout.AsTimeSpan, db.DatabaseShutdown))
-                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(_ => { }, token);
+                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(db.TxMerger, _ => { }, token);
 
                 WaitForMarker(store1, store2);
 

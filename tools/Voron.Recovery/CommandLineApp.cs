@@ -46,7 +46,6 @@ namespace Voron.Recovery
 
         
         private const string DatafileName = "Raven.voron";
-        private const string RecoveryFileName = "recovery.ravendump";
         
         private static void ConfigureRecoveryCommand()
         {
@@ -92,14 +91,14 @@ namespace Voron.Recovery
                     {
                         return ExitWithError("Missing RecoverDirectory argument", cmd);
                     }
-                    
-                    config.OutputFileName = Path.Combine(recoverDirectory, outputFileNameArg.HasValue() ? outputFileNameArg.Value() : RecoveryFileName);
+
+                    config.RecoverDirectory = recoverDirectory;
                     try
                     {
                         if (!Directory.Exists(recoverDirectory))
                             Directory.CreateDirectory(recoverDirectory);
-                        File.WriteAllText(config.OutputFileName, "I have write permission!");
-                        File.Delete(config.OutputFileName);
+                        File.WriteAllText(config.RecoverDirectory, "I have write permission!");
+                        File.Delete(config.RecoverDirectory);
                     }
                     catch
                     {

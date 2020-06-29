@@ -176,7 +176,7 @@ namespace FastTests.Server.Documents.Revisions
 
                 var db = await GetDocumentDatabaseInstanceFor(store);
                 using (var token = new OperationCancelToken(db.Configuration.Databases.OperationTimeout.AsTimeSpan, db.DatabaseShutdown))
-                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(_ => { }, token);
+                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(db.TxMerger, _ => { }, token);
 
                 for (int i = 0; i < 10; i++)
                 {
@@ -197,7 +197,7 @@ namespace FastTests.Server.Documents.Revisions
                 await RevisionsHelper.SetupRevisions(store, Server.ServerStore, configuration);
 
                 using (var token = new OperationCancelToken(db.Configuration.Databases.OperationTimeout.AsTimeSpan, db.DatabaseShutdown))
-                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(_ => { }, token);
+                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(db.TxMerger, _ => { }, token);
 
                 for (int i = 0; i < 10; i++)
                 {
@@ -272,7 +272,7 @@ namespace FastTests.Server.Documents.Revisions
 
                 var db = await GetDocumentDatabaseInstanceFor(store);
                 using (var token = new OperationCancelToken(db.Configuration.Databases.OperationTimeout.AsTimeSpan, db.DatabaseShutdown))
-                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(_ => { }, token);
+                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(db.TxMerger, _ => { }, token);
 
 
                 for (int i = 0; i < 10; i++)
@@ -289,7 +289,7 @@ namespace FastTests.Server.Documents.Revisions
                 await RevisionsHelper.SetupRevisions(store, Server.ServerStore, configuration);
 
                 using (var token = new OperationCancelToken(db.Configuration.Databases.OperationTimeout.AsTimeSpan, db.DatabaseShutdown))
-                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(_ => { }, token);
+                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(db.TxMerger, _ => { }, token);
 
                 for (int i = 0; i < 10; i++)
                 {
@@ -338,7 +338,7 @@ namespace FastTests.Server.Documents.Revisions
 
                 var db = await GetDocumentDatabaseInstanceFor(store);
                 using (var token = new OperationCancelToken(db.Configuration.Databases.OperationTimeout.AsTimeSpan, db.DatabaseShutdown))
-                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(_ => { }, token);
+                    await db.DocumentsStorage.RevisionsStorage.EnforceConfiguration(db.TxMerger, _ => { }, token);
 
                 using (var session = store.OpenAsyncSession())
                 {

@@ -209,7 +209,7 @@ namespace Raven.Server.Documents.Revisions
                 const string message = "Failed to enable revisions for documents as the revisions configuration " +
                           "in the database record is missing or not valid.";
 
-                _storageOptions.NotificationCenter.Add(AlertRaised.Create(
+                _storageOptions.NotificationCenter?.Add(AlertRaised.Create(
                     _storageOptions.Name,
                     $"Revisions error in {_storageOptions.Name}", message,
                     AlertType.RevisionsConfigurationNotValid,
@@ -468,7 +468,7 @@ namespace Raven.Server.Documents.Revisions
 
                 if (flags.Contain(DocumentFlags.Resolved))
                 {
-                    _storageOptions.ReplicationLoader.ConflictResolver.SaveLocalAsRevision(context, id);
+                    SaveLocalAsRevision(context, id);
                 }
 
                 if (document == null)
@@ -1080,7 +1080,7 @@ namespace Raven.Server.Documents.Revisions
             }
         }
 
-        public async Task<IOperationResult> EnforceConfiguration(Action<IOperationProgress> onProgress, OperationCancelToken token)
+        public async Task<IOperationResult> EnforceConfiguration(TransactionOperationsMerger txMerger, Action<IOperationProgress> onProgress, OperationCancelToken token)
         {
             var parameters = new Parameters
             {
@@ -1143,7 +1143,7 @@ namespace Raven.Server.Documents.Revisions
 
                     token.Delay();
 
-                    await _storageOptions.TxMerger.Enqueue(new EnforceRevisionConfigurationCommand(this, ids, result, token));
+                    await txMerger.Enqueue(new EnforceRevisionConfigurationCommand(this, ids, result, token));
                 }
             }
 
@@ -1280,7 +1280,7 @@ namespace Raven.Server.Documents.Revisions
             public Action<IOperationProgress> OnProgress;
         }
 
-        public async Task<IOperationResult> RevertRevisions(DateTime before, TimeSpan window, Action<IOperationProgress> onProgress, OperationCancelToken token)
+        public async Task<IOperationResult> RevertRevisions(DateTime before, TimeSpan window, TransactionOperationsMerger txMerger, Action<IOperationProgress> onProgress, OperationCancelToken token)
         {
             var list = new List<Document>();
             var result = new RevertResult();
@@ -1305,19 +1305,19 @@ namespace Raven.Server.Documents.Revisions
                 using (_documentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext writeCtx))
                 {
                     hasMore = PrepareRevertedRevisions(writeCtx, parameters, result, list, token);
-                    await WriteRevertedRevisions(list, token);
+                    await WriteRevertedRevisions(list, txMerger, token);
                 }
             }
 
             return result;
         }
 
-        private async Task WriteRevertedRevisions(List<Document> list, OperationCancelToken token)
+        private async Task WriteRevertedRevisions(List<Document> list, TransactionOperationsMerger txMerger, OperationCancelToken token)
         {
             if (list.Count == 0)
                 return;
 
-            await _storageOptions.TxMerger.Enqueue(new RevertDocumentsCommand(list, token));
+            await txMerger.Enqueue(new RevertDocumentsCommand(list, token));
 
             list.Clear();
         }
@@ -1748,6 +1748,27 @@ namespace Raven.Server.Documents.Revisions
         {
             var table = new Table(RevisionsSchema, context.Transaction.InnerTransaction);
             return table.GetNumberOfEntriesFor(RevisionsSchema.FixedSizeIndexes[AllRevisionsEtagsSlice]);
+        }
+
+        public void SaveLocalAsRevision(DocumentsOperationContext context, string id)
+        {
+            var existing = _documentsStorage.GetDocumentOrTombstone(context, id, throwOnConflict: false);
+            if (existing.Document != null)
+            {
+                _documentsStorage.RevisionsStorage.Put(context, existing.Document.Id, existing.Document.Data,
+                    existing.Document.Flags | DocumentFlags.Conflicted | DocumentFlags.HasRevisions,
+                    NonPersistentDocumentFlags.FromResolver, existing.Document.ChangeVector, existing.Document.LastModified.Ticks);
+            }
+            else if (existing.Tombstone != null)
+            {
+                using (Slice.External(context.Allocator, existing.Tombstone.LowerId, out var key))
+                {
+                    _documentsStorage.RevisionsStorage.Delete(context, existing.Tombstone.LowerId, key, new CollectionName(existing.Tombstone.Collection),
+                        existing.Tombstone.ChangeVector,
+                        existing.Tombstone.LastModified.Ticks, NonPersistentDocumentFlags.FromResolver,
+                        existing.Tombstone.Flags | DocumentFlags.Conflicted | DocumentFlags.HasRevisions);
+                }
+            }
         }
     }
 }

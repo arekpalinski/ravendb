@@ -37,6 +37,11 @@ namespace Raven.Server.ServerWide.Context
             _skipChangeVectorValidation = false;
         }
 
+        public static DocumentsOperationContext ShortTermSingleUse(DocumentDatabase documentDatabase)
+        {
+            return ShortTermSingleUse(documentDatabase.DocumentsStorage);
+        }
+
         public static DocumentsOperationContext ShortTermSingleUse(DocumentsStorage documentsStorage)
         {
             var shortTermSingleUse = new DocumentsOperationContext(documentsStorage, 4096, 1024, 8 * 1024, SharedMultipleUseFlag.None);

@@ -14,7 +14,7 @@ namespace Raven.Server.Documents
         private readonly NodeTagHolder _nodeTagHolder;
 
         private DatabaseStorageOptions(string databaseName, RavenConfiguration configuration, bool is32Bits, NodeTagHolder nodeTagHolder, byte[] masterKey,
-            DocumentsChanges changes, IoChangesNotifications ioChanges, MetricCounters metrics, SystemTime time, 
+            DocumentsChanges changes, IoChangesNotifications ioChanges, MetricCounters metrics, NotificationCenter.NotificationCenter notificationCenter, SystemTime time, 
             CatastrophicFailureNotification catastrophicFailureNotification, EventHandler<RecoveryErrorEventArgs> handleOnDatabaseRecoveryError,
             EventHandler<NonDurabilitySupportEventArgs> handleNonDurableFileSystemError, EventHandler<DataIntegrityErrorEventArgs> handleOnDatabaseIntegrityErrorOfAlreadySyncedData,
             CancellationToken databaseShutdown)
@@ -27,6 +27,7 @@ namespace Raven.Server.Documents
             Changes = changes;
             IoChanges = ioChanges;
             Metrics = metrics;
+            NotificationCenter = notificationCenter;
             Time = time;
             CatastrophicFailureNotification = catastrophicFailureNotification;
             HandleOnDatabaseRecoveryError = handleOnDatabaseRecoveryError;
@@ -61,21 +62,23 @@ namespace Raven.Server.Documents
 
         public MetricCounters Metrics { get; }
 
+        public NotificationCenter.NotificationCenter NotificationCenter { get; }
+
         public CancellationToken DatabaseShutdown { get; }
 
         public static DatabaseStorageOptions Create(string databaseName, RavenConfiguration configuration, bool is32Bits, NodeTagHolder nodeTag, byte[] masterKey,
-            DocumentsChanges changes, IoChangesNotifications ioChanges, MetricCounters metrics,  SystemTime time,
+            DocumentsChanges changes, IoChangesNotifications ioChanges, MetricCounters metrics, NotificationCenter.NotificationCenter notificationCenter,  SystemTime time,
             CatastrophicFailureNotification catastrophicFailureNotification, EventHandler<RecoveryErrorEventArgs> handleOnDatabaseRecoveryError,
             EventHandler<NonDurabilitySupportEventArgs> handleNonDurableFileSystemError,
             EventHandler<DataIntegrityErrorEventArgs> handleOnDatabaseIntegrityErrorOfAlreadySyncedData,
             CancellationToken databaseShutdown)
         {
-            return new DatabaseStorageOptions(databaseName, configuration, is32Bits, nodeTag, masterKey, changes, ioChanges, metrics, time, catastrophicFailureNotification, handleOnDatabaseRecoveryError, handleNonDurableFileSystemError, handleOnDatabaseIntegrityErrorOfAlreadySyncedData, databaseShutdown);
+            return new DatabaseStorageOptions(databaseName, configuration, is32Bits, nodeTag, masterKey, changes, ioChanges, metrics, notificationCenter, time, catastrophicFailureNotification, handleOnDatabaseRecoveryError, handleNonDurableFileSystemError, handleOnDatabaseIntegrityErrorOfAlreadySyncedData, databaseShutdown);
         }
 
         public static DatabaseStorageOptions CreateForRecovery(string databaseName, RavenConfiguration configuration, bool is32Bits, NodeTagHolder nodeTag, byte[] masterKey)
         {
-            return new DatabaseStorageOptions(databaseName, configuration, is32Bits, nodeTag, masterKey, new DocumentsChanges(), new IoChangesNotifications(), new MetricCounters(), new SystemTime(), new CatastrophicFailureNotification((guid, s, ex, r) => {}), 
+            return new DatabaseStorageOptions(databaseName, configuration, is32Bits, nodeTag, masterKey, new DocumentsChanges(), new IoChangesNotifications(), new MetricCounters(), null /* TODO arek new NotificationCenter.NotificationCenter()*/,  new SystemTime(), new CatastrophicFailureNotification((guid, s, ex, r) => {}), 
                 (s, e) => { }, (s, e) => { }, (s, e) => { }, CancellationToken.None);
         }
     }

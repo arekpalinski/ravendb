@@ -146,18 +146,21 @@ namespace Raven.Server.Documents
                     serverStore.DatabasesLandlord.CatastrophicFailureHandler.Execute(name, e, environmentId, environmentPath, stacktrace);
                 });
                 Metrics = new MetricCounters();
+                ConfigurationStorage = new ConfigurationStorage(this);
+                NotificationCenter = new NotificationCenter.NotificationCenter(ConfigurationStorage.NotificationsStorage, Name, DatabaseShutdown, configuration);
                 HugeDocuments = new HugeDocuments(NotificationCenter, ConfigurationStorage.NotificationsStorage, Name,
                     configuration.PerformanceHints.HugeDocumentsCollectionSize,
                     configuration.PerformanceHints.HugeDocumentSize.GetValue(SizeUnit.Bytes));
 
-                var databaseStorageOptions = DatabaseStorageOptions.Create(Name, configuration, Is32Bits, new ServerNodeTagHolder(serverStore), MasterKey, Changes, IoChanges, Metrics, Time,
+                var databaseStorageOptions = DatabaseStorageOptions.Create(Name, configuration, Is32Bits, new ServerNodeTagHolder(serverStore), MasterKey, Changes, IoChanges, Metrics, NotificationCenter, Time,
                     CatastrophicFailureNotification, HandleOnDatabaseRecoveryError, HandleNonDurableFileSystemError, HandleOnDatabaseIntegrityErrorOfAlreadySyncedData, DatabaseShutdown);
 
                 DocumentsStorage = new DocumentsStorage(databaseStorageOptions, addToInitLog)
                 {
                     // TODO arek - I hope those are temporary hacks
                     HugeDocuments = HugeDocuments,
-                    ServerStore = serverStore
+                    ServerStore = serverStore,
+                    TombstoneCleaner = TombstoneCleaner
                 };
 
                 IndexStore = new IndexStore(this, serverStore);
@@ -167,8 +170,7 @@ namespace Raven.Server.Documents
                 SubscriptionStorage = new SubscriptionStorage(this, serverStore);
                 MetricCacher = new DatabaseMetricCacher(this);
                 TxMerger = new TransactionOperationsMerger(this, DatabaseShutdown);
-                ConfigurationStorage = new ConfigurationStorage(this);
-                NotificationCenter = new NotificationCenter.NotificationCenter(ConfigurationStorage.NotificationsStorage, Name, DatabaseShutdown, configuration);
+                
                 Operations = new Operations.Operations(Name, ConfigurationStorage.OperationsStorage, NotificationCenter, Changes, 
                     Is32Bits ? TimeSpan.FromHours(12) : TimeSpan.FromDays(2));
                 DatabaseInfoCache = serverStore.DatabaseInfoCache;

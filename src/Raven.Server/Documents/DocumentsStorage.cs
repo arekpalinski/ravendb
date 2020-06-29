@@ -199,9 +199,13 @@ namespace Raven.Server.Documents
 
         public bool Is32Bits => _storageOptions.Is32Bits;
 
+        internal DatabaseStorageOptions Options => _storageOptions;
+
         public HugeDocuments HugeDocuments { get; set; }
 
         public ServerStore ServerStore { get; set; }
+
+        public TombstoneCleaner TombstoneCleaner { get; set; }
 
         public RevisionsStorage RevisionsStorage;
         public ExpirationStorage ExpirationStorage;
@@ -1838,8 +1842,10 @@ namespace Raven.Server.Documents
         private void ThrowNotSupportedExceptionForCreatingTombstoneWhenItExistsForDifferentCollection(Slice lowerId, CollectionName collectionName,
             CollectionName tombstoneCollectionName, VoronConcurrencyErrorException e)
         {
-            var tombstoneCleanerState = _storageOptions.TombstoneCleaner.GetState();
-            if (tombstoneCleanerState.TryGetValue(tombstoneCollectionName.Name, out var item) && item.Component != null)
+            var tombstoneCleanerState = TombstoneCleaner?.GetState();
+            (string Component, long Value) item = (null, -1);
+
+            if (tombstoneCleanerState?.TryGetValue(tombstoneCollectionName.Name, out item) == true && item.Component != null)
                 throw new NotSupportedException($"Could not delete document '{lowerId}' from collection '{collectionName.Name}' because tombstone for that document already exists but in a different collection ('{tombstoneCollectionName.Name}'). Did you change the document's collection recently? If yes, please give some time for other system components (e.g. Indexing, Replication, Backup) and tombstone cleaner to process that change. At this point of time the component that holds the tombstone is '{item.Component}' with etag '{item.Value}' and tombstone cleaner is executed every '{_storageOptions.Configuration.Tombstones.CleanupInterval.AsTimeSpan.TotalMinutes}' minutes.", e);
 
             throw new NotSupportedException($"Could not delete document '{lowerId}' from collection '{collectionName.Name}' because tombstone for that document already exists but in a different collection ('{tombstoneCollectionName.Name}'). Did you change the document's collection recently? If yes, please give some time for other system components (e.g. Indexing, Replication, Backup) and tombstone cleaner to process that change. Tombstone cleaner is executed every '{_storageOptions.Configuration.Tombstones.CleanupInterval.AsTimeSpan.TotalMinutes}' minutes.", e);

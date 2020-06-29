@@ -116,7 +116,7 @@ namespace Raven.Server.Storage.Schema.Updates.Documents
             // this schema update uses DocumentsStorage.GenerateNextEtag() so we need to read and set LastEtag in storage
             step.DocumentsStorage.InitializeLastEtag(step.ReadTx); 
 
-            step.DocumentsStorage.CountersStorage = new CountersStorage(step.DocumentsStorage.DocumentDatabase, step.WriteTx);
+            step.DocumentsStorage.CountersStorage = new CountersStorage(step.DocumentsStorage.Options, step.DocumentsStorage, step.WriteTx);
 
             _dbId = ReadDbId(step);
 
@@ -221,7 +221,7 @@ namespace Raven.Server.Storage.Schema.Updates.Documents
                         step.Commit();
                         step.RenewTransactions();
 
-                        step.DocumentsStorage.CountersStorage = new CountersStorage(step.DocumentsStorage.DocumentDatabase, step.WriteTx);
+                        step.DocumentsStorage.CountersStorage = new CountersStorage(step.DocumentsStorage.Options, step.DocumentsStorage, step.WriteTx);
 
                         currentDocId = null;
                         continue;
@@ -369,7 +369,7 @@ namespace Raven.Server.Storage.Schema.Updates.Documents
                 }
 
                 var newEtag = step.DocumentsStorage.GenerateNextEtag();
-                var newChangeVector = ChangeVectorUtils.NewChangeVector(step.DocumentsStorage.DocumentDatabase.ServerStore.NodeTag, newEtag, _dbId);
+                var newChangeVector = ChangeVectorUtils.NewChangeVector(step.DocumentsStorage.NodeTag, newEtag, _dbId);
                 using (data)
                 using (Slice.From(context.Allocator, newChangeVector, out var cv))
                 using (DocumentIdWorker.GetStringPreserveCase(context, collectionName.Name, out Slice collectionSlice))
@@ -431,7 +431,7 @@ namespace Raven.Server.Storage.Schema.Updates.Documents
                     {
                         var etag = step.DocumentsStorage.GenerateNextEtag();
                         var changeVector = ChangeVectorUtils.NewChangeVector(
-                            step.DocumentsStorage.DocumentDatabase.ServerStore.NodeTag, etag, _dbId);
+                            step.DocumentsStorage.NodeTag, etag, _dbId);
 
                         var table = step.DocumentsStorage.CountersStorage.GetCountersTable(step.WriteTx, collectionName);
                         data.TryGet(CountersStorage.Values, out BlittableJsonReaderObject values);
