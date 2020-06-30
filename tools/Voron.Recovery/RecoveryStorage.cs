@@ -1,11 +1,17 @@
 ﻿using System;
 using System.IO;
+using Raven.Client;
+using Raven.Client.Documents.Operations.Attachments;
 using Raven.Client.Documents.Operations.Counters;
+using Raven.Client.Extensions;
+using Raven.Client.Json;
 using Raven.Server.Config;
 using Raven.Server.Config.Settings;
 using Raven.Server.Documents;
 using Raven.Server.ServerWide.Context;
+using Raven.Server.Utils;
 using Sparrow.Json;
+using Sparrow.Json.Parsing;
 using Sparrow.Platform;
 
 namespace Voron.Recovery
@@ -13,6 +19,7 @@ namespace Voron.Recovery
     public class RecoveryStorage : IDisposable
     {
         private readonly string _recoveryDatabasePath;
+        private readonly OrphansHandler _orphans;
         private DocumentsStorage _storage;
         private DocumentsOperationContext _context;
         private IDisposable _contextDisposal;
@@ -21,6 +28,7 @@ namespace Voron.Recovery
         public RecoveryStorage(string recoveryDatabasePath)
         {
             _recoveryDatabasePath = recoveryDatabasePath;
+            _orphans = new OrphansHandler(this);
         }
 
         public RecoveryStorage Initialize()
@@ -37,7 +45,7 @@ namespace Voron.Recovery
 
             databaseConfiguration.Core.DataDirectory = new PathSetting(_recoveryDatabasePath);
 
-            _storage =  new DocumentsStorage(DatabaseStorageOptions.CreateForRecovery(databaseName, serverConfiguration, PlatformDetails.Is32Bits, new RecoveryNodeTagHolder("A"), null), s => { });
+            _storage =  new DocumentsStorage(DatabaseStorageOptions.CreateForRecovery(databaseName, databaseConfiguration, PlatformDetails.Is32Bits, new RecoveryNodeTagHolder("A"), null), s => { });
             _storage.Initialize();
 
             _contextDisposal = _storage.ContextPool.AllocateOperationContext(out _context);
@@ -57,45 +65,104 @@ namespace Voron.Recovery
             public override string NodeTag { get; }
         }
 
-        public void PutDocument(Document document)
+        public Document Get(string id)
         {
-            using (_txManager.EnsureWriteTransaction())
+            using (_txManager.EnsureTransaction())
             {
-                _storage.Put(_context, document.Id, null, document.Data, document.LastModified.Ticks);
+                return _storage.Get(_context, id);
+            }
+        }
+
+        public void PutDocument(Document document, string id = null, bool hasModifications = false)
+        {
+            using (_txManager.EnsureTransaction())
+            {
+                var metadata = document.Data.GetMetadata();
+                if (metadata == null)
+                    throw new Exception($"No metadata for {document.Id}, cannot recover this document");
+
+                if (document.Id == "doc/4")
+                {
+
+                }
+
+                var metadataDictionary = new MetadataAsDictionary(metadata);
+
+                var hasRevisions = document.Flags.HasFlag(DocumentFlags.HasRevisions);
+                var hasCounters = document.Flags.HasFlag(DocumentFlags.HasCounters);
+                var hasAttachments = document.Flags.HasFlag(DocumentFlags.HasAttachments);
+
+                if (hasRevisions)
+                {
+
+                }
+
+                if (hasCounters)
+                {
+
+                }
+
+                if (hasAttachments)
+                {
+                    if (metadata.Modifications == null)
+                        metadata.Modifications = new DynamicJsonValue(metadata);
+
+                    metadata.Modifications.Remove(Constants.Documents.Metadata.Attachments);
+
+                    document.Flags &= ~DocumentFlags.HasAttachments;
+
+                    hasModifications = true;
+                }
+
+                //document.Flags &= ~DocumentFlags.HasRevisions;
+                //document.Flags &= ~DocumentFlags.HasCounters;
+                //document.Flags &= ~DocumentFlags.HasAttachments;
+
+                //metadata.Modifications = new DynamicJsonValue(metadata);
+                //metadata.Modifications.Remove(Constants.Documents.Metadata.Attachments);
+
+
+                //using (document.Data)
+
+                if (hasModifications)
+                {
+                    using (document.Data)
+                        document.Data = _context.ReadObject(document.Data, document.Id, BlittableJsonDocumentBuilder.UsageMode.ToDisk);
+                }
+
+                _storage.Put(_context, id ?? document.Id, null, document.Data, document.LastModified.Ticks, flags: document.Flags);
             }
         }
 
         public void PutRevision(Document revision)
         {
-            using (_txManager.EnsureWriteTransaction())
+            using (_txManager.EnsureTransaction())
             {
-                var document = _storage.Get(_context, revision.Id, throwOnConflict: false);
-                if (document == null)
+                if (CanStoreRevision(revision) == false)
                 {
-
+                    _orphans.PutRevision(revision);
+                    return;
                 }
 
-                _storage.RevisionsStorage.Put(_context, revision.Id, revision.Data, revision.Flags, NonPersistentDocumentFlags.None, null, revision.LastModified.Ticks);
+                var databaseChangeVector = _context.LastDatabaseChangeVector ?? DocumentsStorage.GetDatabaseChangeVector(_context);
+
+                _storage.RevisionsStorage.Put(_context, revision.Id, revision.Data, revision.Flags, NonPersistentDocumentFlags.None, revision.ChangeVector, revision.LastModified.Ticks);
+
+                _context.LastDatabaseChangeVector = ChangeVectorUtils.MergeVectors(databaseChangeVector, revision.ChangeVector);
             }
         }
 
         public void PutConflict(DocumentConflict conflict)
         {
-            using (_txManager.EnsureWriteTransaction())
+            using (_txManager.EnsureTransaction())
             {
-                var document = _storage.Get(_context, conflict.Id, throwOnConflict: false);
-                if (document == null)
-                {
-
-                }
-
                 _storage.ConflictsStorage.AddConflict(_context, conflict.Id, conflict.LastModified.Ticks, conflict.Doc, conflict.ChangeVector, conflict.Collection, conflict.Flags, NonPersistentDocumentFlags.FromSmuggler); // TODO arek - FromSmuggler
             }
         }
 
         public void PutCounter(CounterGroupDetail counterGroup)
         {
-            using (_txManager.EnsureWriteTransaction())
+            using (_txManager.EnsureTransaction())
             {
 
             }
@@ -103,14 +170,39 @@ namespace Voron.Recovery
 
         public void PutAttachment(FileStream stream, string hash, in long totalSize)
         {
-            using (_txManager.EnsureWriteTransaction())
+            using (_txManager.EnsureTransaction())
             {
 
             }
         }
 
+        private bool CanStoreRevision(Document revision)
+        {
+            if (revision.Flags.Contain(DocumentFlags.HasAttachments))
+            {
+                var metadata = revision.Data.GetMetadata();
+                var metadataDictionary = new MetadataAsDictionary(metadata);
+
+                var attachments = metadataDictionary.GetObjects(Constants.Documents.Metadata.Attachments);
+                if (attachments != null)
+                {
+                    foreach (var attachment in attachments)
+                    {
+                        using (var hash = _context.GetLazyString(attachment.GetString(nameof(AttachmentName.Hash))))
+                        {
+                            if (_storage.AttachmentsStorage.AttachmentExists(_context, hash) == false)
+                                return false; // revisions cannot be updated later so we need everything in place
+                        }
+                    }
+                }
+            }
+
+            return true;
+        }
+
         public void Dispose()
         {
+            _txManager?.Dispose();
             _contextDisposal?.Dispose();
             _storage?.Dispose();
         }

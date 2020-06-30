@@ -41,7 +41,6 @@ namespace Voron.Recovery
         private string _lastRecoveredDocumentKey = "No documents recovered yet";
         private readonly string _datafile;
         private readonly bool _copyOnWrite;
-        private readonly Dictionary<string, long> _previouslyWrittenDocs;
 
         private Logger _logger;
         private readonly byte[] _masterKey;
@@ -66,7 +65,6 @@ namespace Voron.Recovery
             _options = CreateOptions();
 
             _progressIntervalInSec = config.ProgressIntervalInSec;
-            _previouslyWrittenDocs = new Dictionary<string, long>();
             if (config.LoggingMode != LogMode.None)
                 LoggingSource.Instance.SetupLogMode(config.LoggingMode, Path.Combine(Path.GetDirectoryName(_recoveryDirectory), LogFileName), TimeSpan.FromDays(3), long.MaxValue, false);
             _logger = LoggingSource.Instance.GetLogger<Recovery>("Voron Recovery");
@@ -434,6 +432,8 @@ namespace Voron.Recovery
 
                     Log(Environment.NewLine +
                         $"Discovered a total of {_status.NumberOfDocumentsRetrieved:#,#;00} documents within {sw.Elapsed.TotalSeconds::#,#.#;;00} seconds." + Environment.NewLine +
+                        $"Discovered a total of {_status.NumberOfRevisionsRetrieved:#,#;00} revisions. " + Environment.NewLine +
+                        $"Discovered a total of {_status.NumberOfConflictsRetrieved:#,#;00} conflicts. " + Environment.NewLine +
                         $"Discovered a total of {_status.NumberOfAttachmentsRetrieved:#,#;00} attachments. " + Environment.NewLine +
                         $"Discovered a total of {_status.NumberOfCountersRetrieved:#,#;00} counters. " + Environment.NewLine +
                         $"Discovered a total of {_status.NumberOfFaultedPages::#,#;00} faulted pages.", LogMode.Operations);
@@ -620,35 +620,37 @@ namespace Voron.Recovery
             {
                 var tvr = new TableValueReader(mem, sizeInBytes);
 
-                CounterGroupDetail counterGroup = null;
-                try
+                using (CounterGroupDetail counterGroup = CountersStorage.TableValueToCounterGroupDetail(context, ref tvr))
                 {
-                    counterGroup = CountersStorage.TableValueToCounterGroupDetail(context, ref tvr);
-                    if (counterGroup == null)
+                    try
+                    {
+                        if (counterGroup == null)
+                        {
+                            if (_logger.IsOperationsEnabled)
+                                _logger.Operations($"Failed to convert table value to counter at position {GetFilePosition(startOffset, mem)}");
+                            return false;
+                        }
+
+                        CountersStorage.ConvertFromBlobToNumbers(context, counterGroup);
+                    }
+                    catch (Exception e)
                     {
                         if (_logger.IsOperationsEnabled)
-                            _logger.Operations($"Failed to convert table value to counter at position {GetFilePosition(startOffset, mem)}");
+                            _logger.Operations(
+                                $"Found invalid counter item at position={GetFilePosition(startOffset, mem)} with document Id={counterGroup?.DocumentId ?? "null"} and counter values={counterGroup?.Values}", e);
                         return false;
                     }
 
-                    CountersStorage.ConvertFromBlobToNumbers(context, counterGroup);
+                    recoveryStorage.PutCounter(counterGroup);
+
+                    if (_logger.IsInfoEnabled)
+                        _logger.Info($"Found counter item with document Id={counterGroup.DocumentId} and counter values={counterGroup.Values}");
+
+                    _lastRecoveredDocumentKey = counterGroup.DocumentId;
+                    _status.NumberOfCountersRetrieved++;
+
+                    return true;
                 }
-                catch (Exception e)
-                {
-                    if (_logger.IsOperationsEnabled)
-                        _logger.Operations($"Found invalid counter item at position={GetFilePosition(startOffset, mem)} with document Id={counterGroup?.DocumentId ?? "null"} and counter values={counterGroup?.Values}{Environment.NewLine}{e}");
-                    return false;
-                }
-
-                recoveryStorage.PutCounter(counterGroup);
-
-                if (_logger.IsInfoEnabled)
-                    _logger.Info($"Found counter item with document Id={counterGroup.DocumentId} and counter values={counterGroup.Values}");
-
-                _lastRecoveredDocumentKey = counterGroup.DocumentId;
-                _status.NumberOfCountersRetrieved++;
-
-                return true;
             }
             catch (Exception e)
             {
@@ -664,51 +666,55 @@ namespace Voron.Recovery
             {
                 var tvr = new TableValueReader(mem, sizeInBytes);
 
-                Document document = null;
-                try
+                using (var document = DocumentsStorage.ParseRawDataSectionDocumentWithValidation(context, ref tvr, sizeInBytes))
                 {
-                    document = DocumentsStorage.ParseRawDataSectionDocumentWithValidation(context, ref tvr, sizeInBytes);
-                    if (document == null)
+                    try
+                    {
+                        if (document == null)
+                        {
+                            if (_logger.IsOperationsEnabled)
+                                _logger.Operations($"Failed to convert table value to document at position {GetFilePosition(startOffest, mem)}");
+                            return false;
+                        }
+
+                        document.Data.BlittableValidation();
+
+                        var existingDoc = recoveryStorage.Get(document.Id);
+
+                        if (existingDoc != null)
+                        {
+                            // This is a duplicate doc. It can happen when a page is marked as freed, but still exists in the data file.
+                            // We determine which one to choose by their etag. If the document is newer, we will write it again to the
+                            // smuggler file. This way, when importing, it will be the one chosen (last write wins)
+                            if (document.Etag <= existingDoc.Etag)
+                                return false;
+                        }
+                    }
+                    catch (Exception e)
                     {
                         if (_logger.IsOperationsEnabled)
-                            _logger.Operations($"Failed to convert table value to document at position {GetFilePosition(startOffest, mem)}");
+                            _logger.Operations(
+                                $"Found invalid blittable document at pos={GetFilePosition(startOffest, mem)} with key={document?.Id ?? "null"}", e);
                         return false;
                     }
-                    document.EnsureMetadata();
-                    document.Data.BlittableValidation();
+                    
+                    recoveryStorage.PutDocument(document);
 
-                    if (_previouslyWrittenDocs.TryGetValue(document.Id, out var previousEtag)) // TODO arek - get rid of this dictionary, check storage directly
-                    {
-                        // This is a duplicate doc. It can happen when a page is marked as freed, but still exists in the data file.
-                        // We determine which one to choose by their etag. If the document is newer, we will write it again to the
-                        // smuggler file. This way, when importing, it will be the one chosen (last write wins)
-                        if (document.Etag <= previousEtag)
-                            return false;
-                    }
+                    _status.NumberOfDocumentsRetrieved++;
 
-                    _previouslyWrittenDocs[document.Id] = document.Etag;
+                    if (_logger.IsInfoEnabled)
+                        _logger.Info($"Found document with key={document.Id}");
+
+                    _lastRecoveredDocumentKey = document.Id;
+
+                    return true;
                 }
-                catch (Exception e)
-                {
-                    if (_logger.IsOperationsEnabled)
-                        _logger.Operations($"Found invalid blittable document at pos={GetFilePosition(startOffest, mem)} with key={document?.Id ?? "null"}{Environment.NewLine}{e}");
-                    return false;
-                }
-
-                recoveryStorage.PutDocument(document);
-
-                _status.NumberOfDocumentsRetrieved++;
-                if (_logger.IsInfoEnabled)
-                    _logger.Info($"Found document with key={document.Id}");
-
-                _lastRecoveredDocumentKey = document.Id;
-
-                return true;
             }
             catch (Exception e)
             {
                 if (_logger.IsOperationsEnabled)
                     _logger.Operations($"Unexpected exception while writing document at position {GetFilePosition(startOffest, mem)}: {e}");
+
                 return false;
             }
         }
@@ -720,38 +726,41 @@ namespace Voron.Recovery
             {
                 var tvr = new TableValueReader(mem, sizeInBytes);
 
-                Document revision = null;
-                try
+                using (Document revision = RevisionsStorage.ParseRawDataSectionRevisionWithValidation(context, ref tvr, sizeInBytes, out var changeVector))
                 {
-                    revision = RevisionsStorage.ParseRawDataSectionRevisionWithValidation(context, ref tvr, sizeInBytes, out var changeVector);
-                    if (revision == null)
+                    try
+                    {
+                        if (revision == null)
+                        {
+                            if (_logger.IsOperationsEnabled)
+                                _logger.Operations($"Failed to convert table value to revision document at position {GetFilePosition(startOffest, mem)}");
+                            return false;
+                        }
+
+                        revision.Data.BlittableValidation();
+                    }
+                    catch (Exception e)
                     {
                         if (_logger.IsOperationsEnabled)
-                            _logger.Operations($"Failed to convert table value to revision document at position {GetFilePosition(startOffest, mem)}");
+                            _logger.Operations(
+                                $"Found invalid blittable revision document at pos={GetFilePosition(startOffest, mem)} with key={revision?.Id ?? "null"}", e);
                         return false;
                     }
-                    revision.EnsureMetadata();
-                    revision.Data.BlittableValidation();
-                }
-                catch (Exception e)
-                {
-                    if (_logger.IsOperationsEnabled)
-                        _logger.Operations($"Found invalid blittable revision document at pos={GetFilePosition(startOffest, mem)} with key={revision?.Id ?? "null"}{Environment.NewLine}{e}");
-                    return false;
-                }
 
-                recoveryStorage.PutRevision(revision);
+                    recoveryStorage.PutRevision(revision);
 
-                _status.NumberOfDocumentsRetrieved++;
-                if (_logger.IsInfoEnabled)
-                    _logger.Info($"Found revision document with key={revision.Id}");
-                _lastRecoveredDocumentKey = revision.Id;
-                return true;
+                    _status.NumberOfRevisionsRetrieved++;
+                    if (_logger.IsInfoEnabled)
+                        _logger.Info($"Found revision document with key={revision.Id}");
+                    _lastRecoveredDocumentKey = revision.Id;
+                    return true;
+                }
             }
             catch (Exception e)
             {
                 if (_logger.IsOperationsEnabled)
                     _logger.Operations($"Unexpected exception while writing revision document at position {GetFilePosition(startOffest, mem)}: {e}");
+
                 return false;
             }
         }
@@ -762,32 +771,36 @@ namespace Voron.Recovery
             {
                 var tvr = new TableValueReader(mem, sizeInBytes);
 
-                DocumentConflict conflict = null;
-                try
+                using (DocumentConflict conflict = ConflictsStorage.ParseRawDataSectionConflictWithValidation(context, ref tvr, sizeInBytes, out var changeVector))
                 {
-                    conflict = ConflictsStorage.ParseRawDataSectionConflictWithValidation(context, ref tvr, sizeInBytes, out var changeVector);
-                    if (conflict == null)
+                    try
+                    {
+                        if (conflict == null)
+                        {
+                            if (_logger.IsOperationsEnabled)
+                                _logger.Operations($"Failed to convert table value to conflict document at position {GetFilePosition(startOffest, mem)}");
+                            return false;
+                        }
+
+                        conflict.Doc.BlittableValidation();
+                    }
+                    catch (Exception e)
                     {
                         if (_logger.IsOperationsEnabled)
-                            _logger.Operations($"Failed to convert table value to conflict document at position {GetFilePosition(startOffest, mem)}");
+                            _logger.Operations(
+                                $"Found invalid blittable conflict document at pos={GetFilePosition(startOffest, mem)} with key={conflict?.Id ?? "null"}", e);
                         return false;
                     }
-                    conflict.Doc.BlittableValidation();
-                }
-                catch (Exception e)
-                {
-                    if (_logger.IsOperationsEnabled)
-                        _logger.Operations($"Found invalid blittable conflict document at pos={GetFilePosition(startOffest, mem)} with key={conflict?.Id ?? "null"}{Environment.NewLine}{e}");
-                    return false;
-                }
 
-                recoveryStorage.PutConflict(conflict);
+                    recoveryStorage.PutConflict(conflict);
 
-                _status.NumberOfDocumentsRetrieved++;
-                if (_logger.IsInfoEnabled)
-                    _logger.Info($"Found conflict document with key={conflict.Id}");
-                _lastRecoveredDocumentKey = conflict.Id;
-                return true;
+                    _status.NumberOfConflictsRetrieved++;
+
+                    if (_logger.IsInfoEnabled)
+                        _logger.Info($"Found conflict document with key={conflict.Id}");
+                    _lastRecoveredDocumentKey = conflict.Id;
+                    return true;
+                }
             }
             catch (Exception e)
             {

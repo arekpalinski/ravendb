@@ -11,6 +11,7 @@ using FastTests.Utils;
 using Raven.Client.Documents.Session;
 using Raven.Client.ServerWide;
 using Raven.Client.ServerWide.Operations;
+using Raven.Server.Config;
 using Sparrow.Logging;
 using Tests.Infrastructure;
 using Voron;
@@ -184,28 +185,48 @@ namespace SlowTests.Issues
             Assert.True(flushed, "Test requires successful flush to log");
 
             string recoverDbName = $"RecoverDB_{Guid.NewGuid().ToString()}";
-            store.Maintenance.Server.Send(new CreateDatabaseOperation(new DatabaseRecord { DatabaseName = recoverDbName }));
-            using var _ = EnsureDatabaseDeletion(recoverDbName, store);
-            using var recoveredDatabase = await GetDatabase(recoverDbName);
+            //store.Maintenance.Server.Send(new CreateDatabaseOperation(new DatabaseRecord { DatabaseName = recoverDbName }));
+            //using var _ = EnsureDatabaseDeletion(recoverDbName, store);
+            //using var recoveredDatabase = await GetDatabase(recoverDbName);
 
             var db = await GetDatabase(store.Database);
             db.Dispose();
 
             // run recovery
-            var recoveryDataPath = NewDataPath(prefix: Guid.NewGuid().ToString());
-            using (var recovery = new global::Voron.Recovery.Recovery(new VoronRecoveryConfiguration()
+            var recoveryDataPath = NewDataPath(prefix: "recovery-db");
+            using (var recovery = new Recovery(new VoronRecoveryConfiguration()
             {
                 LoggingMode = LogMode.None,
                 DataFileDirectory = dbPath,
                 PathToDataFile = Path.Combine(dbPath, "Raven.voron"),
                 RecoverDirectory = recoveryDataPath,
-                // TODO arek RecoveredDatabase = recoveredDatabase
             }))
             {
                 var result = recovery.Execute(TextWriter.Null, CancellationToken.None);
             }
 
-            WaitForUserToContinueTheTest(store);
+
+            using (var recoveredDbStore = GetDocumentStore(new Options()
+            {
+                RunInMemory = false,
+                Path = recoveryDataPath
+            }))
+            {
+                WaitForUserToContinueTheTest(recoveredDbStore);
+            }
+
+            //string recoverDbName = $"RecoverDB_{Guid.NewGuid()}";
+
+            store.Maintenance.Server.Send(new CreateDatabaseOperation(new DatabaseRecord
+            {
+                DatabaseName = recoverDbName,
+                Settings =
+            {
+                { RavenConfiguration.GetKey(x => x.Core.DataDirectory), recoveryDataPath}
+            }
+            }));
+
+            
 
             IDocumentSession documentSession = store.OpenSession(recoverDbName);
 

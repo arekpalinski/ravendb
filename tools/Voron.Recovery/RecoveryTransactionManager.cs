@@ -8,7 +8,7 @@ using Voron.Impl;
 
 namespace Voron.Recovery
 {
-    public class RecoveryTransactionManager
+    public class RecoveryTransactionManager : IDisposable
     {
         private readonly DocumentsOperationContext _context;
         private TransactionBatch _writeTxBatch = null;
@@ -18,7 +18,7 @@ namespace Voron.Recovery
             _context = context;
         }
 
-        public IDisposable EnsureWriteTransaction()
+        public IDisposable EnsureTransaction()
         {
             if (_writeTxBatch == null || _writeTxBatch.Disposed)
                 _writeTxBatch = new TransactionBatch(_context.OpenWriteTransaction());
@@ -42,6 +42,9 @@ namespace Voron.Recovery
 
             private bool CanContinueBatch()
             {
+                if (ForceCommit)
+                    return false;
+
                 var llt = _tx.InnerTransaction.LowLevelTransaction;
 
                 if (llt.Environment.Options.ScratchSpaceUsage.ScratchSpaceInBytes > _scratchSpaceLimit.GetValue(SizeUnit.Bytes))
@@ -60,9 +63,13 @@ namespace Voron.Recovery
 
             public bool Disposed { get; private set; }
 
+            public bool ForceCommit { get; set; }
 
             public void Dispose()
             {
+                if (Disposed)
+                    return;
+
                 if (CanContinueBatch())
                     return;
 
@@ -76,6 +83,15 @@ namespace Voron.Recovery
 
                     _tx.Dispose();
                 }
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_writeTxBatch != null)
+            {
+                _writeTxBatch.ForceCommit = true;
+                _writeTxBatch.Dispose();
             }
         }
     }
