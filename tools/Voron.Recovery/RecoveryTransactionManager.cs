@@ -26,6 +26,24 @@ namespace Voron.Recovery
             return _writeTxBatch;
         }
 
+        public bool MaybePulseTransaction()
+        {
+            if (_writeTxBatch.CanContinueBatch())
+                return false;
+
+            _writeTxBatch.Dispose();
+
+        }
+
+        public void Dispose()
+        {
+            if (_writeTxBatch != null)
+            {
+                _writeTxBatch.ForceCommit = true;
+                _writeTxBatch.Dispose();
+            }
+        }
+
         private class TransactionBatch : IDisposable
         {
             private readonly Size _scratchSpaceLimit = new Size(512, SizeUnit.Megabytes);
@@ -40,7 +58,7 @@ namespace Voron.Recovery
                 _tx = tx;
             }
 
-            private bool CanContinueBatch()
+            public bool CanContinueBatch()
             {
                 if (ForceCommit)
                     return false;
@@ -86,13 +104,6 @@ namespace Voron.Recovery
             }
         }
 
-        public void Dispose()
-        {
-            if (_writeTxBatch != null)
-            {
-                _writeTxBatch.ForceCommit = true;
-                _writeTxBatch.Dispose();
-            }
-        }
+        private class TransactionHolder : IDisposa
     }
 }

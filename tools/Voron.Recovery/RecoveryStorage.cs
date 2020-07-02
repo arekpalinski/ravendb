@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Raven.Client;
 using Raven.Client.Documents.Operations.Attachments;
 using Raven.Client.Documents.Operations.Counters;
@@ -73,7 +75,7 @@ namespace Voron.Recovery
             }
         }
 
-        public void PutDocument(Document document, string id = null, bool hasModifications = false)
+        public void PutDocument(Document document, string id = null)
         {
             using (_txManager.EnsureTransaction())
             {
@@ -111,7 +113,7 @@ namespace Voron.Recovery
 
                     document.Flags &= ~DocumentFlags.HasAttachments;
 
-                    hasModifications = true;
+                    // var actualAttachments = _storage.AttachmentsStorage.GetAttachmentsMetadataForDocument(_context, document.Id);
                 }
 
                 //document.Flags &= ~DocumentFlags.HasRevisions;
@@ -124,7 +126,7 @@ namespace Voron.Recovery
 
                 //using (document.Data)
 
-                if (hasModifications)
+                if (document.Data.Modifications != null || metadata.Modifications != null)
                 {
                     using (document.Data)
                         document.Data = _context.ReadObject(document.Data, document.Id, BlittableJsonDocumentBuilder.UsageMode.ToDisk);
@@ -134,10 +136,15 @@ namespace Voron.Recovery
             }
         }
 
-        public void PutRevision(Document revision)
+        public void PutRevision(Document revision, string id = null)
         {
             using (_txManager.EnsureTransaction())
             {
+                if (revision.Id == "doc/2")
+                {
+
+                }
+
                 if (CanStoreRevision(revision) == false)
                 {
                     _orphans.PutRevision(revision);
@@ -146,7 +153,7 @@ namespace Voron.Recovery
 
                 var databaseChangeVector = _context.LastDatabaseChangeVector ?? DocumentsStorage.GetDatabaseChangeVector(_context);
 
-                _storage.RevisionsStorage.Put(_context, revision.Id, revision.Data, revision.Flags, NonPersistentDocumentFlags.None, revision.ChangeVector, revision.LastModified.Ticks);
+                _storage.RevisionsStorage.Put(_context, id ?? revision.Id, revision.Data, revision.Flags, NonPersistentDocumentFlags.None, revision.ChangeVector, revision.LastModified.Ticks);
 
                 _context.LastDatabaseChangeVector = ChangeVectorUtils.MergeVectors(databaseChangeVector, revision.ChangeVector);
             }
@@ -198,6 +205,28 @@ namespace Voron.Recovery
             }
 
             return true;
+        }
+
+        public void HandleOrphans()
+        {
+            using (_txManager.EnsureTransaction())
+            {
+                // attachments
+
+                // revisions
+
+                _orphans.HandleOrphanRevisions(_txManager);
+
+
+
+                   // _txManager.MaybePulseTransaction();
+            }
+            
+        }
+
+        public IEnumerable<Document> GetDocumentsFromCollection(string collection)
+        {
+            return _storage.GetDocumentsFrom(_context, collection, 0, 0, int.MaxValue);
         }
 
         public void Dispose()

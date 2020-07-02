@@ -1,4 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Threading;
 using Raven.Client;
 using Raven.Server.Documents;
 using Raven.Server.ServerWide.Context;
@@ -12,7 +15,10 @@ namespace Voron.Recovery
         public const string OriginalCollectionMetadataKey = "@original-collection";
 
         private const string OrphanRevisionsCollectionName = "OrphanRevisions";
-        private static readonly string OrphanRevisionsPrefixId = $"{OrphanRevisionsCollectionName}/";
+        private static readonly string OrphanRevisionsPrefixId = $"{OrphanRevisionsCollectionName}-";
+        private const int OrphanRevisionsSuffixIdLength = 7;
+
+        private long _orphanedRevisionsCounter;
 
         private readonly RecoveryStorage _recoveryStorage;
 
@@ -23,19 +29,59 @@ namespace Voron.Recovery
 
         public void PutRevision(Document revision)
         {
-            UpdateMetadataToOrphanCollection(revision, OrphanRevisionsCollectionName);
+            var updated = UpdateCollectionMetadata(revision, OrphanRevisionsCollectionName, out var originalCollection);
+
+            if (string.IsNullOrEmpty(originalCollection) == false)
+                updated[OriginalCollectionMetadataKey] = originalCollection;
 
             var orphanId = GetOrphanRevisionDocId(revision.Id);
 
             revision.Flags &= ~DocumentFlags.Revision; // let's put it as a regular document temporary
 
-            _recoveryStorage.PutDocument(revision, orphanId, hasModifications: true);
+            _recoveryStorage.PutDocument(revision, orphanId);
         }
 
-        private static void UpdateMetadataToOrphanCollection(Document revision, string orphanCollectionName)
+        public void HandleOrphanRevisions(RecoveryTransactionManager txManager)
         {
-            DynamicJsonValue mutatedMetadata = null;
-            string currentCollectionName = null;
+            var txToDispose = txManager.EnsureTransaction();
+
+            var hasMore = false;
+
+            do
+            {
+                var orphanRevisions = _recoveryStorage.GetDocumentsFromCollection(OrphanRevisionsCollectionName);
+
+                foreach (var doc in orphanRevisions)
+                {
+                    hasMore = true;
+
+                    if (doc.Data.TryGet(Constants.Documents.Metadata.Key, out BlittableJsonReaderObject metadata))
+                    {
+                        if (metadata.TryGet(OriginalCollectionMetadataKey, out LazyStringValue originalCollection))
+                        {
+                            var updated = UpdateCollectionMetadata(doc, originalCollection.ToString(), out _);
+
+                            updated.Remove(OriginalCollectionMetadataKey);
+                        }
+                    }
+
+                    string orphanDocId = doc.Id.ToString();
+
+                    var originalDocId = orphanDocId.Substring(OrphanRevisionsPrefixId.Length, orphanDocId.Length - OrphanRevisionsPrefixId.Length - OrphanRevisionsSuffixIdLength);
+
+                    _recoveryStorage.PutRevision(doc, originalDocId);
+
+                    _recoveryStorage.Delete()
+                }
+
+            } while (hasMore);
+
+            
+        }
+
+        private static DynamicJsonValue UpdateCollectionMetadata(Document revision, string collectionName, out string originalCollectionName)
+        {
+            DynamicJsonValue mutatedMetadata;
 
             if (revision.Data.TryGet(Constants.Documents.Metadata.Key, out BlittableJsonReaderObject metadata))
             {
@@ -44,20 +90,32 @@ namespace Voron.Recovery
 
                 mutatedMetadata = metadata.Modifications;
 
-                metadata.TryGet(Constants.Documents.Metadata.Collection, out currentCollectionName);
+                metadata.TryGet(Constants.Documents.Metadata.Collection, out originalCollectionName);
             }
+            else
+            {
+                mutatedMetadata = new DynamicJsonValue();
+            }
+
+            mutatedMetadata[Constants.Documents.Metadata.Collection] = collectionName;
 
             revision.Data.Modifications = new DynamicJsonValue(revision.Data)
             {
-                [Constants.Documents.Metadata.Key] = (object)metadata ?? (mutatedMetadata = new DynamicJsonValue())
+                [Constants.Documents.Metadata.Key] = mutatedMetadata
             };
 
-            mutatedMetadata[Constants.Documents.Metadata.Collection] = orphanCollectionName;
-
-            if (string.IsNullOrEmpty(currentCollectionName) == false)
-                mutatedMetadata[OriginalCollectionMetadataKey] = currentCollectionName;
+            return mutatedMetadata;
         }
 
-        private static string GetOrphanRevisionDocId(string revisionId) => $"{OrphanRevisionsPrefixId}{revisionId}/{Guid.NewGuid()}";
+        private string GetOrphanRevisionDocId(string revisionId) => $"{OrphanRevisionsPrefixId}{revisionId}{GetOrphanRevisionsSuffixId()}";
+
+        private string GetOrphanRevisionsSuffixId()
+        {
+            var result = $"-{Interlocked.Increment(ref _orphanedRevisionsCounter):D6}";
+
+            Debug.Assert(result.Length);
+
+            return result;
+        }
     }
 }

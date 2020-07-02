@@ -428,6 +428,8 @@ namespace Voron.Recovery
                         }
                     }
 
+                    recoveryStorage.HandleOrphans();
+
                     PrintRecoveryProgress(startOffset, mem, eof, DateTime.UtcNow);
 
                     Log(Environment.NewLine +

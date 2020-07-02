@@ -12,6 +12,7 @@ using Raven.Client.Documents.Session;
 using Raven.Client.ServerWide;
 using Raven.Client.ServerWide.Operations;
 using Raven.Server.Config;
+using Raven.Server.Utils;
 using Sparrow.Logging;
 using Tests.Infrastructure;
 using Voron;
@@ -184,16 +185,16 @@ namespace SlowTests.Issues
             env.FlushLogToDataFile();
             Assert.True(flushed, "Test requires successful flush to log");
 
-            string recoverDbName = $"RecoverDB_{Guid.NewGuid().ToString()}";
-            //store.Maintenance.Server.Send(new CreateDatabaseOperation(new DatabaseRecord { DatabaseName = recoverDbName }));
-            //using var _ = EnsureDatabaseDeletion(recoverDbName, store);
-            //using var recoveredDatabase = await GetDatabase(recoverDbName);
+            WaitForUserToContinueTheTest(store);
 
             var db = await GetDatabase(store.Database);
             db.Dispose();
 
             // run recovery
             var recoveryDataPath = NewDataPath(prefix: "recovery-db");
+            
+            IOExtensions.DeleteDirectory(recoveryDataPath);
+
             using (var recovery = new Recovery(new VoronRecoveryConfiguration()
             {
                 LoggingMode = LogMode.None,
@@ -206,103 +207,81 @@ namespace SlowTests.Issues
             }
 
 
-            using (var recoveredDbStore = GetDocumentStore(new Options()
-            {
-                RunInMemory = false,
-                Path = recoveryDataPath
-            }))
+            using (var recoveredDbStore = GetDocumentStore(new Options() {RunInMemory = false, Path = recoveryDataPath}))
             {
                 WaitForUserToContinueTheTest(recoveredDbStore);
-            }
 
-            //string recoverDbName = $"RecoverDB_{Guid.NewGuid()}";
-
-            store.Maintenance.Server.Send(new CreateDatabaseOperation(new DatabaseRecord
-            {
-                DatabaseName = recoverDbName,
-                Settings =
-            {
-                { RavenConfiguration.GetKey(x => x.Core.DataDirectory), recoveryDataPath}
-            }
-            }));
-
-            
-
-            IDocumentSession documentSession = store.OpenSession(recoverDbName);
-
-            Console.WriteLine("AAAA");
-
-            using (var recoveredSession = documentSession)
-            {
-                var doc1 = recoveredSession.Load<Entity>("doc/1");
-                var doc2 = recoveredSession.Load<Entity>("doc/2");
-                var doc3 = recoveredSession.Load<Entity>("doc/3");
-                var doc4 = recoveredSession.Load<Entity>("doc/4");
-                var doc6 = recoveredSession.Load<Entity>("doc/6");
-                Assert.Throws<Raven.Client.Exceptions.Documents.DocumentConflictException>(() =>
+                using (var recoveredSession = recoveredDbStore.OpenSession())
                 {
-                    var doc5 = recoveredSession.Load<Entity>("doc/5");
-                });
-                var msg = "Failed to recover specific document: ";
-                Assert.True(doc1 != null, $"{msg}doc/1");
-                Assert.True(doc2 != null, $"{msg}doc/2");
-                Assert.True(doc3 != null, $"{msg}doc/3");
-                Assert.True(doc4 != null, $"{msg}doc/4");
-                Assert.True(doc6 != null, $"{msg}doc/6");
+                    var doc1 = recoveredSession.Load<Entity>("doc/1");
+                    var doc2 = recoveredSession.Load<Entity>("doc/2");
+                    var doc3 = recoveredSession.Load<Entity>("doc/3");
+                    var doc4 = recoveredSession.Load<Entity>("doc/4");
+                    var doc6 = recoveredSession.Load<Entity>("doc/6");
+                    Assert.Throws<Raven.Client.Exceptions.Documents.DocumentConflictException>(() =>
+                    {
+                        var doc5 = recoveredSession.Load<Entity>("doc/5");
+                    });
+                    var msg = "Failed to recover specific document: ";
+                    Assert.True(doc1 != null, $"{msg}doc/1");
+                    Assert.True(doc2 != null, $"{msg}doc/2");
+                    Assert.True(doc3 != null, $"{msg}doc/3");
+                    Assert.True(doc4 != null, $"{msg}doc/4");
+                    Assert.True(doc6 != null, $"{msg}doc/6");
 
 
-                msg = "Invalid doc content: ";
-                Assert.True("Simple Document".Equals(doc1.Name), $"{msg}doc/1");
-                Assert.True("Simple with Attachment".Equals(doc2.Name), $"{msg}doc/2");
-                Assert.True("Simple with Attachments and will have revisions".Equals(doc3.Name), $"{msg}doc/3");
-                Assert.True("Simple with Overlapping Attachments and will have revisions".Equals(doc4.Name), $"{msg}doc/4");
-                Assert.True("Contains Counters".Equals(doc6.Name), $"{msg}doc/6");
-                Assert.True(doc1.Number == 1, $"{msg}doc/1");
-                Assert.True(doc2.Number == 2, $"{msg}doc/2");
-                Assert.True(doc3.Number == 16, $"{msg}doc/3");
-                Assert.True(doc4.Number == 21, $"{msg}doc/4");
+                    msg = "Invalid doc content: ";
+                    Assert.True("Simple Document".Equals(doc1.Name), $"{msg}doc/1");
+                    Assert.True("Simple with Attachment".Equals(doc2.Name), $"{msg}doc/2");
+                    Assert.True("Simple with Attachments and will have revisions".Equals(doc3.Name), $"{msg}doc/3");
+                    Assert.True("Simple with Overlapping Attachments and will have revisions".Equals(doc4.Name), $"{msg}doc/4");
+                    Assert.True("Contains Counters".Equals(doc6.Name), $"{msg}doc/6");
+                    Assert.True(doc1.Number == 1, $"{msg}doc/1");
+                    Assert.True(doc2.Number == 2, $"{msg}doc/2");
+                    Assert.True(doc3.Number == 16, $"{msg}doc/3");
+                    Assert.True(doc4.Number == 21, $"{msg}doc/4");
 
-                var revisions1 = recoveredSession.Advanced.Revisions.GetFor<Entity>("doc/1");
-                var revisions2 = recoveredSession.Advanced.Revisions.GetFor<Entity>("doc/2");
-                var revisions3 = recoveredSession.Advanced.Revisions.GetFor<Entity>("doc/3");
-                var revisions4 = recoveredSession.Advanced.Revisions.GetFor<Entity>("doc/4");
+                    var revisions1 = recoveredSession.Advanced.Revisions.GetFor<Entity>("doc/1");
+                    var revisions2 = recoveredSession.Advanced.Revisions.GetFor<Entity>("doc/2");
+                    var revisions3 = recoveredSession.Advanced.Revisions.GetFor<Entity>("doc/3");
+                    var revisions4 = recoveredSession.Advanced.Revisions.GetFor<Entity>("doc/4");
 
-                msg = "Invalid number of revisions for: ";
-                // because of the nature of recovery (stripping attachments, storing, and then reattaching) we may find more revisions then in the original db
-                Assert.True(revisions1?.Count == 0, $"{msg}doc/1");
-                Assert.True(revisions2?.Count >= 2, $"{msg}doc/2");
-                Assert.True(revisions3?.Count >= 5, $"{msg}doc/3");
-                Assert.True(revisions4?.Count >= 5, $"{msg}doc/4");
+                    msg = "Invalid number of revisions for: ";
+                    // because of the nature of recovery (stripping attachments, storing, and then reattaching) we may find more revisions then in the original db
+                    Assert.True(revisions1?.Count == 0, $"{msg}doc/1");
+                    Assert.True(revisions2?.Count >= 2, $"{msg}doc/2");
+                    Assert.True(revisions3?.Count >= 5, $"{msg}doc/3");
+                    Assert.True(revisions4?.Count >= 5, $"{msg}doc/4");
 
-                msg = "Couldn't get recovered attachment: ";
-                var attachment1 = recoveredSession.Advanced.Attachments.GetNames(doc1);
-                var attachment2 = recoveredSession.Advanced.Attachments.GetNames(doc2);
-                var attachment3 = recoveredSession.Advanced.Attachments.GetNames(doc3);
-                var attachment4 = recoveredSession.Advanced.Attachments.GetNames(doc4);
-                Assert.True(attachment1?.Length == 0, $"{msg}doc/1, count={attachment1?.Length}");
-                Assert.True(attachment2?.Length == 1, $"{msg}doc/2, count={attachment2?.Length}");
-                Assert.True(attachment3?.Length == 2, $"{msg}doc/3, count={attachment3?.Length}");
-                Assert.True(attachment4?.Length == 2, $"{msg}doc/4, count={attachment4?.Length}");
+                    msg = "Couldn't get recovered attachment: ";
+                    var attachment1 = recoveredSession.Advanced.Attachments.GetNames(doc1);
+                    var attachment2 = recoveredSession.Advanced.Attachments.GetNames(doc2);
+                    var attachment3 = recoveredSession.Advanced.Attachments.GetNames(doc3);
+                    var attachment4 = recoveredSession.Advanced.Attachments.GetNames(doc4);
+                    Assert.True(attachment1?.Length == 0, $"{msg}doc/1, count={attachment1?.Length}");
+                    Assert.True(attachment2?.Length == 1, $"{msg}doc/2, count={attachment2?.Length}");
+                    Assert.True(attachment3?.Length == 2, $"{msg}doc/3, count={attachment3?.Length}");
+                    Assert.True(attachment4?.Length == 2, $"{msg}doc/4, count={attachment4?.Length}");
 
-                var counter6 = recoveredSession.CountersFor("doc/6")?.Get("testCounter");
-                Assert.NotNull(counter6);
-                Assert.Equal(counter6, 2L);
+                    var counter6 = recoveredSession.CountersFor("doc/6")?.Get("testCounter");
+                    Assert.NotNull(counter6);
+                    Assert.Equal(counter6, 2L);
+                }
             }
-
 
             // we perform again the recovery just in order to cover some code that usually isn't covered in recover process 'alreadyExistingAttachments.Count > 0' @ void WriteDocumentInternal(Document document, IDocumentActions actions)
-            using var recoveredDatabase2 = await GetDatabase(recoverDbName);
-            using (var recovery = new global::Voron.Recovery.Recovery(new VoronRecoveryConfiguration()
-            {
-                LoggingMode = LogMode.None,
-                DataFileDirectory = dbPath,
-                PathToDataFile = Path.Combine(dbPath, "Raven.voron"),
-                // TODO arek OutputFilePath = recoveryExportPath,
-                // TODO arek RecoveredDatabase = recoveredDatabase2
-            }))
-            {
-                var result = recovery.Execute(TextWriter.Null, CancellationToken.None);
-            }
+            //using var recoveredDatabase2 = await GetDatabase(recoverDbName);
+            //using (var recovery = new global::Voron.Recovery.Recovery(new VoronRecoveryConfiguration()
+            //{
+            //    LoggingMode = LogMode.None,
+            //    DataFileDirectory = dbPath,
+            //    PathToDataFile = Path.Combine(dbPath, "Raven.voron"),
+            //    // TODO arek OutputFilePath = recoveryExportPath,
+            //    // TODO arek RecoveredDatabase = recoveredDatabase2
+            //}))
+            //{
+            //    var result = recovery.Execute(TextWriter.Null, CancellationToken.None);
+            //}
         }
     }
 }
