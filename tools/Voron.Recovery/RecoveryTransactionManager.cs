@@ -11,7 +11,8 @@ namespace Voron.Recovery
     public class RecoveryTransactionManager : IDisposable
     {
         private readonly DocumentsOperationContext _context;
-        private TransactionBatch _writeTxBatch = null;
+        private TransactionBatch _writeTxBatch;
+        private long _maybePulseCounter;
 
         public RecoveryTransactionManager(DocumentsOperationContext context)
         {
@@ -23,31 +24,37 @@ namespace Voron.Recovery
             if (_writeTxBatch == null || _writeTxBatch.Disposed)
                 _writeTxBatch = new TransactionBatch(_context.OpenWriteTransaction());
 
-            return _writeTxBatch;
+            return _writeTxBatch.GetScope();
         }
 
-        public bool MaybePulseTransaction()
+        public bool MaybePulseTransaction(int iterationInterval = 128)
         {
+            if (++_maybePulseCounter % iterationInterval != 0)
+                return false;
+
             if (_writeTxBatch.CanContinueBatch())
                 return false;
 
-            _writeTxBatch.Dispose();
+            PulseTransaction();
+            return true;
+        }
 
+        public void PulseTransaction()
+        {
+            _writeTxBatch.Dispose(forceCommit: true);
         }
 
         public void Dispose()
         {
-            if (_writeTxBatch != null)
-            {
-                _writeTxBatch.ForceCommit = true;
-                _writeTxBatch.Dispose();
-            }
+            _writeTxBatch?.Dispose(forceCommit: true);
         }
 
         private class TransactionBatch : IDisposable
         {
             private readonly Size _scratchSpaceLimit = new Size(512, SizeUnit.Megabytes);
             private readonly Size _mappedMemorySpaceLimitOn32Bits = new Size(128, SizeUnit.Megabytes);
+            private bool _forceCommit;
+            private int _nestingLevel;
 
             private readonly DocumentsTransaction _tx;
 
@@ -60,7 +67,7 @@ namespace Voron.Recovery
 
             public bool CanContinueBatch()
             {
-                if (ForceCommit)
+                if (_forceCommit)
                     return false;
 
                 var llt = _tx.InnerTransaction.LowLevelTransaction;
@@ -81,7 +88,10 @@ namespace Voron.Recovery
 
             public bool Disposed { get; private set; }
 
-            public bool ForceCommit { get; set; }
+            public IDisposable GetScope()
+            {
+                return new BatchScope(this);
+            }
 
             public void Dispose()
             {
@@ -102,8 +112,31 @@ namespace Voron.Recovery
                     _tx.Dispose();
                 }
             }
-        }
 
-        private class TransactionHolder : IDisposa
+            public void Dispose(bool forceCommit)
+            {
+                _forceCommit = forceCommit;
+                Dispose();
+            }
+
+            private class BatchScope : IDisposable
+            {
+                private readonly TransactionBatch _batch;
+
+                public BatchScope(TransactionBatch batch)
+                {
+                    _batch = batch;
+                    _batch._nestingLevel++;
+                }
+
+                public void Dispose()
+                {
+                    if (--_batch._nestingLevel == 0)
+                    {
+                        _batch.Dispose();
+                    }
+                }
+            }
+        }
     }
 }

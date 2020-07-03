@@ -5,13 +5,9 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using FastTests;
 using FastTests.Server.Replication;
 using FastTests.Utils;
-using Raven.Client.Documents.Session;
 using Raven.Client.ServerWide;
-using Raven.Client.ServerWide.Operations;
-using Raven.Server.Config;
 using Raven.Server.Utils;
 using Sparrow.Logging;
 using Tests.Infrastructure;
@@ -77,11 +73,13 @@ namespace SlowTests.Issues
 
             var files = new List<string>();
             var randomArray = new byte[4096];
+
             for (int i = 0; i < 10; i++)
             {
                 var file = Path.GetTempFileName();
                 if (File.Exists(file))
                     File.Delete(file);
+
                 File.WriteAllText(file, "This is a test file " + Guid.NewGuid() + Environment.NewLine);
                 await using (var stream = File.AppendText(file))
                 {
@@ -185,8 +183,6 @@ namespace SlowTests.Issues
             env.FlushLogToDataFile();
             Assert.True(flushed, "Test requires successful flush to log");
 
-            WaitForUserToContinueTheTest(store);
-
             var db = await GetDatabase(store.Database);
             db.Dispose();
 
@@ -247,11 +243,11 @@ namespace SlowTests.Issues
                     var revisions4 = recoveredSession.Advanced.Revisions.GetFor<Entity>("doc/4");
 
                     msg = "Invalid number of revisions for: ";
-                    // because of the nature of recovery (stripping attachments, storing, and then reattaching) we may find more revisions then in the original db
+
                     Assert.True(revisions1?.Count == 0, $"{msg}doc/1");
-                    Assert.True(revisions2?.Count >= 2, $"{msg}doc/2");
-                    Assert.True(revisions3?.Count >= 5, $"{msg}doc/3");
-                    Assert.True(revisions4?.Count >= 5, $"{msg}doc/4");
+                    Assert.True(revisions2?.Count == 2, $"{msg}doc/2");
+                    Assert.True(revisions3?.Count == 5, $"{msg}doc/3");
+                    Assert.True(revisions4?.Count == 5, $"{msg}doc/4");
 
                     msg = "Couldn't get recovered attachment: ";
                     var attachment1 = recoveredSession.Advanced.Attachments.GetNames(doc1);
@@ -262,6 +258,8 @@ namespace SlowTests.Issues
                     Assert.True(attachment2?.Length == 1, $"{msg}doc/2, count={attachment2?.Length}");
                     Assert.True(attachment3?.Length == 2, $"{msg}doc/3, count={attachment3?.Length}");
                     Assert.True(attachment4?.Length == 2, $"{msg}doc/4, count={attachment4?.Length}");
+
+                    // TODO arek - attachments of revisions
 
                     var counter6 = recoveredSession.CountersFor("doc/6")?.Get("testCounter");
                     Assert.NotNull(counter6);

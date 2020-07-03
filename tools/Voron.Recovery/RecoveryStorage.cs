@@ -83,11 +83,6 @@ namespace Voron.Recovery
                 if (metadata == null)
                     throw new Exception($"No metadata for {document.Id}, cannot recover this document");
 
-                if (document.Id == "doc/4")
-                {
-
-                }
-
                 var metadataDictionary = new MetadataAsDictionary(metadata);
 
                 var hasRevisions = document.Flags.HasFlag(DocumentFlags.HasRevisions);
@@ -113,7 +108,7 @@ namespace Voron.Recovery
 
                     document.Flags &= ~DocumentFlags.HasAttachments;
 
-                    // var actualAttachments = _storage.AttachmentsStorage.GetAttachmentsMetadataForDocument(_context, document.Id);
+                    //var actualAttachments = _storage.AttachmentsStorage.GetAttachmentsMetadataForDocument(_context, document.Id);
                 }
 
                 //document.Flags &= ~DocumentFlags.HasRevisions;
@@ -123,16 +118,20 @@ namespace Voron.Recovery
                 //metadata.Modifications = new DynamicJsonValue(metadata);
                 //metadata.Modifications.Remove(Constants.Documents.Metadata.Attachments);
 
-
-                //using (document.Data)
-
-                if (document.Data.Modifications != null || metadata.Modifications != null)
-                {
-                    using (document.Data)
-                        document.Data = _context.ReadObject(document.Data, document.Id, BlittableJsonDocumentBuilder.UsageMode.ToDisk);
-                }
+                EnsureModificationsApplied(document);
 
                 _storage.Put(_context, id ?? document.Id, null, document.Data, document.LastModified.Ticks, flags: document.Flags);
+            }
+        }
+
+        private void EnsureModificationsApplied(Document document)
+        {
+            var metadata = document.Data.GetMetadata();
+
+            if (document.Data.Modifications != null || metadata.Modifications != null)
+            {
+                using (document.Data)
+                    document.Data = _context.ReadObject(document.Data, document.Id, BlittableJsonDocumentBuilder.UsageMode.ToDisk);
             }
         }
 
@@ -140,11 +139,6 @@ namespace Voron.Recovery
         {
             using (_txManager.EnsureTransaction())
             {
-                if (revision.Id == "doc/2")
-                {
-
-                }
-
                 if (CanStoreRevision(revision) == false)
                 {
                     _orphans.PutRevision(revision);
@@ -152,6 +146,8 @@ namespace Voron.Recovery
                 }
 
                 var databaseChangeVector = _context.LastDatabaseChangeVector ?? DocumentsStorage.GetDatabaseChangeVector(_context);
+
+                EnsureModificationsApplied(revision);
 
                 _storage.RevisionsStorage.Put(_context, id ?? revision.Id, revision.Data, revision.Flags, NonPersistentDocumentFlags.None, revision.ChangeVector, revision.LastModified.Ticks);
 
@@ -179,7 +175,7 @@ namespace Voron.Recovery
         {
             using (_txManager.EnsureTransaction())
             {
-
+                _storage.AttachmentsStorage.PutAttachment(_context, )
             }
         }
 
@@ -209,6 +205,8 @@ namespace Voron.Recovery
 
         public void HandleOrphans()
         {
+            _txManager.PulseTransaction(); // this is to update DocumentsStorage._collectionsCache which is updated only on transaction commit, so we'll see orphan collections
+
             using (_txManager.EnsureTransaction())
             {
                 // attachments
@@ -234,6 +232,14 @@ namespace Voron.Recovery
             _txManager?.Dispose();
             _contextDisposal?.Dispose();
             _storage?.Dispose();
+        }
+
+        public void Delete(string id)
+        {
+            using (_txManager.EnsureTransaction())
+            {
+                _storage.Delete(_context, id, null);
+            }
         }
     }
 }

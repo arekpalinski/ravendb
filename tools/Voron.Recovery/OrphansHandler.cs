@@ -1,10 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Threading;
 using Raven.Client;
 using Raven.Server.Documents;
-using Raven.Server.ServerWide.Context;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 
@@ -43,40 +40,53 @@ namespace Voron.Recovery
 
         public void HandleOrphanRevisions(RecoveryTransactionManager txManager)
         {
-            var txToDispose = txManager.EnsureTransaction();
+            var txScope = txManager.EnsureTransaction();
 
-            var hasMore = false;
-
-            do
+            try
             {
-                var orphanRevisions = _recoveryStorage.GetDocumentsFromCollection(OrphanRevisionsCollectionName);
-
-                foreach (var doc in orphanRevisions)
+                do
                 {
-                    hasMore = true;
+                    var didWork = false;
 
-                    if (doc.Data.TryGet(Constants.Documents.Metadata.Key, out BlittableJsonReaderObject metadata))
+                    var orphanRevisions = _recoveryStorage.GetDocumentsFromCollection(OrphanRevisionsCollectionName);
+
+                    foreach (var doc in orphanRevisions)
                     {
-                        if (metadata.TryGet(OriginalCollectionMetadataKey, out LazyStringValue originalCollection))
-                        {
-                            var updated = UpdateCollectionMetadata(doc, originalCollection.ToString(), out _);
+                        didWork = true;
 
-                            updated.Remove(OriginalCollectionMetadataKey);
+                        if (doc.Data.TryGet(Constants.Documents.Metadata.Key, out BlittableJsonReaderObject metadata))
+                        {
+                            if (metadata.TryGet(OriginalCollectionMetadataKey, out LazyStringValue originalCollection))
+                            {
+                                var updated = UpdateCollectionMetadata(doc, originalCollection.ToString(), out _);
+
+                                updated.Remove(OriginalCollectionMetadataKey);
+                            }
                         }
+
+                        string orphanDocId = doc.Id.ToString();
+
+                        var originalDocId = orphanDocId.Substring(OrphanRevisionsPrefixId.Length, orphanDocId.Length - OrphanRevisionsPrefixId.Length - OrphanRevisionsSuffixIdLength);
+
+                        _recoveryStorage.PutRevision(doc, originalDocId);
+
+                        _recoveryStorage.Delete(orphanDocId);
+
+                        break;
                     }
 
-                    string orphanDocId = doc.Id.ToString();
+                    if (txManager.MaybePulseTransaction()) 
+                        txScope = txManager.EnsureTransaction();
 
-                    var originalDocId = orphanDocId.Substring(OrphanRevisionsPrefixId.Length, orphanDocId.Length - OrphanRevisionsPrefixId.Length - OrphanRevisionsSuffixIdLength);
+                    if (didWork == false)
+                        break;
 
-                    _recoveryStorage.PutRevision(doc, originalDocId);
-
-                    _recoveryStorage.Delete()
-                }
-
-            } while (hasMore);
-
-            
+                } while (true);
+            }
+            finally
+            {
+                txScope.Dispose();
+            }
         }
 
         private static DynamicJsonValue UpdateCollectionMetadata(Document revision, string collectionName, out string originalCollectionName)
@@ -95,14 +105,15 @@ namespace Voron.Recovery
             else
             {
                 mutatedMetadata = new DynamicJsonValue();
+                originalCollectionName = null;
             }
-
-            mutatedMetadata[Constants.Documents.Metadata.Collection] = collectionName;
 
             revision.Data.Modifications = new DynamicJsonValue(revision.Data)
             {
-                [Constants.Documents.Metadata.Key] = mutatedMetadata
+                [Constants.Documents.Metadata.Key] = (object)metadata ?? mutatedMetadata
             };
+
+            mutatedMetadata[Constants.Documents.Metadata.Collection] = collectionName;
 
             return mutatedMetadata;
         }
@@ -113,7 +124,7 @@ namespace Voron.Recovery
         {
             var result = $"-{Interlocked.Increment(ref _orphanedRevisionsCounter):D6}";
 
-            Debug.Assert(result.Length);
+            Debug.Assert(result.Length == OrphanRevisionsSuffixIdLength, "result.Length == OrphanRevisionsSuffixIdLength");
 
             return result;
         }
