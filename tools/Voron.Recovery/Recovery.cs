@@ -52,9 +52,9 @@ namespace Voron.Recovery
         {
             _datafile = config.PathToDataFile;
             _recoveryDirectory = config.RecoverDirectory;
-            _pageSize = config.PageSizeInKB * Constants.Size.Kilobyte;
-            _initialContextSize = config.InitialContextSizeInMB * Constants.Size.Megabyte;
-            _initialContextLongLivedSize = config.InitialContextLongLivedSizeInKB * Constants.Size.Kilobyte;
+            _pageSize = config.PageSizeInKB * Global.Constants.Size.Kilobyte;
+            _initialContextSize = config.InitialContextSizeInMB * Global.Constants.Size.Megabyte;
+            _initialContextLongLivedSize = config.InitialContextLongLivedSizeInKB * Global.Constants.Size.Kilobyte;
 
             _masterKey = config.MasterKey;
 
@@ -428,7 +428,7 @@ namespace Voron.Recovery
                         }
                     }
 
-                    recoveryStorage.HandleOrphans();
+                    recoveryStorage.ProcessOrphans();
 
                     PrintRecoveryProgress(startOffset, mem, eof, DateTime.UtcNow);
 

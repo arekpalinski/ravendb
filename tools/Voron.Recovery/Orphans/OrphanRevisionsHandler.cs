@@ -1,35 +1,28 @@
 ﻿using System.Diagnostics;
 using System.Threading;
-using Raven.Client;
 using Raven.Server.Documents;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 
-namespace Voron.Recovery
+namespace Voron.Recovery.Orphans
 {
-    public class OrphansHandler
+    public class OrphanRevisionsHandler
     {
-        public const string OriginalCollectionMetadataKey = "@original-collection";
-
-        private const string OrphanRevisionsCollectionName = "OrphanRevisions";
-        private static readonly string OrphanRevisionsPrefixId = $"{OrphanRevisionsCollectionName}-";
-        private const int OrphanRevisionsSuffixIdLength = 7;
-
         private long _orphanedRevisionsCounter;
 
         private readonly RecoveryStorage _recoveryStorage;
 
-        public OrphansHandler(RecoveryStorage recoveryStorage)
+        public OrphanRevisionsHandler(RecoveryStorage recoveryStorage)
         {
             _recoveryStorage = recoveryStorage;
         }
 
-        public void PutRevision(Document revision)
+        public void Put(Document revision)
         {
-            var updated = UpdateCollectionMetadata(revision, OrphanRevisionsCollectionName, out var originalCollection);
+            var updated = UpdateCollectionMetadata(revision, Constants.Orphans.Revisions.CollectionName, out var originalCollection);
 
             if (string.IsNullOrEmpty(originalCollection) == false)
-                updated[OriginalCollectionMetadataKey] = originalCollection;
+                updated[Constants.Orphans.Revisions.OriginalCollectionMetadataKey] = originalCollection;
 
             var orphanId = GetOrphanRevisionDocId(revision.Id);
 
@@ -38,7 +31,7 @@ namespace Voron.Recovery
             _recoveryStorage.PutDocument(revision, orphanId);
         }
 
-        public void HandleOrphanRevisions(RecoveryTransactionManager txManager)
+        public void ProcessExistingOrphans(RecoveryTransactionManager txManager)
         {
             var txScope = txManager.EnsureTransaction();
 
@@ -48,25 +41,25 @@ namespace Voron.Recovery
                 {
                     var didWork = false;
 
-                    var orphanRevisions = _recoveryStorage.GetDocumentsFromCollection(OrphanRevisionsCollectionName);
+                    var orphanRevisions = _recoveryStorage.GetDocumentsFromCollection(Constants.Orphans.Revisions.CollectionName);
 
                     foreach (var doc in orphanRevisions)
                     {
                         didWork = true;
 
-                        if (doc.Data.TryGet(Constants.Documents.Metadata.Key, out BlittableJsonReaderObject metadata))
+                        if (doc.Data.TryGet(Raven.Client.Constants.Documents.Metadata.Key, out BlittableJsonReaderObject metadata))
                         {
-                            if (metadata.TryGet(OriginalCollectionMetadataKey, out LazyStringValue originalCollection))
+                            if (metadata.TryGet(Constants.Orphans.Revisions.OriginalCollectionMetadataKey, out LazyStringValue originalCollection))
                             {
                                 var updated = UpdateCollectionMetadata(doc, originalCollection.ToString(), out _);
 
-                                updated.Remove(OriginalCollectionMetadataKey);
+                                updated.Remove(Constants.Orphans.Revisions.OriginalCollectionMetadataKey);
                             }
                         }
 
                         string orphanDocId = doc.Id.ToString();
 
-                        var originalDocId = orphanDocId.Substring(OrphanRevisionsPrefixId.Length, orphanDocId.Length - OrphanRevisionsPrefixId.Length - OrphanRevisionsSuffixIdLength);
+                        var originalDocId = orphanDocId.Substring(Constants.Orphans.Revisions.DocumentPrefixId.Length, orphanDocId.Length - Constants.Orphans.Revisions.DocumentPrefixId.Length - Constants.Orphans.Revisions.DocumentSuffixIdLength);
 
                         _recoveryStorage.PutRevision(doc, originalDocId);
 
@@ -75,7 +68,7 @@ namespace Voron.Recovery
                         break;
                     }
 
-                    if (txManager.MaybePulseTransaction()) 
+                    if (txManager.MaybePulseTransaction())
                         txScope = txManager.EnsureTransaction();
 
                     if (didWork == false)
@@ -93,14 +86,14 @@ namespace Voron.Recovery
         {
             DynamicJsonValue mutatedMetadata;
 
-            if (revision.Data.TryGet(Constants.Documents.Metadata.Key, out BlittableJsonReaderObject metadata))
+            if (revision.Data.TryGet(Raven.Client.Constants.Documents.Metadata.Key, out BlittableJsonReaderObject metadata))
             {
                 if (metadata.Modifications == null)
                     metadata.Modifications = new DynamicJsonValue(metadata);
 
                 mutatedMetadata = metadata.Modifications;
 
-                metadata.TryGet(Constants.Documents.Metadata.Collection, out originalCollectionName);
+                metadata.TryGet(Raven.Client.Constants.Documents.Metadata.Collection, out originalCollectionName);
             }
             else
             {
@@ -110,21 +103,21 @@ namespace Voron.Recovery
 
             revision.Data.Modifications = new DynamicJsonValue(revision.Data)
             {
-                [Constants.Documents.Metadata.Key] = (object)metadata ?? mutatedMetadata
+                [Raven.Client.Constants.Documents.Metadata.Key] = (object)metadata ?? mutatedMetadata
             };
 
-            mutatedMetadata[Constants.Documents.Metadata.Collection] = collectionName;
+            mutatedMetadata[Raven.Client.Constants.Documents.Metadata.Collection] = collectionName;
 
             return mutatedMetadata;
         }
 
-        private string GetOrphanRevisionDocId(string revisionId) => $"{OrphanRevisionsPrefixId}{revisionId}{GetOrphanRevisionsSuffixId()}";
+        private string GetOrphanRevisionDocId(string revisionId) => $"{Constants.Orphans.Revisions.DocumentPrefixId}{revisionId}{GetOrphanRevisionsSuffixId()}";
 
         private string GetOrphanRevisionsSuffixId()
         {
-            var result = $"-{Interlocked.Increment(ref _orphanedRevisionsCounter):D6}";
+            var result = string.Format(Constants.Orphans.Revisions.DocumentSuffixIdFormat, Interlocked.Increment(ref _orphanedRevisionsCounter));
 
-            Debug.Assert(result.Length == OrphanRevisionsSuffixIdLength, "result.Length == OrphanRevisionsSuffixIdLength");
+            Debug.Assert(result.Length == Constants.Orphans.Revisions.DocumentSuffixIdLength, "result.Length == Constants.Orphans.Revisions.DocumentSuffixIdLength");
 
             return result;
         }

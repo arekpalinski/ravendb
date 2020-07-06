@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using Raven.Client;
 using Raven.Client.Documents.Operations.Attachments;
 using Raven.Client.Documents.Operations.Counters;
 using Raven.Client.Extensions;
@@ -15,6 +13,7 @@ using Raven.Server.Utils;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 using Sparrow.Platform;
+using Voron.Recovery.Orphans;
 
 namespace Voron.Recovery
 {
@@ -79,11 +78,17 @@ namespace Voron.Recovery
         {
             using (_txManager.EnsureTransaction())
             {
+                if (string.IsNullOrEmpty(id))
+                    id = document.Id;
+
                 var metadata = document.Data.GetMetadata();
                 if (metadata == null)
-                    throw new Exception($"No metadata for {document.Id}, cannot recover this document");
+                    throw new Exception($"No metadata for {id}, cannot recover this document");
 
                 var metadataDictionary = new MetadataAsDictionary(metadata);
+
+                if (document.Flags.HasFlag(DocumentFlags.Revision))
+                    throw new InvalidOperationException($"Cannot put a revision directly as a document. Revision id: {id}");
 
                 var hasRevisions = document.Flags.HasFlag(DocumentFlags.HasRevisions);
                 var hasCounters = document.Flags.HasFlag(DocumentFlags.HasCounters);
@@ -101,12 +106,23 @@ namespace Voron.Recovery
 
                 if (hasAttachments)
                 {
-                    if (metadata.Modifications == null)
-                        metadata.Modifications = new DynamicJsonValue(metadata);
+                    if (AllAttachmentsExist(document) == false)
+                    {
+                        var attachments = metadataDictionary.GetObjects(Raven.Client.Constants.Documents.Metadata.Attachments);
 
-                    metadata.Modifications.Remove(Constants.Documents.Metadata.Attachments);
+                        _orphans.Attachments.StoreOrphanAttachments(id, attachments);
 
-                    document.Flags &= ~DocumentFlags.HasAttachments;
+                        if (metadata.Modifications == null)
+                            metadata.Modifications = new DynamicJsonValue(metadata);
+
+                        metadata.Modifications.Remove(Raven.Client.Constants.Documents.Metadata.Attachments);
+
+                        document.Flags &= ~DocumentFlags.HasAttachments;
+                    }
+                    else
+                    {
+                        // TODO arek
+                    }
 
                     //var actualAttachments = _storage.AttachmentsStorage.GetAttachmentsMetadataForDocument(_context, document.Id);
                 }
@@ -120,9 +136,18 @@ namespace Voron.Recovery
 
                 EnsureModificationsApplied(document);
 
-                _storage.Put(_context, id ?? document.Id, null, document.Data, document.LastModified.Ticks, flags: document.Flags);
+                _storage.Put(_context, id, null, document.Data, document.LastModified.Ticks, flags: document.Flags);
             }
         }
+
+        public void PutDocument(string id, DynamicJsonValue document)
+        {
+            using (var doc = _context.ReadObject(document, id, BlittableJsonDocumentBuilder.UsageMode.ToDisk))
+            {
+                _storage.Put(_context, id, null, doc);
+            }
+        }
+
 
         private void EnsureModificationsApplied(Document document)
         {
@@ -139,9 +164,9 @@ namespace Voron.Recovery
         {
             using (_txManager.EnsureTransaction())
             {
-                if (CanStoreRevision(revision) == false)
+                if (AllAttachmentsExist(revision) == false)
                 {
-                    _orphans.PutRevision(revision);
+                    _orphans.Revisions.Put(revision);
                     return;
                 }
 
@@ -171,31 +196,59 @@ namespace Voron.Recovery
             }
         }
 
-        public void PutAttachment(FileStream stream, string hash, in long totalSize)
+        public void PutAttachment(Stream stream, string hash, long totalSize)
         {
             using (_txManager.EnsureTransaction())
             {
-                _storage.AttachmentsStorage.PutAttachment(_context, )
+                _orphans.Attachments.Put(stream, hash, totalSize);
+
+                // check which documents already seen for this attachment and attach it to them
+
+                var orphanDocs = _orphans.Attachments.GetOrphanDocumentsForAttachment(hash);
+
+                foreach (var item in orphanDocs)
+                {
+                    
+                }
+
+                // TODO arek - delete items from array
             }
         }
 
-        private bool CanStoreRevision(Document revision)
+        public void PutAttachment(string documentId, string name, Stream stream, string hash)
         {
-            if (revision.Flags.Contain(DocumentFlags.HasAttachments))
+            using (_txManager.EnsureTransaction())
             {
-                var metadata = revision.Data.GetMetadata();
+                _storage.AttachmentsStorage.PutAttachment(_context, documentId, name, string.Empty, hash, null, stream);
+            }
+        }
+
+        public bool AttachmentExists(string hash)
+        {
+            using (_txManager.EnsureTransaction())
+            {
+
+                using (var hashLsv = _context.GetLazyString(hash))
+                {
+                    return _storage.AttachmentsStorage.AttachmentExists(_context, hashLsv);
+                }
+            }
+        }
+
+        private bool AllAttachmentsExist(Document doc)
+        {
+            if (doc.Flags.Contain(DocumentFlags.HasAttachments))
+            {
+                var metadata = doc.Data.GetMetadata();
                 var metadataDictionary = new MetadataAsDictionary(metadata);
 
-                var attachments = metadataDictionary.GetObjects(Constants.Documents.Metadata.Attachments);
+                var attachments = metadataDictionary.GetObjects(Raven.Client.Constants.Documents.Metadata.Attachments);
                 if (attachments != null)
                 {
                     foreach (var attachment in attachments)
                     {
-                        using (var hash = _context.GetLazyString(attachment.GetString(nameof(AttachmentName.Hash))))
-                        {
-                            if (_storage.AttachmentsStorage.AttachmentExists(_context, hash) == false)
-                                return false; // revisions cannot be updated later so we need everything in place
-                        }
+                        if (AttachmentExists(attachment.GetString(nameof(AttachmentName.Hash))) == false)
+                            return false; // revisions cannot be updated later so we need everything in place
                     }
                 }
             }
@@ -203,7 +256,7 @@ namespace Voron.Recovery
             return true;
         }
 
-        public void HandleOrphans()
+        public void ProcessOrphans()
         {
             _txManager.PulseTransaction(); // this is to update DocumentsStorage._collectionsCache which is updated only on transaction commit, so we'll see orphan collections
 
@@ -213,7 +266,7 @@ namespace Voron.Recovery
 
                 // revisions
 
-                _orphans.HandleOrphanRevisions(_txManager);
+                _orphans.Revisions.ProcessExistingOrphans(_txManager);
 
 
 
