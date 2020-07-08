@@ -1655,8 +1655,11 @@ namespace Raven.Server.Documents.Indexes
             return null;
         }
 
+        public int Debug_IndexingRun;
         public bool DoIndexingWork(IndexingStatsScope stats, CancellationToken cancellationToken)
         {
+            Console.WriteLine(nameof(DoIndexingWork) + $": {Debug_IndexingRun++}");
+
             _threadAllocations = NativeMemory.CurrentThreadStats;
 
             bool mightBeMore = false;

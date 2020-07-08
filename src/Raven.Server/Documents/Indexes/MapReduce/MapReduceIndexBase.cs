@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using Raven.Client.Documents.Indexes;
 using Raven.Server.Documents.Includes;
+using Raven.Server.Documents.Indexes.MapReduce.Static;
 using Raven.Server.Documents.Indexes.Persistence.Lucene;
 using Raven.Server.Documents.Queries;
 using Raven.Server.Documents.Queries.Results;
@@ -99,6 +101,8 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             return tx.CreateTree(ReducePhaseTreeName);
         }
 
+        private MapReduceResultsStore debugStore = null;
+
         protected unsafe int PutMapResults(LazyStringValue lowerId, LazyStringValue id, IEnumerable<MapResult> mappedResults, TransactionOperationContext indexContext, IndexingStatsScope stats)
         {
             EnsureValidStats(stats);
@@ -117,6 +121,21 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                 }
 
                 int resultsCount = 0;
+
+                //var reduceKeyHashToDebug = 11222726894355838099;
+
+                //if (debugStore == null)
+                //{
+                //    debugStore = GetResultsStore(reduceKeyHashToDebug, indexContext, create: false);
+
+                //    debugStore.ModifiedPages = debugStore.Tree.AllPages().ToHashSet();
+
+                //    return 1;
+                //}
+                //else
+                //{
+                //    return 0;
+                //}
 
                 foreach (var mapResult in mappedResults)
                 {
@@ -149,8 +168,22 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                             {
                                 using (_stats.RemoveResult.Start())
                                 {
+                                    if (existing.Id == 407384)
+                                    {
+                                        if (storeOfExisting.Type == MapResultsStorageType.Tree && storeOfExisting.Tree.Name.ToString() == "__raven/map-reduce/#reduce-tree-11222726894355838099" && ReduceMapResultsOfStaticIndex.Debug4384Page)
+                                        {
+                                            ReduceMapResultsOfStaticIndex.ValidatePage4384(indexContext.Transaction.InnerTransaction.LowLevelTransaction, storeOfExisting.Tree);
+                                        }
+                                    }
+
                                     MapReduceWorkContext.DocumentMapEntries.Delete(existing.Id);
                                     storeOfExisting.Delete(existing.Id);
+
+
+                                    if (storeOfExisting.Type == MapResultsStorageType.Tree && storeOfExisting.Tree.Name.ToString() == "__raven/map-reduce/#reduce-tree-11222726894355838099" && ReduceMapResultsOfStaticIndex.Debug4384Page)
+                                    {
+                                        ReduceMapResultsOfStaticIndex.ValidatePage4384(indexContext.Transaction.InnerTransaction.LowLevelTransaction, storeOfExisting.Tree);
+                                    }
                                 }
                             }
                         }
@@ -165,7 +198,14 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                                     MapReduceWorkContext.DocumentMapEntries.Add(mapEntryId, val);
                             }
 
-                            GetResultsStore(reduceKeyHash, indexContext, create: true).Add(mapEntryId, mapResult.Data);
+                            MapReduceResultsStore store = GetResultsStore(reduceKeyHash, indexContext, create: true);
+
+                            store.Add(mapEntryId, mapResult.Data);
+
+                            if (store.Type == MapResultsStorageType.Tree && store.Tree.Name.ToString() == "__raven/map-reduce/#reduce-tree-11222726894355838099" && ReduceMapResultsOfStaticIndex.Debug4384Page)
+                            {
+                                ReduceMapResultsOfStaticIndex.ValidatePage4384(indexContext.Transaction.InnerTransaction.LowLevelTransaction, store.Tree);
+                            }
                         }
                     }
                 }
@@ -185,6 +225,12 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                     using (_stats.RemoveResult.Start())
                     {
                         oldState.Delete(oldResult.Id);
+
+                        if (oldState.Type == MapResultsStorageType.Tree && oldState.Tree.Name.ToString() == "__raven/map-reduce/#reduce-tree-11222726894355838099" && ReduceMapResultsOfStaticIndex.Debug4384Page)
+                        {
+                            ReduceMapResultsOfStaticIndex.ValidatePage4384(indexContext.Transaction.InnerTransaction.LowLevelTransaction, oldState.Tree);
+                        }
+
                         MapReduceWorkContext.DocumentMapEntries.Delete(oldResult.Id);
                     }
                 }

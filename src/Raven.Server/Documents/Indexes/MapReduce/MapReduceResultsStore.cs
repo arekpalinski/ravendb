@@ -28,7 +28,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce
         public MapResultsStorageType Type { get; private set; }
 
         public Tree Tree;
-        public readonly HashSet<long> ModifiedPages;
+        public HashSet<long> ModifiedPages;
         
 
         public MapReduceResultsStore(ulong reduceKeyHash, MapResultsStorageType type, TransactionOperationContext indexContext, MapReduceIndexingContext mapReduceContext, bool create)

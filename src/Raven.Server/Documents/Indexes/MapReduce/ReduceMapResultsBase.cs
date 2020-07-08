@@ -22,6 +22,7 @@ using Voron.Data.BTrees;
 using Voron.Data.Tables;
 using Voron.Impl;
 using Voron.Data.Compression;
+using Voron.Debugging;
 using Constants = Voron.Global.Constants;
 
 namespace Raven.Server.Documents.Indexes.MapReduce
@@ -113,7 +114,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                         case MapResultsStorageType.Nested:
                             using (nestedValuesScopeStats.Start())
                             {
-                                HandleNestedValuesReduction(indexContext, nestedValuesScopeStats, modifiedStore, writer, reduceKeyHash, token);
+                               // HandleNestedValuesReduction(indexContext, nestedValuesScopeStats, modifiedStore, writer, reduceKeyHash, token);
                             }
                             break;
 
@@ -221,6 +222,8 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             }
         }
 
+        public static bool Debug4384Page = false;
+
         private void HandleTreeReduction(TransactionOperationContext indexContext, IndexingStatsScope stats,
              MapReduceResultsStore modifiedStore, LowLevelTransaction lowLevelTransaction,
             IndexWriteOperation writer, LazyStringValue reduceKeyHash, Table table, CancellationToken token)
@@ -232,6 +235,11 @@ namespace Raven.Server.Documents.Indexes.MapReduce
 
             var tree = modifiedStore.Tree;
 
+            if (tree.Name.ToString() != "__raven/map-reduce/#reduce-tree-11222726894355838099")
+                return;
+
+           // List<long> allPages = tree.AllPages();
+
             var branchesToAggregate = new HashSet<long>();
 
             var parentPagesToAggregate = new HashSet<long>();
@@ -242,8 +250,30 @@ namespace Raven.Server.Documents.Indexes.MapReduce
 
             Dictionary<long, Exception> failedAggregatedLeafs = null;
 
+            if (modifiedStore.ModifiedPages.Contains(4384))
+            {
+                Debug4384Page = true;
+
+                ValidatePage4384(lowLevelTransaction, tree);
+            }
+
             foreach (var modifiedPage in modifiedStore.ModifiedPages)
             {
+                if (Debug4384Page)
+                {
+                    ValidatePage4384(lowLevelTransaction, tree);
+                }
+
+                if (modifiedPage == 4384)
+                {
+                    var a = false;
+
+                    if (a)
+                    {
+                        DebugStuff.RenderAndShow(tree);
+                    }
+                }
+
                 token.ThrowIfCancellationRequested();
 
                 page.Base = lowLevelTransaction.GetPage(modifiedPage).Pointer;
@@ -339,6 +369,11 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                 }
             }
 
+            if (Debug4384Page)
+            {
+                ValidatePage4384(lowLevelTransaction, tree);
+            }
+
             while (parentPagesToAggregate.Count > 0 || branchesToAggregate.Count > 0)
             {
                 token.ThrowIfCancellationRequested();
@@ -408,6 +443,12 @@ namespace Raven.Server.Documents.Indexes.MapReduce
 
             if (compressedEmptyLeafs != null && compressedEmptyLeafs.Count > 0)
             {
+
+                if (Debug4384Page)
+                {
+                    ValidatePage4384(lowLevelTransaction, tree);
+                }
+
                 // we had some compressed pages that are empty after decompression
                 // let's remove them and reduce the tree once again
 
@@ -427,6 +468,22 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                 }
 
                 HandleTreeReduction(indexContext, stats, modifiedStore, lowLevelTransaction, writer, reduceKeyHash, table, token);
+            }
+
+            if (Debug4384Page)
+            {
+                ValidatePage4384(lowLevelTransaction, tree);
+            }
+        }
+
+        public static void ValidatePage4384(LowLevelTransaction lowLevelTransaction, Tree tree)
+        {
+            var page4384 = new TreePage(lowLevelTransaction.GetPage(4384).Pointer, Constants.Storage.PageSize);
+
+            TreePage leaf4384Page = page4384;
+            using (page4384.IsCompressed ? (DecompressedLeafPage)(leaf4384Page = tree.DecompressPage(page4384, skipCache: true)) : null)
+            {
+                var parentOf4384 = tree.GetParentPageOf(leaf4384Page);
             }
         }
 
