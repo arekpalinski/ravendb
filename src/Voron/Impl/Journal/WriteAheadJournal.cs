@@ -1490,7 +1490,6 @@ namespace Voron.Impl.Journal
                         CurrentFile = null;
                     }
 
-                    ZeroCompressionBufferIfNeeded(tempEncCompressionPagerTxState ?? tx);
                     ReduceSizeOfCompressionBufferIfNeeded();
 
                     return journalEntry;
@@ -1852,8 +1851,11 @@ namespace Voron.Impl.Journal
             var maxSize = _env.Options.MaxScratchBufferSize;
             if (ShouldReduceSizeOfCompressionPager(maxSize, forceReduce) == false)
             {
-                //PERF: Compression buffer will be reused, it is safe to discard the content to clear the modified bit.
-                _compressionPager.DiscardWholeFile();
+                // PERF: Compression buffer will be reused, it is safe to discard the content to clear the modified bit.
+                // For encrypted databases, discarding locked memory is *expensive*, so we avoid it
+                if (_env.Options.EncryptionEnabled == false)
+                    _compressionPager.DiscardWholeFile();
+
                 return;
             }
 
@@ -1882,7 +1884,10 @@ namespace Voron.Impl.Journal
             var compressionBufferSize = _compressionPager.NumberOfAllocatedPages * Constants.Storage.PageSize;
             _compressionPager.EnsureMapped(tx, 0, checked((int)_compressionPager.NumberOfAllocatedPages));
             var pagePointer = _compressionPager.AcquirePagePointer(tx, 0);
-            Sodium.sodium_memzero(pagePointer, (UIntPtr)compressionBufferSize);
+
+            //new Span<byte>(pagePointer, (int)compressionBufferSize).Clear();
+
+            Sodium.sodium_memzero(pagePointer, (UIntPtr)compressionBufferSize); // Span<T>.Clear // https://docs.microsoft.com/pl-pl/dotnet/api/system.span-1.clear?view=netcore-3.1
         }
 
         private bool ShouldReduceSizeOfCompressionPager(long maxSize, bool forceReduce)

@@ -1259,6 +1259,12 @@ namespace Raven.Server.Documents.Indexes
                             {
                                 Interlocked.Exchange(ref _allocationCleanupNeeded, 0);
 
+
+                                using (var tx = _environment.WriteTransaction())
+                                {
+                                    _environment.Journal.ZeroCompressionBufferIfNeeded(tx.LowLevelTransaction);
+                                }
+
                                 // allocation cleanup has been requested multiple times or
                                 // there is no work to be done, and hasn't been for a while,
                                 // so this is a good time to release resources we won't need 

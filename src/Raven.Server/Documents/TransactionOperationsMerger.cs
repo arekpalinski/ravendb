@@ -322,6 +322,12 @@ namespace Raven.Server.Documents
 
                         if (_operations.IsEmpty)
                         {
+                            using (_parent.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext ctx))
+                            using (ctx.OpenWriteTransaction())
+                            {
+                                ctx.Environment.Journal.ZeroCompressionBufferIfNeeded(ctx.Transaction.InnerTransaction.LowLevelTransaction);
+                            }
+
                             using (var generalMeter = GeneralWaitPerformanceMetrics.MeterPerformanceRate())
                             {
                                 generalMeter.IncrementCounter(1);
