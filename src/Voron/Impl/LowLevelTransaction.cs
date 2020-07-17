@@ -30,7 +30,7 @@ namespace Voron.Impl
         private readonly StorageEnvironment _env;
         private readonly long _id;
         private readonly ByteStringContext _allocator;
-        private readonly PageLocator _pageLocator;
+        internal readonly PageLocator _pageLocator;
         private bool _disposeAllocator;
         internal TestingStuff _forTestingPurposes;
 

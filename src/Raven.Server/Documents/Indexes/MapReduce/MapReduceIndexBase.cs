@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Raven.Client.Documents.Indexes;
 using Raven.Server.Documents.Includes;
+using Raven.Server.Documents.Indexes.MapReduce.Static;
 using Raven.Server.Documents.Indexes.Persistence.Lucene;
 using Raven.Server.Documents.Queries;
 using Raven.Server.Documents.Queries.Results;
@@ -99,6 +100,9 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             return tx.CreateTree(ReducePhaseTreeName);
         }
 
+        public int DebugCounter = 0;
+        public int DebugNumberOfProcessedDocsCounter = 0;
+
         protected unsafe int PutMapResults(LazyStringValue lowerId, LazyStringValue id, IEnumerable<MapResult> mappedResults, TransactionOperationContext indexContext, IndexingStatsScope stats)
         {
             EnsureValidStats(stats);
@@ -117,12 +121,25 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                 }
 
                 int resultsCount = 0;
+                DebugNumberOfProcessedDocsCounter++;
+
+                if (DebugNumberOfProcessedDocsCounter == 238450)
+                {
+
+                }
 
                 foreach (var mapResult in mappedResults)
                 {
+                    DebugCounter++;
+
                     using (mapResult.Data)
                     {
                         resultsCount++;
+
+                        if (DebugNumberOfProcessedDocsCounter == 238450 && resultsCount == 14)
+                        {
+
+                        }
 
                         var reduceKeyHash = mapResult.ReduceKeyHash;
 
@@ -150,7 +167,18 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                                 using (_stats.RemoveResult.Start())
                                 {
                                     MapReduceWorkContext.DocumentMapEntries.Delete(existing.Id);
+
+                                    //if (storeOfExisting.Type == MapResultsStorageType.Tree && storeOfExisting.Tree.Name.ToString() == "__raven/map-reduce/#reduce-tree-11222726894355838099")
+                                    //{
+                                    //    ReduceMapResultsOfStaticIndex.ValidateTrackedPages(indexContext.Transaction.InnerTransaction.LowLevelTransaction, storeOfExisting.Tree, storeOfExisting);
+                                    //}
+
                                     storeOfExisting.Delete(existing.Id);
+
+                                    //if (/*DebugCounter == 1982310 && */storeOfExisting.Type == MapResultsStorageType.Tree && storeOfExisting.Tree.Name.ToString() == "__raven/map-reduce/#reduce-tree-11222726894355838099")
+                                    //{
+                                    //    ReduceMapResultsOfStaticIndex.ValidateTrackedPages(indexContext.Transaction.InnerTransaction.LowLevelTransaction, storeOfExisting.Tree, storeOfExisting);
+                                    //}
                                 }
                             }
                         }
@@ -165,9 +193,43 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                                     MapReduceWorkContext.DocumentMapEntries.Add(mapEntryId, val);
                             }
 
-                            GetResultsStore(reduceKeyHash, indexContext, create: true).Add(mapEntryId, mapResult.Data);
+                            MapReduceResultsStore store = GetResultsStore(reduceKeyHash, indexContext, create: true);
+
+                            if (DebugNumberOfProcessedDocsCounter == 238450 && resultsCount == 14)
+                            {
+                                ReduceMapResultsOfStaticIndex.ValidateTrackedPages(indexContext.Transaction.InnerTransaction.LowLevelTransaction, store.Tree,
+                                    store);
+                            }
+
+                            store.Add(mapEntryId, mapResult.Data);
+
+                            if (DebugNumberOfProcessedDocsCounter == 238450 && resultsCount == 14)
+                            {
+                                ReduceMapResultsOfStaticIndex.ValidateTrackedPages(indexContext.Transaction.InnerTransaction.LowLevelTransaction, store.Tree,
+                                    store);
+                            }
+
+
+                            //if (store.Type == MapResultsStorageType.Tree && store.Tree.Name.ToString() == "__raven/map-reduce/#reduce-tree-11222726894355838099")
+                            //{
+                            //    ReduceMapResultsOfStaticIndex.ValidateTrackedPages(indexContext.Transaction.InnerTransaction.LowLevelTransaction, store.Tree, store);
+                            //}
                         }
                     }
+
+                    //if (DebugNumberOfProcessedDocsCounter == 238450)
+                    //{
+                    //    var reduceKeyHashToDebug = 11222726894355838099;
+
+                    //    if (MapReduceWorkContext.StoreByReduceKeyHash.TryGetValue(reduceKeyHashToDebug, out MapReduceResultsStore storeToDebug))
+                    //    {
+                    //        if (storeToDebug.Type == MapResultsStorageType.Tree)
+                    //        {
+                    //            ReduceMapResultsOfStaticIndex.ValidateTrackedPages(indexContext.Transaction.InnerTransaction.LowLevelTransaction, storeToDebug.Tree,
+                    //                storeToDebug);
+                    //        }
+                    //    }
+                    //}
                 }
 
                 HandleIndexOutputsPerDocument(id ?? lowerId, resultsCount, stats);
@@ -185,8 +247,53 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                     using (_stats.RemoveResult.Start())
                     {
                         oldState.Delete(oldResult.Id);
+
+                        //if (oldState.Type == MapResultsStorageType.Tree && oldState.Tree.Name.ToString() == "__raven/map-reduce/#reduce-tree-11222726894355838099")
+                        //{
+                        //    ReduceMapResultsOfStaticIndex.ValidateTrackedPages(indexContext.Transaction.InnerTransaction.LowLevelTransaction, oldState.Tree, oldState);
+                        //}
+
                         MapReduceWorkContext.DocumentMapEntries.Delete(oldResult.Id);
                     }
+                }
+
+                if (DebugNumberOfProcessedDocsCounter >= 238444 /* 170000 *//*+ 50000*/)
+                {
+                    if (DebugNumberOfProcessedDocsCounter == 238449)
+                    {
+
+                    }
+
+                    if (DebugNumberOfProcessedDocsCounter == 238450)
+                    {
+
+                    }
+
+                    var reduceKeyHashToDebug = 11222726894355838099;
+
+                    if (MapReduceWorkContext.StoreByReduceKeyHash.TryGetValue(reduceKeyHashToDebug, out MapReduceResultsStore storeToDebug))
+                    {
+                        if (storeToDebug.Type == MapResultsStorageType.Tree)
+                        {
+                            ReduceMapResultsOfStaticIndex.ValidateTrackedPages(indexContext.Transaction.InnerTransaction.LowLevelTransaction, storeToDebug.Tree,
+                                storeToDebug);
+                        }
+                    }
+                }
+
+                if (ReduceMapResultsOfStaticIndex.ValidatePages /*&& DebugCounter >= 1982310 *//*1982000*/ /*1982313*/)
+                {
+
+                    //var reduceKeyHashToDebug = 11222726894355838099;
+
+                    //if (MapReduceWorkContext.StoreByReduceKeyHash.TryGetValue(reduceKeyHashToDebug, out MapReduceResultsStore storeToDebug))
+                    //{
+                    //    if (storeToDebug.Type == MapResultsStorageType.Tree)
+                    //    {
+                    //        ReduceMapResultsOfStaticIndex.ValidateTrackedPages(indexContext.Transaction.InnerTransaction.LowLevelTransaction, storeToDebug.Tree,
+                    //            storeToDebug);
+                    //    }
+                    //}
                 }
 
                 return resultsCount;

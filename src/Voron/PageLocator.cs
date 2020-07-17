@@ -1,9 +1,11 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Sparrow.Binary;
 using Sparrow.Server;
 using Voron.Impl;
+using Voron.Util;
 
 namespace Voron
 {
@@ -28,6 +30,15 @@ namespace Voron
         private ByteString _cacheMemory;
 
         private int _andMask;
+
+        private bool _disabled = false;
+
+        public IDisposable Disable()
+        {
+            _disabled = true;
+
+            return new DisposableAction(() => _disabled = false);
+        }
 
         public void Release()
         {
@@ -71,6 +82,12 @@ namespace Voron
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetReadOnlyPage(long pageNumber, out Page page)
         {
+            if (_disabled)
+            {
+                page = default(Page);
+                return false;
+            }
+
             var position = pageNumber & _andMask;
 
             PageData* node = &_cache[position];
@@ -87,6 +104,12 @@ namespace Voron
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetWritablePage(long pageNumber, out Page page)
         {
+            if (_disabled)
+            {
+                page = default(Page);
+                return false;
+            }
+
             var position = pageNumber & _andMask;
 
             PageData* node = &_cache[position];
@@ -115,6 +138,11 @@ namespace Voron
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void SetReadable(long pageNumber, Page page)
         {
+            if (_disabled)
+            {
+                return;
+            }
+
             var position = pageNumber & _andMask;
 
             PageData* node = &_cache[position];
@@ -130,6 +158,11 @@ namespace Voron
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void SetWritable(long pageNumber, Page page)
         {
+            if (_disabled)
+            {
+                return;
+            }
+
             var position = pageNumber & _andMask;
 
             PageData* node = &_cache[position];

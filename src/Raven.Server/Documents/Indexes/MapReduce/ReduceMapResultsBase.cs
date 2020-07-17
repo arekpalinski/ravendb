@@ -173,6 +173,8 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                     MapReduceResultsStore modifiedStore,
                     IndexWriteOperation writer, LazyStringValue reduceKeyHash, CancellationToken token)
         {
+            return;
+
             EnsureValidNestedValuesReductionStats(stats);
 
             var numberOfEntriesToReduce = 0;
@@ -221,7 +223,10 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             }
         }
 
-        private void HandleTreeReduction(TransactionOperationContext indexContext, IndexingStatsScope stats,
+
+        public int DebugCounter = 0;
+
+            private void HandleTreeReduction(TransactionOperationContext indexContext, IndexingStatsScope stats,
              MapReduceResultsStore modifiedStore, LowLevelTransaction lowLevelTransaction,
             IndexWriteOperation writer, LazyStringValue reduceKeyHash, Table table, CancellationToken token)
         {
@@ -231,6 +236,18 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             EnsureValidTreeReductionStats(stats);
 
             var tree = modifiedStore.Tree;
+
+            if (tree.Name.ToString() != "__raven/map-reduce/#reduce-tree-11222726894355838099")
+                return;
+
+            var treeState = tree.State;
+
+            Console.WriteLine($"Tree state: {treeState}");
+
+            DebugCounter++;
+
+            if (DebugCounter == 2)
+                ValidateTrackedPages(lowLevelTransaction, tree, modifiedStore);
 
             var branchesToAggregate = new HashSet<long>();
 
@@ -733,6 +750,45 @@ namespace Raven.Server.Documents.Indexes.MapReduce
         {
             public IndexingStatsScope NestedValuesRead;
             public IndexingStatsScope NestedValuesAggregation;
+        }
+
+        public static HashSet<long> PageNumbersToTrack = new HashSet<long>(new long[] {3925/*,  4099, 3762*//*, 4384 */});
+
+        public static bool ValidatePages = false;
+
+        public static void ValidateTrackedPages(LowLevelTransaction lowLevelTransaction, Tree tree, MapReduceResultsStore store)
+        {
+            if (ValidatePages == false)
+                return;
+            //return
+            //if (tree.AllPages().Contains(PageNumberToTrack) == false)
+            //    return;
+            using (lowLevelTransaction._pageLocator.Disable())
+            using (tree.DisableCaching())
+            {
+                foreach (long pageNumber in PageNumbersToTrack)
+                {
+                    if (store.ModifiedPages.Contains(pageNumber) == false)
+                    {
+                        //if (tree.AllPages().Contains(pageNumber) == false)
+                            continue;
+                    }
+
+                    var page4384 = new TreePage(lowLevelTransaction.GetPage(pageNumber).Pointer, Constants.Storage.PageSize);
+
+                    TreePage leaf4384Page = page4384;
+
+                    //if (page4384.IsCompressed)
+                    //    return;
+
+                    //tree.CheckParent(leaf4384Page);
+
+                    using (page4384.IsCompressed ? (DecompressedLeafPage)(leaf4384Page = tree.DecompressPage(page4384, skipCache: true)) : null)
+                    {
+                        var parentOf4384 = tree.GetParentPageOf(leaf4384Page);
+                    }
+                }
+            }
         }
     }
 }

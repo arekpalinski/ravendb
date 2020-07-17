@@ -13,6 +13,7 @@ using Voron.Impl;
 using Voron.Impl.Paging;
 using Sparrow.Collections;
 using Sparrow.Server;
+using Voron.Util;
 using Constants = Voron.Global.Constants;
 
 namespace Voron.Data.BTrees
@@ -783,6 +784,9 @@ namespace Voron.Data.BTrees
 
         private void AddToRecentlyFoundPages(FastList<long> c, TreePage p, bool leftmostPage, bool rightmostPage)
         {
+            if (_cacheDisabled)
+                return;
+
             Debug.Assert(p.IsCompressed == false);
 
             ByteStringContext.Scope firstScope, lastScope;
@@ -817,6 +821,9 @@ namespace Voron.Data.BTrees
 
         private void AddToRecentlyFoundPages(TreeCursor c, TreePage p, bool leftmostPage, bool rightmostPage)
         {
+            if (_cacheDisabled)
+                return;
+
             ByteStringContext.Scope firstScope, lastScope;
             Slice firstKey;
             if (leftmostPage)
@@ -859,6 +866,9 @@ namespace Voron.Data.BTrees
             node = null;
             page = null;
 
+            if (_cacheDisabled)
+                return false;
+
             var foundPage = _recentlyFoundPages?.Find(key);
             if (foundPage == null)
                 return false;
@@ -884,6 +894,13 @@ namespace Voron.Data.BTrees
 
         private bool TryUseRecentTransactionPage(Slice key, out TreeCursorConstructor cursor, out TreePage page, out TreeNodeHeader* node)
         {
+            node = null;
+            page = null;
+            cursor = default(TreeCursorConstructor);
+
+            if (_cacheDisabled)
+                return false;
+
             var foundPage = _recentlyFoundPages?.Find(key);
             if (foundPage == null)
             {
@@ -1108,24 +1125,38 @@ namespace Voron.Data.BTrees
                 TreeNodeHeader* node;
                 p = FindPageFor(key, node: out node, cursor: out cursorConstructor, allowCompressed: true);
 
-                if (page.IsLeaf && p.LastMatch != 0)
+                if (page.IsLeaf)
                 {
-                    if (p.IsCompressed == false)
+                    if (page.PageNumber != p.PageNumber)
                     {
-                        // if a found page is compressed then we could not find the exact match because 
-                        // the key we were looking for might belong to an compressed entry
-                        // if the page isn't compressed then it's a corruption
-                        
+                        Debugger.Launch();
+                        Debugger.Break();
+
                         VoronUnrecoverableErrorException.Raise(_tx.LowLevelTransaction,
-                            $"Could not find a page containing {key} when looking for a parent of {page}. Page {p} was found, last match: {p.LastMatch}.");
+                            $"Got different leaf page when looking for a key ({key}) from page {page}. Page {p} was found, last match: {p.LastMatch}.");
                     }
-#if DEBUG
-                    using (var decompressed = DecompressPage(p, skipCache: true))
+                    else if (p.LastMatch != 0)
                     {
-                        decompressed.Search(_llt, key);
-                        Debug.Assert(decompressed.LastMatch == 0);
-                    }
+                        if (p.IsCompressed == false)
+                        {
+                            Debugger.Launch();
+                            Debugger.Break();
+
+                            // if a found page is compressed then we could not find the exact match because 
+                            // the key we were looking for might belong to an compressed entry
+                            // if the page isn't compressed then it's a corruption
+
+                            VoronUnrecoverableErrorException.Raise(_tx.LowLevelTransaction,
+                                $"Could not find a page containing {key} when looking for a parent of {page}. Page {p} was found, last match: {p.LastMatch}.");
+                        }
+#if DEBUG
+                        //using (var decompressed = DecompressPage(p, skipCache: true))
+                        //{
+                        //    decompressed.Search(_llt, key);
+                        //    Debug.Assert(decompressed.LastMatch == 0);
+                        //}
 #endif
+                    }
                 }
 
                 using (var cursor = cursorConstructor.Build(key))
@@ -1145,6 +1176,37 @@ namespace Voron.Data.BTrees
             }
 
             return -1;
+        }
+
+        public void CheckParent(TreePage page)
+        {
+            TreePage p;
+            Slice key;
+           
+            TreeCursorConstructor cursorConstructor;
+            TreeNodeHeader* node;
+
+            if (page.IsLeaf)
+            {
+                var numberOFEntries = page.NumberOfEntries;
+
+                if (numberOFEntries == 0)
+                    return;
+
+                using (page.IsLeaf ? page.GetNodeKey(_llt, 0, out key) : page.GetNodeKey(_llt, 1, out key))
+                {
+                    p = FindPageFor(key, node: out node, cursor: out cursorConstructor, allowCompressed: true);
+
+                    if (page.PageNumber != p.PageNumber)
+                    {
+                        Debugger.Launch();
+                        Debugger.Break();
+
+                        VoronUnrecoverableErrorException.Raise(_tx.LowLevelTransaction,
+                            $"Got different leaf page when looking for a key ({key}) from page {page}. Page {p} was found, last match: {p.LastMatch}.");
+                    }
+                }
+            }
         }
 
         internal byte* DirectRead(Slice key)
@@ -1503,6 +1565,15 @@ namespace Voron.Data.BTrees
                     }
                 }
             }
+        }
+
+        private bool _cacheDisabled = false;
+
+        public IDisposable DisableCaching()
+        {
+            _cacheDisabled = true;
+
+            return new DisposableAction(() => _cacheDisabled = false);
         }
     }
 }

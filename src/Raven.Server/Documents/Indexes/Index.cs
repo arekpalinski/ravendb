@@ -484,6 +484,9 @@ namespace Raven.Server.Documents.Indexes
 
             InitializeOptions(options, documentDatabase, name);
 
+            options.ManualFlushing = true;
+
+
             return options;
         }
 
@@ -1048,6 +1051,8 @@ namespace Raven.Server.Documents.Indexes
                                         var lastAllocatedBytes = GC.GetAllocatedBytesForCurrentThread();
 
                                         didWork = DoIndexingWork(scope, _indexingProcessCancellationTokenSource.Token);
+
+                                        _environment.FlushLogToDataFile();
 
                                         if (_lowMemoryPressure > 0)
                                             LowMemoryOver();
@@ -1741,6 +1746,7 @@ namespace Raven.Server.Documents.Indexes
                         DisposeIndexWriterOnError(writeOperation);
                         throw;
                     }
+
 
                     return mightBeMore;
                 }
