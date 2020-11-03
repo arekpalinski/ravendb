@@ -88,7 +88,7 @@ namespace Raven.Server.Documents.TimeSeries
             _documentId = documentId;
             _name = name.ToLowerInvariant();
             _table = new Table(TimeSeriesStorage.TimeSeriesSchema, context.Transaction.InnerTransaction);
-            _tag = new LazyStringValue(null, null, 0, context);
+            _tag = new LazyStringValue(null, null, null, 0, context);
             _offset = offset;
 
             _from = from;

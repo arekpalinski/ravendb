@@ -8,7 +8,7 @@ namespace Raven.Server.Documents.Handlers.Debugging
     public class IdentityDebugHandler : DatabaseRequestHandler
     {
         [RavenAction("/databases/*/debug/identities", "GET", AuthorizationStatus.ValidUser, IsDebugInformationEndpoint = true)]
-        public Task GetIdentities()
+        public async Task GetIdentities()
         {
             var start = GetStart();
             var pageSize = GetPageSize();
@@ -16,26 +16,24 @@ namespace Raven.Server.Documents.Handlers.Debugging
             using (Database.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
             using (context.OpenReadTransaction())
             {
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
-                    writer.WriteStartObject();
+                    await writer.WriteStartObjectAsync();
 
                     var first = true;
                     foreach (var identity in Database.ServerStore.Cluster.GetIdentitiesFromPrefix(context, Database.Name, start, pageSize))
                     {
                         if (first == false)
-                            writer.WriteComma();
+                            await writer.WriteCommaAsync();
 
                         first = false;
-                        writer.WritePropertyName(identity.Prefix);
-                        writer.WriteInteger(identity.Value);
+                        await writer.WritePropertyNameAsync(identity.Prefix);
+                        await writer.WriteIntegerAsync(identity.Value);
                     }
 
-                    writer.WriteEndObject();
+                    await writer.WriteEndObjectAsync();
                 }
             }
-
-            return Task.CompletedTask;
         }
     }
 }

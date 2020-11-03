@@ -152,7 +152,7 @@ namespace Raven.Server.Smuggler.Documents
                     }
                 }
 
-                if (reader.TryGet(nameof(databaseRecord.DocumentsCompression), out BlittableJsonReaderObject documentsCompression) 
+                if (reader.TryGet(nameof(databaseRecord.DocumentsCompression), out BlittableJsonReaderObject documentsCompression)
                     && documentsCompression != null)
                 {
                     try
@@ -548,12 +548,12 @@ namespace Raven.Server.Smuggler.Documents
             var size = segmentSize;
             while (size > 0)
             {
-                var read = _parser.Copy(mem.Address + offset, size);
+                var read = _parser.Copy(mem.Memory.Address + offset, size);
                 if (read.Done == false)
                 {
                     offset += read.BytesRead;
 
-                    var read2 = _peepingTomStream.Read(_buffer.Memory.Span);
+                    var read2 = _peepingTomStream.Read(_buffer.Memory.Memory.Span);
                     if (read2 == 0)
                         throw new EndOfStreamException("Stream ended without reaching end of stream content");
 
@@ -563,7 +563,7 @@ namespace Raven.Server.Smuggler.Documents
                 size -= read.BytesRead;
             }
 
-            return new TimeSeriesValuesSegment(mem.Address, segmentSize);
+            return new TimeSeriesValuesSegment(mem.Memory.Address, segmentSize);
         }
 
         private unsafe void SetBuffer(UnmanagedJsonParser parser, LazyStringValue value)
@@ -684,7 +684,7 @@ namespace Raven.Server.Smuggler.Documents
 
                     counterValues.Modifications[prop.Name] = new BlittableJsonReaderObject.RawBlob
                     {
-                        Ptr = newVal.Ptr,
+                        Ptr = new UnmanagedMemory(newVal.Ptr, newVal.Length),
                         Length = newVal.Length
                     };
                 }
@@ -706,6 +706,7 @@ namespace Raven.Server.Smuggler.Documents
             {
                 case DatabaseItemType.None:
                     return 0;
+
                 case DatabaseItemType.Documents:
                 case DatabaseItemType.RevisionDocuments:
                 case DatabaseItemType.Tombstones:
@@ -722,10 +723,13 @@ namespace Raven.Server.Smuggler.Documents
 #pragma warning restore 618
                 case DatabaseItemType.CounterGroups:
                     return SkipArray(onSkipped, null, token);
+
                 case DatabaseItemType.TimeSeries:
                     return SkipArray(onSkipped, SkipBlob, token);
+
                 case DatabaseItemType.DatabaseRecord:
                     return SkipObject(onSkipped);
+
                 default:
                     throw new ArgumentOutOfRangeException(nameof(type), type, null);
             }
@@ -939,7 +943,7 @@ namespace Raven.Server.Smuggler.Documents
                 var read = _parser.Skip(sizeToRead);
                 if (read.Done == false)
                 {
-                    var read2 = _peepingTomStream.Read(_buffer.Memory.Span);
+                    var read2 = _peepingTomStream.Read(_buffer.Memory.Memory.Span);
                     if (read2 == 0)
                         throw new EndOfStreamException("Stream ended without reaching end of stream content");
 
@@ -1506,11 +1510,11 @@ namespace Raven.Server.Smuggler.Documents
                 var sizeToRead = (int)Math.Min(_writeBuffer.Length, size);
                 var read = _parser.Copy(_writeBuffer.Pointer, sizeToRead);
 
-                attachment.Stream.Write(_writeBuffer.Memory.Span.Slice(0, read.BytesRead));
+                attachment.Stream.Write(_writeBuffer.Memory.Memory.Span.Slice(0, read.BytesRead));
 
                 if (read.Done == false)
                 {
-                    var read2 = _peepingTomStream.Read(_buffer.Memory.Span);
+                    var read2 = _peepingTomStream.Read(_buffer.Memory.Memory.Span);
                     if (read2 == 0)
                         throw new EndOfStreamException("Stream ended without reaching end of stream content");
 

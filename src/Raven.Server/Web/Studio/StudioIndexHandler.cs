@@ -26,15 +26,15 @@ namespace Raven.Server.Web.Studio
                     var indexType = indexDefinition.DetectStaticIndexType();
                     var indexSourceType = indexDefinition.DetectStaticIndexSourceType();
 
-                    using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                    await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                     {
-                        writer.WriteStartObject();
-                        writer.WritePropertyName(nameof(IndexTypeInfo.IndexType));
-                        writer.WriteString(indexType.ToString());
-                        writer.WriteComma();
-                        writer.WritePropertyName(nameof(IndexTypeInfo.IndexSourceType));
-                        writer.WriteString(indexSourceType.ToString());
-                        writer.WriteEndObject();
+                        await writer.WriteStartObjectAsync();
+                        await writer.WritePropertyNameAsync(nameof(IndexTypeInfo.IndexType));
+                        await writer.WriteStringAsync(indexType.ToString());
+                        await writer.WriteCommaAsync();
+                        await writer.WritePropertyNameAsync(nameof(IndexTypeInfo.IndexSourceType));
+                        await writer.WriteStringAsync(indexSourceType.ToString());
+                        await writer.WriteEndObjectAsync();
                     }
                 }
             }
@@ -45,7 +45,7 @@ namespace Raven.Server.Web.Studio
             public IndexType IndexType { get; set; }
             public IndexSourceType IndexSourceType { get; set; }
         }
-        
+
         [RavenAction("/databases/*/studio/index-fields", "POST", AuthorizationStatus.ValidUser)]
         public async Task PostIndexFields()
         {
@@ -74,24 +74,23 @@ namespace Raven.Server.Web.Studio
 
                         var outputFields = compiledIndex.OutputFields;
 
-                        using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                        await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                         {
-                            writer.WriteStartObject();
-                            writer.WriteArray(context, "Results", outputFields, (w, c, field) => { w.WriteString(field); });
-                            writer.WriteEndObject();
+                            await writer.WriteStartObjectAsync();
+                            await writer.WriteArrayAsync(context, "Results", outputFields, (w, c, field) => w.WriteStringAsync(field));
+                            await writer.WriteEndObjectAsync();
                         }
                     }
                     catch (IndexCompilationException)
                     {
                         // swallow compilation exception and return empty array as response
-                        using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                        await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                         {
-                            writer.WriteStartArray();
-                            writer.WriteEndArray();
+                            await writer.WriteStartArrayAsync();
+                            await writer.WriteEndArrayAsync();
                         }
                     }
                 }
-
             }
         }
 
@@ -114,4 +113,3 @@ namespace Raven.Server.Web.Studio
         }
     }
 }
-

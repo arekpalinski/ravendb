@@ -373,7 +373,7 @@ namespace Sparrow.Json
             // https://developers.google.com/protocol-buffers/docs/encoding?csw=1#types
             // for negative values
 
-            var buffer = _innerBuffer.Address;
+            var buffer = _innerBuffer.Memory.Address;
             var count = 0;
             var v = (ulong)((value << 1) ^ (value >> 63));
             while (v >= 0x80)
@@ -395,7 +395,7 @@ namespace Sparrow.Json
         public unsafe int WriteVariableSizeInt(int value)
         {
             // assume that we don't use negative values very often
-            var buffer = _innerBuffer.Address;
+            var buffer = _innerBuffer.Memory.Address;
 
             var count = 0;
             var v = (uint)value;
@@ -418,7 +418,7 @@ namespace Sparrow.Json
         public unsafe int WriteVariableSizeIntInReverse(int value)
         {
             // assume that we don't use negative values very often
-            var buffer = _innerBuffer.Address;
+            var buffer = _innerBuffer.Memory.Address;
             var count = 0;
             var v = (uint)value;
             while (v >= 0x80)
@@ -460,9 +460,9 @@ namespace Sparrow.Json
                 buffer = _context.GetMemory(size);
                 fixed (char* pChars = str)
                 {
-                    var stringSize = Encodings.Utf8.GetBytes(pChars, str.Length, buffer.Address, size);
-                    JsonParserState.FindEscapePositionsIn(_intBuffer, buffer.Address, ref stringSize, escapePositionsMaxSize);
-                    return WriteValue(buffer.Address, stringSize, _intBuffer, out token, mode, null);
+                    var stringSize = Encodings.Utf8.GetBytes(pChars, str.Length, buffer.Memory.Address, size);
+                    JsonParserState.FindEscapePositionsIn(_intBuffer, buffer.Memory.Address, ref stringSize, escapePositionsMaxSize);
+                    return WriteValue(buffer.Memory.Address, stringSize, _intBuffer, out token, mode, null);
                 }
             }
             finally
@@ -763,7 +763,7 @@ namespace Sparrow.Json
                 _compressionBuffer = _context.GetMemory(minSize);
             }
          
-            return _compressionBuffer.Address;
+            return _compressionBuffer.Memory.Address;
         }
 
         internal void ThrowIfCachedPropertiesWereReset()

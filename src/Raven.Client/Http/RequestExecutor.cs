@@ -454,7 +454,7 @@ namespace Raven.Client.Http
                     await ExecuteAsync(parameters.Node, null, context, command, shouldRetry: false, sessionInfo: null, token: CancellationToken.None).ConfigureAwait(false);
                     var topology = command.Result;
 
-                    DatabaseTopologyLocalCache.TrySaving(_databaseName, TopologyHash, topology, Conventions, context);
+                    await DatabaseTopologyLocalCache.TrySavingAsync(_databaseName, TopologyHash, topology, Conventions, context, CancellationToken.None).ConfigureAwait(false);
 
                     if (_nodeSelector == null)
                     {
@@ -719,7 +719,7 @@ namespace Raven.Client.Http
 
             using (ContextPool.AllocateOperationContext(out JsonOperationContext context))
             {
-                if (TryLoadFromCache(context))
+                if (await TryLoadFromCacheAsync(context).ConfigureAwait(false))
                 {
                     InitializeUpdateTopologyTimer();
                     return;
@@ -800,9 +800,9 @@ namespace Raven.Client.Http
             }
         }
 
-        protected virtual bool TryLoadFromCache(JsonOperationContext context)
+        protected virtual async Task<bool> TryLoadFromCacheAsync(JsonOperationContext context)
         {
-            var cachedTopology = DatabaseTopologyLocalCache.TryLoad(_databaseName, TopologyHash, Conventions, context);
+            var cachedTopology = await DatabaseTopologyLocalCache.TryLoadAsync(_databaseName, TopologyHash, Conventions, context).ConfigureAwait(false);
             if (cachedTopology == null)
                 return false;
 
@@ -824,8 +824,9 @@ namespace Raven.Client.Http
                 command.FailoverTopologyEtag = _nodeSelector?.Topology?.Etag ?? InitialTopologyEtag;
 
             var request = CreateRequest(context, chosenNode, command, out string url);
-            if (request == null) return;
-            
+            if (request == null)
+                return;
+
             var noCaching = sessionInfo?.NoCaching ?? false;
 
             using (var cachedItem = GetFromCache(context, command, !noCaching, url, out string cachedChangeVector, out BlittableJsonReaderObject cachedValue))
@@ -1312,7 +1313,8 @@ namespace Raven.Client.Http
         internal HttpRequestMessage CreateRequest<TResult>(JsonOperationContext ctx, ServerNode node, RavenCommand<TResult> command, out string url)
         {
             var request = command.CreateRequest(ctx, node, out url);
-            if (request == null) return null;
+            if (request == null)
+                return null;
 
             var builder = new UriBuilder(url);
 
@@ -1733,7 +1735,7 @@ namespace Raven.Client.Http
                 try
                 {
                     ms.Position = 0;
-                    using (var responseJson = context.ReadForMemory(ms, "RequestExecutor/HandleServerDown/ReadResponseContent"))
+                    using (var responseJson = await context.ReadForMemoryAsync(ms, "RequestExecutor/HandleServerDown/ReadResponseContent").ConfigureAwait(false))
                     {
                         return ExceptionDispatcher.Get(JsonDeserializationClient.ExceptionSchema(responseJson), response.StatusCode, e);
                     }

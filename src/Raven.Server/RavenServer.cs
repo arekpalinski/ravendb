@@ -56,6 +56,7 @@ using Sparrow.Json;
 using Sparrow.Json.Parsing;
 using Sparrow.Logging;
 using Sparrow.Server.Debugging;
+using Sparrow.Server.Json.Sync;
 using Sparrow.Threading;
 using Voron;
 using DateTime = System.DateTime;
@@ -361,7 +362,7 @@ namespace Raven.Server
                 {
                     msg += $" Automatic renewal is no longer possible. Please check the logs for errors and contact support@ravendb.net.";
                 }
-                
+
                 ServerStore.NotificationCenter.Add(AlertRaised.Create(null, CertificateReplacement.CertReplaceAlertTitle, msg, AlertType.Certificates_Expiration, NotificationSeverity.Error));
 
                 if (Logger.IsOperationsEnabled)
@@ -387,7 +388,7 @@ namespace Raven.Server
 
                 ServerStore.NotificationCenter.Add(AlertRaised.Create(null, CertificateReplacement.CertReplaceAlertTitle, msg, AlertType.Certificates_Expiration, severity));
 
-                if (Logger.IsOperationsEnabled) 
+                if (Logger.IsOperationsEnabled)
                     Logger.Operations(msg);
             }
             else
@@ -422,7 +423,7 @@ namespace Raven.Server
             try
             {
                 UpdateCertificateExpirationAlert();
-        }
+            }
             catch (Exception exception)
             {
                 if (Logger.IsOperationsEnabled)
@@ -584,7 +585,7 @@ namespace Raven.Server
                 // After that we retry every sync interval (from configuration) or if ForceSyncCpuCredits() is called
                 try
                 {
-                    if (sw.Elapsed.TotalSeconds >= (int)Configuration.Server.CpuCreditsExecSyncInterval.AsTimeSpan.TotalSeconds 
+                    if (sw.Elapsed.TotalSeconds >= (int)Configuration.Server.CpuCreditsExecSyncInterval.AsTimeSpan.TotalSeconds
                         || CpuCreditsBalance.ForceSync
                         || (duringStartup && startupRetriesSw.Elapsed.TotalSeconds >= TimeSpan.FromMinutes(1).TotalSeconds)) // Time to wait between retries = 1 minute
                     {
@@ -757,7 +758,7 @@ namespace Raven.Server
                     try
                     {
                         ms.Position = 0;
-                        var response = context.ReadForMemory(ms, "cpu-credits-from-script");
+                        var response = context.Sync.ReadForMemory(ms, "cpu-credits-from-script");
                         if (response.TryGet("Error", out string err))
                         {
                             throw new InvalidOperationException("Error from server: " + err);
@@ -930,11 +931,11 @@ namespace Raven.Server
         public void RefreshClusterCertificateTimerCallback(object state)
         {
             RefreshClusterCertificate(state, RaftIdGenerator.NewId());
-            
+
             try
             {
                 UpdateCertificateExpirationAlert();
-        }
+            }
             catch (Exception exception)
             {
                 if (Logger.IsOperationsEnabled)
@@ -1394,9 +1395,9 @@ namespace Raven.Server
                 return LoadCertificate();
             }
             catch (Exception e)
-                {
+            {
                 throw new InvalidOperationException("Unable to start the server.", e);
-                }
+            }
         }
 
         private CertificateHolder LoadCertificate()
@@ -1587,6 +1588,7 @@ namespace Raven.Server
                 case TcpClient tcp:
                     remoteAddress = tcp.Client.RemoteEndPoint.ToString();
                     break;
+
                 case HttpConnectionFeature http:
                     remoteAddress = $"{http.RemoteIpAddress}:{http.RemotePort}";
                     break;
@@ -1859,6 +1861,7 @@ namespace Raven.Server
             {
                 case "localhost.fiddler":
                     return GetListenIpAddresses("localhost");
+
                 default:
                     try
                     {
@@ -1955,7 +1958,7 @@ namespace Raven.Server
                             if (_tcpLogger.IsInfoEnabled)
                                 _tcpLogger.Info("Failed to process TCP connection run", e);
 
-                            SendErrorIfPossible(tcp, e);
+                            await SendErrorIfPossible(tcp, e);
                             try
                             {
                                 tcp?.Dispose();
@@ -2013,7 +2016,7 @@ namespace Raven.Server
                         "tcp-header",
                         BlittableJsonDocumentBuilder.UsageMode.None,
                         buffer,
-                        ServerStore.ServerShutdown,
+                        token: ServerStore.ServerShutdown,
                         // we don't want to allow external (and anonymous) users to send us unlimited data
                         // a maximum of 2 KB for the header is big enough to include any valid header that
                         // we can currently think of
@@ -2076,13 +2079,13 @@ namespace Raven.Server
                             $"Didn't agree on {header.Operation} protocol version: {header.OperationVersion} will request to use version: {supported}.");
                     }
 
-                    RespondToTcpConnection(stream, context, $"Not supporting version {header.OperationVersion} for {header.Operation}", TcpConnectionStatus.TcpVersionMismatch,
+                    await RespondToTcpConnection(stream, context, $"Not supporting version {header.OperationVersion} for {header.Operation}", TcpConnectionStatus.TcpVersionMismatch,
                         supported);
                 }
 
                 bool authSuccessful = TryAuthorize(Configuration, tcp.Stream, header, tcpClient, out var err);
                 //At this stage the error is not relevant.
-                RespondToTcpConnection(stream, context, null,
+                await RespondToTcpConnection(stream, context, null,
                     authSuccessful ? TcpConnectionStatus.Ok : TcpConnectionStatus.AuthorizationFailed,
                     supported);
 
@@ -2193,7 +2196,7 @@ namespace Raven.Server
             }
         }
 
-        private static void RespondToTcpConnection(Stream stream, JsonOperationContext context, string error, TcpConnectionStatus status, int version)
+        private static async ValueTask RespondToTcpConnection(Stream stream, JsonOperationContext context, string error, TcpConnectionStatus status, int version)
         {
             var message = new DynamicJsonValue
             {
@@ -2206,14 +2209,14 @@ namespace Raven.Server
                 message[nameof(TcpConnectionHeaderResponse.Message)] = error;
             }
 
-            using (var writer = new BlittableJsonTextWriter(context, stream))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, stream))
             {
-                context.Write(writer, message);
-                writer.Flush();
+                await context.WriteAsync(writer, message);
+                await writer.FlushAsync();
             }
         }
 
-        private void SendErrorIfPossible(TcpConnectionOptions tcp, Exception e)
+        private async ValueTask SendErrorIfPossible(TcpConnectionOptions tcp, Exception e)
         {
             var tcpStream = tcp?.Stream;
             if (tcpStream == null)
@@ -2222,9 +2225,9 @@ namespace Raven.Server
             try
             {
                 using (var context = JsonOperationContext.ShortTermSingleUse())
-                using (var errorWriter = new BlittableJsonTextWriter(context, tcpStream))
+                await using (var errorWriter = new AsyncBlittableJsonTextWriter(context, tcpStream))
                 {
-                    context.Write(errorWriter, new DynamicJsonValue
+                    await context.WriteAsync(errorWriter, new DynamicJsonValue
                     {
                         ["Type"] = "Error",
                         ["Exception"] = e.ToString(),
@@ -2348,10 +2351,12 @@ namespace Raven.Server
                 case TcpConnectionHeaderMessage.OperationTypes.Subscription:
                     SubscriptionConnection.SendSubscriptionDocuments(ServerStore, tcp, bufferToCopy);
                     break;
+
                 case TcpConnectionHeaderMessage.OperationTypes.Replication:
                     var documentReplicationLoader = tcp.DocumentDatabase.ReplicationLoader;
                     documentReplicationLoader.AcceptIncomingConnection(tcp, header.Operation, bufferToCopy);
                     break;
+
                 default:
                     throw new InvalidOperationException("Unknown operation for TCP " + header.Operation);
             }
@@ -2415,13 +2420,16 @@ namespace Raven.Server
                 case AuthenticationStatus.Expired:
                     msg = $"The provided client certificate ({certificate.FriendlyName} '{certificate.Thumbprint}') is expired on {certificate.NotAfter}";
                     return false;
+
                 case AuthenticationStatus.NotYetValid:
                     msg = $"The provided client certificate ({certificate.FriendlyName} '{certificate.Thumbprint}') is not yet valid because it starts on {certificate.NotBefore}";
                     return false;
+
                 case AuthenticationStatus.ClusterAdmin:
                 case AuthenticationStatus.Operator:
                     msg = "Admin can do it all";
                     return true;
+
                 case AuthenticationStatus.Allowed:
                     switch (header.Operation)
                     {
@@ -2429,6 +2437,7 @@ namespace Raven.Server
                         case TcpConnectionHeaderMessage.OperationTypes.Heartbeats:
                             msg = $"{header.Operation} is a server-wide operation and the certificate ({certificate.FriendlyName} '{certificate.Thumbprint}') is not ClusterAdmin/Operator";
                             return false;
+
                         case TcpConnectionHeaderMessage.OperationTypes.Subscription:
                         case TcpConnectionHeaderMessage.OperationTypes.Replication:
                         case TcpConnectionHeaderMessage.OperationTypes.TestConnection:
@@ -2441,6 +2450,7 @@ namespace Raven.Server
                                 return true;
                             msg = $"The certificate {certificate.FriendlyName} does not allow access to {header.DatabaseName}";
                             return false;
+
                         default:
                             throw new InvalidOperationException("Unknown operation " + header.Operation);
                     }
@@ -2448,6 +2458,7 @@ namespace Raven.Server
                     msg = $"The client certificate {certificate.FriendlyName} is not registered in the cluster. Tried to allow the connection implicitly based on the client certificate's Public Key Pinning Hash but the client certificate was signed by an unknown issuer - closing the connection. " +
                           $"To fix this, the admin can register the pinning hash of the *issuer* certificate: '{auth.IssuerHash}' in the '{RavenConfiguration.GetKey(x => x.Security.WellKnownIssuerHashes)}' configuration entry. Alternatively, the admin can register the actual certificate ({certificate.FriendlyName} '{certificate.Thumbprint}') explicitly in the cluster.";
                     return false;
+
                 case AuthenticationStatus.UnfamiliarCertificate:
                     var info = header.AuthorizeInfo;
                     if (info != null && info.AuthorizeAs == TcpConnectionHeaderMessage.AuthorizationInfo.AuthorizeMethod.PullReplication)
@@ -2557,9 +2568,9 @@ namespace Raven.Server
         public void OpenPipes()
         {
             Pipes.CleanupOldPipeFiles();
-            if(Configuration.Server.DisableLogsStream == false)
+            if (Configuration.Server.DisableLogsStream == false)
                 LogStreamPipe = Pipes.OpenLogStreamPipe();
-            if(Configuration.Server.DisableAdminChannel == false)
+            if (Configuration.Server.DisableAdminChannel == false)
                 AdminConsolePipe = Pipes.OpenAdminConsolePipe();
         }
 
@@ -2582,11 +2593,11 @@ namespace Raven.Server
                 return _forTestingPurposes;
 
             return _forTestingPurposes = new TestingStuff();
-    }
+        }
 
         internal class TestingStuff
         {
             internal bool ThrowExceptionInListenToNewTcpConnection = false;
-}
+        }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Raven.Client.Documents.Operations.CompareExchange;
 using Raven.Client.Documents.Operations.Counters;
@@ -85,24 +86,24 @@ namespace Raven.Server.Documents.Queries
             throw new NotSupportedException();
         }
 
-        public override void HandleException(Exception e)
+        public override async Task HandleExceptionAsync(Exception e)
         {
-            StartResponseIfNeeded();
+            await StartResponseIfNeededAsync();
 
             _anyExceptions = true;
 
-            _writer.EndResults();
-            _writer.WriteError(e);
+            await _writer.EndResultsAsync();
+            await _writer.WriteErrorAsync(e);
 
             throw e;
         }
 
-        public void StartResponseIfNeeded()
+        public async Task StartResponseIfNeededAsync()
         {
             if (_anyWrites)
                 return;
 
-            StartResponse();
+            await StartResponse();
 
             _anyWrites = true;
         }
@@ -113,30 +114,30 @@ namespace Raven.Server.Documents.Queries
         public override bool SupportsHighlighting => false;
         public override bool SupportsExplanations => false;
 
-        public void Flush()// intentionally not using Disposable here, because we need better error handling
+        public async Task FlushAsync()// intentionally not using Disposable here, because we need better error handling
         {
-            StartResponseIfNeeded();
+            await StartResponseIfNeededAsync();
 
-            EndResponse();
+            await EndResponseAsync();
         }
 
-        private void StartResponse()
+        private async Task StartResponse()
         {
-            _writer.StartResponse();
+            await _writer.StartResponseAsync();
 
             if (_writer.SupportStatistics)
             {
-                _writer.WriteQueryStatistics(ResultEtag, IsStale, IndexName, TotalResults, IndexTimestamp);
+                await _writer.WriteQueryStatisticsAsync(ResultEtag, IsStale, IndexName, TotalResults, IndexTimestamp);
             }
-            _writer.StartResults();
+            await _writer.StartResultsAsync();
         }
 
-        private void EndResponse()
+        private async Task EndResponseAsync()
         {
             if (_anyExceptions == false)
-                _writer.EndResults();
+                await _writer.EndResultsAsync();
 
-            _writer.EndResponse();
+            await _writer.EndResponseAsync();
         }
     }
 }

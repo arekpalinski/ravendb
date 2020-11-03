@@ -14,26 +14,24 @@ using Sparrow.Json.Parsing;
 
 namespace Raven.Server.Web.System
 {
-    class CompareExchangeHandler : DatabaseRequestHandler
+    internal class CompareExchangeHandler : DatabaseRequestHandler
     {
         [RavenAction("/databases/*/cmpxchg", "GET", AuthorizationStatus.ValidUser, DisableOnCpuCreditsExhaustion = true)]
-        public Task GetCompareExchangeValues()
+        public async Task GetCompareExchangeValues()
         {
             var keys = GetStringValuesQueryString("key", required: false);
-            
+
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
             using (context.OpenReadTransaction())
             {
                 if (keys.Count > 0)
-                    GetCompareExchangeValuesByKey(context, keys);
+                    await GetCompareExchangeValuesByKey(context, keys);
                 else
-                    GetCompareExchangeValues(context);
+                    await GetCompareExchangeValues(context);
             }
-            
-            return Task.CompletedTask;
         }
 
-        private void GetCompareExchangeValues(TransactionOperationContext context)
+        private async Task GetCompareExchangeValues(TransactionOperationContext context)
         {
             var sw = Stopwatch.StartNew();
 
@@ -44,15 +42,15 @@ namespace Raven.Server.Web.System
             var items = ServerStore.Cluster.GetCompareExchangeValuesStartsWith(context, Database.Name, CompareExchangeKey.GetStorageKey(Database.Name, startsWithKey), start, pageSize);
 
             var numberOfResults = 0;
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                writer.WriteStartObject();
-                
-                writer.WriteArray(context, "Results", items,
+                await writer.WriteStartObjectAsync();
+
+                await writer.WriteArrayAsync(context, "Results", items,
                     (textWriter, operationContext, item) =>
                     {
                         numberOfResults++;
-                        operationContext.Write(textWriter, new DynamicJsonValue
+                        return operationContext.WriteAsync(textWriter, new DynamicJsonValue
                         {
                             [nameof(CompareExchangeListItem.Key)] = item.Key.Key,
                             [nameof(CompareExchangeListItem.Value)] = item.Value,
@@ -60,21 +58,21 @@ namespace Raven.Server.Web.System
                         });
                     });
 
-                writer.WriteEndObject();
+                await writer.WriteEndObjectAsync();
             }
 
-            AddPagingPerformanceHint(PagingOperationType.CompareExchange, nameof(ClusterStateMachine.GetCompareExchangeValuesStartsWith), 
+            AddPagingPerformanceHint(PagingOperationType.CompareExchange, nameof(ClusterStateMachine.GetCompareExchangeValuesStartsWith),
                 HttpContext.Request.QueryString.Value, numberOfResults, pageSize, sw.ElapsedMilliseconds);
         }
-        
+
         public class CompareExchangeListItem
         {
             public string Key { get; set; }
             public object Value { get; set; }
             public long Index { get; set; }
         }
-        
-        private void GetCompareExchangeValuesByKey(TransactionOperationContext context, Microsoft.Extensions.Primitives.StringValues keys)
+
+        private async Task GetCompareExchangeValuesByKey(TransactionOperationContext context, Microsoft.Extensions.Primitives.StringValues keys)
         {
             var sw = Stopwatch.StartNew();
 
@@ -92,15 +90,15 @@ namespace Raven.Server.Web.System
             }
 
             var numberOfResults = 0;
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                writer.WriteStartObject();
-                
-                writer.WriteArray(context, "Results", items,
+                await writer.WriteStartObjectAsync();
+
+                await writer.WriteArrayAsync(context, "Results", items,
                     (textWriter, operationContext, item) =>
                     {
                         numberOfResults++;
-                        operationContext.Write(textWriter, new DynamicJsonValue
+                        return operationContext.WriteAsync(textWriter, new DynamicJsonValue
                         {
                             ["Key"] = item.Key,
                             ["Value"] = item.Value,
@@ -108,13 +106,12 @@ namespace Raven.Server.Web.System
                         });
                     });
 
-                writer.WriteEndObject();
+                await writer.WriteEndObjectAsync();
             }
 
-            AddPagingPerformanceHint(PagingOperationType.CompareExchange, nameof(GetCompareExchangeValuesByKey), HttpContext.Request.QueryString.Value, 
+            AddPagingPerformanceHint(PagingOperationType.CompareExchange, nameof(GetCompareExchangeValuesByKey), HttpContext.Request.QueryString.Value,
                 numberOfResults, keys.Count, sw.ElapsedMilliseconds);
         }
-
 
         [RavenAction("/databases/*/cmpxchg", "PUT", AuthorizationStatus.ValidUser, DisableOnCpuCreditsExhaustion = true)]
         public async Task PutCompareExchangeValue()
@@ -131,13 +128,13 @@ namespace Raven.Server.Web.System
             {
                 var updateJson = await context.ReadForMemoryAsync(RequestBodyStream(), "read-unique-value");
                 var command = new AddOrUpdateCompareExchangeCommand(Database.Name, key, updateJson, index, context, raftRequestId);
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
                     (var raftIndex, var response) = await ServerStore.SendToLeaderAsync(context, command);
                     await ServerStore.Cluster.WaitForIndexNotification(raftIndex);
 
                     var result = (CompareExchangeCommandBase.CompareExchangeResult)response;
-                    context.Write(writer, new DynamicJsonValue
+                    await context.WriteAsync(writer, new DynamicJsonValue
                     {
                         [nameof(CompareExchangeResult<object>.Index)] = result.Index,
                         [nameof(CompareExchangeResult<object>.Value)] = result.Value,
@@ -146,7 +143,7 @@ namespace Raven.Server.Web.System
                 }
             }
         }
-        
+
         [RavenAction("/databases/*/cmpxchg", "DELETE", AuthorizationStatus.ValidUser, DisableOnCpuCreditsExhaustion = true)]
         public async Task DeleteCompareExchangeValue()
         {
@@ -161,13 +158,13 @@ namespace Raven.Server.Web.System
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
             {
                 var command = new RemoveCompareExchangeCommand(Database.Name, key, index, context, raftRequestId);
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
                     (var raftIndex, var response) = await ServerStore.SendToLeaderAsync(context, command);
                     await ServerStore.Cluster.WaitForIndexNotification(raftIndex);
 
                     var result = (CompareExchangeCommandBase.CompareExchangeResult)response;
-                    context.Write(writer, new DynamicJsonValue
+                    await context.WriteAsync(writer, new DynamicJsonValue
                     {
                         [nameof(CompareExchangeResult<object>.Index)] = result.Index,
                         [nameof(CompareExchangeResult<object>.Value)] = result.Value,

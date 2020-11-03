@@ -29,6 +29,7 @@ using Raven.Server.Smuggler.Documents.Data;
 using Raven.Server.Utils;
 using Sparrow.Json;
 using Sparrow.Logging;
+using Sparrow.Server.Json.Sync;
 using DatabaseSmuggler = Raven.Server.Smuggler.Documents.DatabaseSmuggler;
 
 namespace Raven.Server.Documents.PeriodicBackup
@@ -366,7 +367,7 @@ namespace Raven.Server.Documents.PeriodicBackup
                 using (_database.DocumentsStorage.ContextPool.AllocateOperationContext(out JsonOperationContext context))
                 {
                     ms.Position = 0;
-                    var configuration = context.ReadForMemory(ms, "backup-configuration-from-script");
+                    var configuration = context.Sync.ReadForMemory(ms, "backup-configuration-from-script");
                     var result = deserializeSettingsFunc(configuration);
                     if (_isServerWide)
                         updateServerWideSettingsFunc?.Invoke(result);
@@ -619,7 +620,7 @@ namespace Raven.Server.Documents.PeriodicBackup
                         var totalSw = Stopwatch.StartNew();
                         var sw = Stopwatch.StartNew();
                         var compressionLevel = _configuration.SnapshotSettings?.CompressionLevel ?? CompressionLevel.Optimal;
-                        var smugglerResult = _database.FullBackupTo(tempBackupFilePath, compressionLevel,
+                        var smugglerResult = _database.FullBackupToAsync(tempBackupFilePath, compressionLevel,
                             info =>
                             {
                                 AddInfo(info.Message);

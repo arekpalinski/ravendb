@@ -5,6 +5,7 @@ using Raven.Client.Documents.Indexes;
 using Raven.Client.Extensions;
 using Raven.Server.Documents.Indexes.Auto;
 using Sparrow.Json;
+using Sparrow.Server.Json.Sync;
 using Voron;
 
 namespace Raven.Server.Documents.Indexes.MapReduce.Auto
@@ -159,7 +160,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce.Auto
                 {
                     if (stream == null)
                         return null;
-                    using (var reader = context.ReadForDisk(stream, string.Empty))
+                    using (var reader = context.Sync.ReadForDisk(stream, string.Empty))
                     {
                         return LoadFromJson(reader);
                     }

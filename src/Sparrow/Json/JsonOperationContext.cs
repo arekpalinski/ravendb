@@ -24,7 +24,7 @@ namespace Sparrow.Json
     /// <summary>
     /// Single threaded for contexts
     /// </summary>
-    public class JsonOperationContext : PooledItem
+    public partial class JsonOperationContext : PooledItem
     {
         private int _generation;
         internal long PoolGeneration;
@@ -57,16 +57,28 @@ namespace Sparrow.Json
         private LazyStringValue _empty;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe LazyStringValue AllocateStringValue(string str, UnmanagedMemory ptr, int size)
+        {
+            return AllocateStringValue(str, ptr, ptr.Address, size);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe LazyStringValue AllocateStringValue(string str, byte* ptr, int size)
+        {
+            return AllocateStringValue(str, null, ptr, size);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private unsafe LazyStringValue AllocateStringValue(string str, UnmanagedMemory memory, byte* ptr, int size)
         {
             if (_numberOfAllocatedStringsValues < _allocateStringValues.Count)
             {
                 var lazyStringValue = _allocateStringValues[_numberOfAllocatedStringsValues++];
-                lazyStringValue.Renew(str, ptr, size, this);
+                lazyStringValue.Renew(str, memory, ptr, size, this);
                 return lazyStringValue;
             }
 
-            var allocateStringValue = new LazyStringValue(str, ptr, size, this);
+            var allocateStringValue = new LazyStringValue(str, memory, ptr, size, this);
             if (_numberOfAllocatedStringsValues < _maxNumberOfAllocatedStringValues)
             {
                 _allocateStringValues.Add(allocateStringValue);
@@ -153,7 +165,7 @@ namespace Sparrow.Json
             LowMemoryFlag = lowMemoryFlag;
             if (_perCorePathCache.TryPull(out _activeAllocatePathCaches) == false)
                 _activeAllocatePathCaches = new PathCache();
-            if(_perCoreLazyStringValuesList.TryPull(out _allocateStringValues) == false)
+            if (_perCoreLazyStringValuesList.TryPull(out _allocateStringValues) == false)
                 _allocateStringValues = new FastList<LazyStringValue>(256);
 
 #if MEM_GUARD_STACK
@@ -167,7 +179,7 @@ namespace Sparrow.Json
             EnsureNotDisposed();
 
             var rawMemory = GetMemory(MemoryBuffer.Size);
-            buffer = new MemoryBuffer(rawMemory.MemoryManager.Memory, rawMemory.ContextGeneration, this);
+            buffer = new MemoryBuffer(rawMemory.Memory, rawMemory.ContextGeneration, this);
 
             return new MemoryBuffer.ReturnBuffer(rawMemory, buffer, this);
         }
@@ -177,14 +189,14 @@ namespace Sparrow.Json
             public const int Size = 32 * Constants.Size.Kilobyte;
 
 #if DEBUG
-            private Memory<byte> _memory;
+            private UnmanagedMemory _memory;
             private byte* _pointer;
             private int _length;
 
             private readonly int _generation;
             private readonly JsonOperationContext _parent;
 
-            public Memory<byte> Memory
+            public UnmanagedMemory Memory
             {
                 get
                 {
@@ -216,7 +228,7 @@ namespace Sparrow.Json
 
             public bool IsReleased;
 #else
-            public readonly Memory<byte> Memory;
+            public readonly UnmanagedMemory Memory;
 
             public readonly byte* Pointer;
 
@@ -227,13 +239,11 @@ namespace Sparrow.Json
 
             public int Used;
 
-            public MemoryBuffer(Memory<byte> buffer, int generation, JsonOperationContext context)
+            public MemoryBuffer(UnmanagedMemory buffer, int generation, JsonOperationContext context)
             {
                 Memory = buffer;
-                Length = buffer.Length;
-
-                fixed (byte* pointer = buffer.Span)
-                    Pointer = pointer;
+                Length = buffer.Size;
+                Pointer = buffer.Address;
 
                 Valid = 0;
                 Used = 0;
@@ -254,7 +264,7 @@ namespace Sparrow.Json
                     buffer.Valid = Valid - Used;
                     buffer.Used = 0;
 
-                    Memory.Span.Slice(Used, buffer.Valid).CopyTo(buffer.Memory.Span);
+                    Memory.Memory.Span.Slice(Used, buffer.Valid).CopyTo(buffer.Memory.Memory.Span);
 
                     return (clean, buffer);
                 }
@@ -482,13 +492,13 @@ namespace Sparrow.Json
 
             fixed (char* pField = field.Buffer)
             {
-                var address = memory.Address;
+                var address = memory.Memory.Address;
                 var actualSize = Encodings.Utf8.GetBytes(pField + field.Offset, field.Length, address, memory.SizeInBytes);
 
                 state.FindEscapePositionsIn(address, ref actualSize, escapePositionsSize);
 
                 state.WriteEscapePositionsTo(address + actualSize);
-                LazyStringValue result = longLived == false ? AllocateStringValue(field.Value, address, actualSize) : new LazyStringValue(field.Value, address, actualSize, this);
+                LazyStringValue result = longLived == false ? AllocateStringValue(field.Value, memory.Memory, actualSize) : new LazyStringValue(field.Value, memory.Memory, actualSize, this);
                 result.AllocatedMemoryData = memory;
 
                 if (state.EscapePositions.Count > 0)
@@ -509,14 +519,14 @@ namespace Sparrow.Json
             int memorySize = maxByteCount + escapePositionsSize;
             var memory = longLived ? GetLongLivedMemory(memorySize) : GetMemory(memorySize);
 
-            var address = memory.Address;
+            var address = memory.Memory.Address;
 
             Memory.Copy(address, ptr, size);
 
             state.FindEscapePositionsIn(address, ref size, escapePositionsSize);
 
             state.WriteEscapePositionsTo(address + size);
-            LazyStringValue result = longLived == false ? AllocateStringValue(null, address, size) : new LazyStringValue(null, address, size, this);
+            LazyStringValue result = longLived == false ? AllocateStringValue(null, memory.Memory, size) : new LazyStringValue(null, memory.Memory, size, this);
             result.AllocatedMemoryData = memory;
 
             if (state.EscapePositions.Count > 0)
@@ -534,50 +544,20 @@ namespace Sparrow.Json
             return AllocateStringValue(null, ptr + offset, size);
         }
 
-        public BlittableJsonReaderObject ReadForDisk(Stream stream, string documentId)
-        {
-            return ParseToMemory(stream, documentId, BlittableJsonDocumentBuilder.UsageMode.ToDisk);
-        }
-
         public ValueTask<BlittableJsonReaderObject> ReadForDiskAsync(Stream stream, string documentId, CancellationToken? token = null)
         {
-            return ParseToMemoryAsync(stream, documentId, BlittableJsonDocumentBuilder.UsageMode.ToDisk, token);
+            return ParseToMemoryAsync(stream, documentId, BlittableJsonDocumentBuilder.UsageMode.ToDisk, modifier: null, token: token);
         }
 
         public ValueTask<BlittableJsonReaderObject> ReadForMemoryAsync(Stream stream, string documentId, CancellationToken? token = null)
         {
-            return ParseToMemoryAsync(stream, documentId, BlittableJsonDocumentBuilder.UsageMode.None, token);
+            return ParseToMemoryAsync(stream, documentId, BlittableJsonDocumentBuilder.UsageMode.None, modifier: null, token: token);
         }
 
-        public BlittableJsonReaderObject ReadForMemory(Stream stream, string documentId)
+        private async ValueTask<BlittableJsonReaderObject> ParseToMemoryAsync(Stream stream, string debugTag, BlittableJsonDocumentBuilder.UsageMode mode, IBlittableDocumentModifier modifier = null, CancellationToken? token = null)
         {
-            return ParseToMemory(stream, documentId, BlittableJsonDocumentBuilder.UsageMode.None);
-        }
-
-        public unsafe BlittableJsonReaderObject ReadForMemory(string jsonString, string documentId)
-        {
-            // todo: maybe use ManagedPinnedBuffer here
-            var maxByteSize = Encodings.Utf8.GetMaxByteCount(jsonString.Length);
-
-            fixed (char* val = jsonString)
-            {
-                var buffer = ArrayPool<byte>.Shared.Rent(maxByteSize);
-                try
-                {
-                    fixed (byte* buf = buffer)
-                    {
-                        Encodings.Utf8.GetBytes(val, jsonString.Length, buf, maxByteSize);
-                        using (var ms = new MemoryStream(buffer))
-                        {
-                            return ReadForMemory(ms, documentId);
-                        }
-                    }
-                }
-                finally
-                {
-                    ArrayPool<byte>.Shared.Return(buffer);
-                }
-            }
+            using (GetMemoryBuffer(out var bytes))
+                return await ParseToMemoryAsync(stream, debugTag, mode, bytes, modifier, token).ConfigureAwait(false);
         }
 
         public BlittableJsonReaderObject ReadObject(DynamicJsonValue builder, string documentId,
@@ -611,7 +591,7 @@ namespace Sparrow.Json
             return reader;
         }
 
-        public async Task<BlittableJsonReaderObject> ReadFromWebSocket(
+        public async Task<BlittableJsonReaderObject> ReadFromWebSocketAsync(
             WebSocket webSocket,
             string debugTag,
             CancellationToken token)
@@ -634,7 +614,7 @@ namespace Sparrow.Json
                 try
                 {
                     builder.ReadObjectDocument();
-                    var result = await webSocket.ReceiveAsync(bytes.Memory, token).ConfigureAwait(false);
+                    var result = await webSocket.ReceiveAsync(bytes.Memory.Memory, token).ConfigureAwait(false);
 
                     token.ThrowIfCancellationRequested();
                     EnsureNotDisposed();
@@ -651,7 +631,7 @@ namespace Sparrow.Json
                         bytes.Used += parser.BufferOffset;
                         if (read)
                             break;
-                        result = await webSocket.ReceiveAsync(bytes.Memory, token).ConfigureAwait(false);
+                        result = await webSocket.ReceiveAsync(bytes.Memory.Memory, token).ConfigureAwait(false);
                         token.ThrowIfCancellationRequested();
                         EnsureNotDisposed();
                         bytes.Valid = result.Count;
@@ -672,54 +652,6 @@ namespace Sparrow.Json
                 DisposeIfNeeded(generation, parser, builder);
                 if (generation == _generation)
                     managedBuffer.Dispose();
-            }
-        }
-
-        public BlittableJsonReaderObject Read(Stream stream, string documentId, IBlittableDocumentModifier modifier = null)
-        {
-            var state = BlittableJsonDocumentBuilder.UsageMode.ToDisk;
-            return ParseToMemory(stream, documentId, state, modifier);
-        }
-
-        private BlittableJsonReaderObject ParseToMemory(Stream stream, string debugTag, BlittableJsonDocumentBuilder.UsageMode mode, IBlittableDocumentModifier modifier = null)
-        {
-            using (GetMemoryBuffer(out var bytes))
-                return ParseToMemory(stream, debugTag, mode, bytes, modifier);
-        }
-
-        public BlittableJsonReaderObject ParseToMemory(Stream stream, string debugTag,
-            BlittableJsonDocumentBuilder.UsageMode mode,
-            MemoryBuffer bytes, IBlittableDocumentModifier modifier = null)
-        {
-            EnsureNotDisposed();
-
-            _jsonParserState.Reset();
-            using (var parser = new UnmanagedJsonParser(this, _jsonParserState, debugTag))
-            using (var builder = new BlittableJsonDocumentBuilder(this, mode, debugTag, parser, _jsonParserState, modifier: modifier))
-            {
-                CachedProperties.NewDocument();
-                builder.ReadObjectDocument();
-                while (true)
-                {
-                    if (bytes.Valid == bytes.Used)
-                    {
-                        var read = stream.Read(bytes.Memory.Span);
-                        EnsureNotDisposed();
-                        if (read == 0)
-                            throw new EndOfStreamException("Stream ended without reaching end of json content");
-                        bytes.Valid = read;
-                        bytes.Used = 0;
-                    }
-                    parser.SetBuffer(bytes);
-                    var result = builder.Read();
-                    bytes.Used += parser.BufferOffset;
-                    if (result)
-                        break;
-                }
-                builder.FinalizeDocument();
-
-                var reader = builder.CreateReader();
-                return reader;
             }
         }
 
@@ -759,14 +691,14 @@ namespace Sparrow.Json
                 CachedProperties.NewDocument();
                 builder.ReadArrayDocument();
 
-                var maxChars = buffer.Memory.Length / 8; //utf8 max size is 8 bytes, must consider worst case possible
+                var maxChars = buffer.Memory.Memory.Length / 8; //utf8 max size is 8 bytes, must consider worst case possible
 
                 bool lastReadResult = false;
                 var valueAsSpan = value.AsSpan();
                 for (int i = 0; i < value.Length; i += maxChars)
                 {
                     var charsToRead = Math.Min(value.Length - i, maxChars);
-                    var length = Encodings.Utf8.GetBytes(valueAsSpan.Slice(i, charsToRead), buffer.Memory.Span);
+                    var length = Encodings.Utf8.GetBytes(valueAsSpan.Slice(i, charsToRead), buffer.Memory.Memory.Span);
 
                     parser.SetBuffer(buffer, 0, length);
                     lastReadResult = builder.Read();
@@ -780,10 +712,13 @@ namespace Sparrow.Json
             }
         }
 
-        public async ValueTask<BlittableJsonReaderObject> ParseToMemoryAsync(WebSocket webSocket, string debugTag,
-           BlittableJsonDocumentBuilder.UsageMode mode,
-           MemoryBuffer bytes,
-           CancellationToken token = default)
+        public async ValueTask<BlittableJsonReaderObject> ParseToMemoryAsync(
+            WebSocket webSocket,
+            string debugTag,
+            BlittableJsonDocumentBuilder.UsageMode mode,
+            MemoryBuffer bytes,
+            IBlittableDocumentModifier modifier = null,
+            CancellationToken token = default)
         {
             EnsureNotDisposed();
 
@@ -794,14 +729,14 @@ namespace Sparrow.Json
             try
             {
                 parser = new UnmanagedJsonParser(this, _jsonParserState, debugTag);
-                builder = new BlittableJsonDocumentBuilder(this, mode, debugTag, parser, _jsonParserState);
+                builder = new BlittableJsonDocumentBuilder(this, mode, debugTag, parser, _jsonParserState, modifier: modifier);
                 CachedProperties.NewDocument();
                 builder.ReadObjectDocument();
                 while (true)
                 {
                     if (bytes.Valid == bytes.Used)
                     {
-                        var read = await webSocket.ReceiveAsync(bytes.Memory, token).ConfigureAwait(false);
+                        var read = await webSocket.ReceiveAsync(bytes.Memory.Memory, token).ConfigureAwait(false);
 
                         EnsureNotDisposed();
 
@@ -836,10 +771,15 @@ namespace Sparrow.Json
         private async ValueTask<BlittableJsonReaderObject> ParseToMemoryAsync(Stream stream, string documentId, BlittableJsonDocumentBuilder.UsageMode mode, CancellationToken? token = null)
         {
             using (GetMemoryBuffer(out MemoryBuffer bytes))
-                return await ParseToMemoryAsync(stream, documentId, mode, bytes, token).ConfigureAwait(false);
+                return await ParseToMemoryAsync(stream, documentId, mode, bytes, modifier: null, token).ConfigureAwait(false);
         }
 
-        public async ValueTask<BlittableJsonReaderObject> ParseToMemoryAsync(Stream stream, string documentId, BlittableJsonDocumentBuilder.UsageMode mode, MemoryBuffer bytes,
+        public async ValueTask<BlittableJsonReaderObject> ParseToMemoryAsync(
+            Stream stream,
+            string documentId,
+            BlittableJsonDocumentBuilder.UsageMode mode,
+            MemoryBuffer bytes,
+            IBlittableDocumentModifier modifier = null,
             CancellationToken? token = null,
             int maxSize = int.MaxValue)
         {
@@ -853,7 +793,7 @@ namespace Sparrow.Json
             try
             {
                 parser = new UnmanagedJsonParser(this, _jsonParserState, documentId);
-                builder = new BlittableJsonDocumentBuilder(this, mode, documentId, parser, _jsonParserState);
+                builder = new BlittableJsonDocumentBuilder(this, mode, documentId, parser, _jsonParserState, modifier: modifier);
 
                 CachedProperties.NewDocument();
                 builder.ReadObjectDocument();
@@ -863,8 +803,8 @@ namespace Sparrow.Json
                     if (bytes.Valid == bytes.Used)
                     {
                         var read = token.HasValue
-                            ? await stream.ReadAsync(bytes.Memory, token.Value).ConfigureAwait(false)
-                            : await stream.ReadAsync(bytes.Memory).ConfigureAwait(false);
+                            ? await stream.ReadAsync(bytes.Memory.Memory, token.Value).ConfigureAwait(false)
+                            : await stream.ReadAsync(bytes.Memory.Memory).ConfigureAwait(false);
 
                         EnsureNotDisposed();
 
@@ -921,7 +861,7 @@ namespace Sparrow.Json
 
             if (_perCorePathCache.TryPull(out _activeAllocatePathCaches) == false)
                 _activeAllocatePathCaches = new PathCache();
-            if(_perCoreLazyStringValuesList.TryPull(out _allocateStringValues) == false)
+            if (_perCoreLazyStringValuesList.TryPull(out _allocateStringValues) == false)
                 _allocateStringValues = new FastList<LazyStringValue>(256);
 
             _arenaAllocator.RenewArena();
@@ -935,7 +875,7 @@ namespace Sparrow.Json
 
         protected internal virtual unsafe void Reset(bool forceReleaseLongLivedAllocator = false)
         {
-            if (_tempBuffer != null && _tempBuffer.Address != null)
+            if (_tempBuffer != null && _tempBuffer.Memory.Address != null)
             {
                 _arenaAllocator.Return(_tempBuffer);
                 _tempBuffer = null;
@@ -975,7 +915,7 @@ namespace Sparrow.Json
 
             _perCoreLazyStringValuesList.Push(_allocateStringValues);
             _allocateStringValues = null;
-            
+
             _numberOfAllocatedStringsValues = 0;
 
             _objectJsonParser.Reset(null);
@@ -1015,40 +955,40 @@ namespace Sparrow.Json
             _activeAllocatePathCaches.ReleasePathCache(pathCache, pathCacheByIndex);
         }
 
-        public void Write(Stream stream, BlittableJsonReaderObject json)
+        public async ValueTask WriteAsync(Stream stream, BlittableJsonReaderObject json, CancellationToken token = default)
         {
             EnsureNotDisposed();
-            using (var writer = new BlittableJsonTextWriter(this, stream))
+            await using (var writer = new AsyncBlittableJsonTextWriter(this, stream))
             {
-                writer.WriteObject(json);
+                await writer.WriteObjectAsync(json, token).ConfigureAwait(false);
             }
         }
 
-        public void Write(AbstractBlittableJsonTextWriter writer, BlittableJsonReaderObject json)
+        public ValueTask WriteAsync(AsyncBlittableJsonTextWriter writer, BlittableJsonReaderObject json, CancellationToken token = default)
         {
             EnsureNotDisposed();
-            WriteInternal(writer, json);
+            return WriteInternalAsync(writer, json, token);
         }
 
-        private void WriteInternal(AbstractBlittableJsonTextWriter writer, object json)
+        private async ValueTask WriteInternalAsync(AsyncBlittableJsonTextWriter writer, object json, CancellationToken token)
         {
             _jsonParserState.Reset();
             _objectJsonParser.Reset(json);
 
             _objectJsonParser.Read();
 
-            WriteObject(writer, _jsonParserState, _objectJsonParser);
+            await WriteObjectAsync(writer, _jsonParserState, _objectJsonParser, token).ConfigureAwait(false);
 
             _objectJsonParser.Reset(null);
         }
 
-        public void Write(AbstractBlittableJsonTextWriter writer, DynamicJsonValue json)
+        public ValueTask WriteAsync(AsyncBlittableJsonTextWriter writer, DynamicJsonValue json, CancellationToken token = default)
         {
             EnsureNotDisposed();
-            WriteInternal(writer, json);
+            return WriteInternalAsync(writer, json, token);
         }
 
-        public void Write(AbstractBlittableJsonTextWriter writer, DynamicJsonArray json)
+        public async ValueTask WriteAsync(AsyncBlittableJsonTextWriter writer, DynamicJsonArray json, CancellationToken token = default)
         {
             EnsureNotDisposed();
             _jsonParserState.Reset();
@@ -1056,18 +996,18 @@ namespace Sparrow.Json
 
             _objectJsonParser.Read();
 
-            WriteArray(writer, _jsonParserState, _objectJsonParser);
+            await WriteArrayAsync(writer, _jsonParserState, _objectJsonParser, token).ConfigureAwait(false);
 
             _objectJsonParser.Reset(null);
         }
 
-        public unsafe void WriteObject(AbstractBlittableJsonTextWriter writer, JsonParserState state, ObjectJsonParser parser)
+        public async ValueTask WriteObjectAsync(AsyncBlittableJsonTextWriter writer, JsonParserState state, ObjectJsonParser parser, CancellationToken token = default)
         {
             EnsureNotDisposed();
             if (state.CurrentTokenType != JsonParserToken.StartObject)
                 throw new InvalidOperationException("StartObject expected, but got " + state.CurrentTokenType);
 
-            writer.WriteStartObject();
+            await writer.WriteStartObjectAsync(token).ConfigureAwait(false);
             bool first = true;
             while (true)
             {
@@ -1080,69 +1020,77 @@ namespace Sparrow.Json
                     throw new InvalidOperationException("Property expected, but got " + state.CurrentTokenType);
 
                 if (first == false)
-                    writer.WriteComma();
+                    await writer.WriteCommaAsync(token).ConfigureAwait(false);
                 first = false;
 
                 var lazyStringValue = AllocateStringValue(null, state.StringBuffer, state.StringSize);
-                writer.WritePropertyName(lazyStringValue);
+                await writer.WritePropertyNameAsync(lazyStringValue, token).ConfigureAwait(false);
 
                 if (parser.Read() == false)
                     throw new InvalidOperationException("Object json parser can't return partial results");
 
-                WriteValue(writer, state, parser);
+                await WriteValueAsync(writer, state, parser, token).ConfigureAwait(false);
             }
-            writer.WriteEndObject();
+            await writer.WriteEndObjectAsync(token).ConfigureAwait(false);
         }
 
-        private unsafe void WriteValue(AbstractBlittableJsonTextWriter writer, JsonParserState state, ObjectJsonParser parser)
+        private async ValueTask WriteValueAsync(AsyncBlittableJsonTextWriter writer, JsonParserState state, ObjectJsonParser parser, CancellationToken token)
         {
             switch (state.CurrentTokenType)
             {
                 case JsonParserToken.Null:
-                    writer.WriteNull();
+                    await writer.WriteNullAsync(token).ConfigureAwait(false);
                     break;
+
                 case JsonParserToken.False:
-                    writer.WriteBool(false);
+                    await writer.WriteBoolAsync(false, token).ConfigureAwait(false);
                     break;
+
                 case JsonParserToken.True:
-                    writer.WriteBool(true);
+                    await writer.WriteBoolAsync(true, token).ConfigureAwait(false);
                     break;
+
                 case JsonParserToken.String:
                     if (state.CompressedSize.HasValue)
                     {
                         var lazyCompressedStringValue = new LazyCompressedStringValue(null, state.StringBuffer,
                             state.StringSize, state.CompressedSize.Value, this);
-                        writer.WriteString(lazyCompressedStringValue);
+                        await writer.WriteStringAsync(lazyCompressedStringValue, token).ConfigureAwait(false);
                     }
                     else
                     {
-                        writer.WriteString(AllocateStringValue(null, state.StringBuffer, state.StringSize));
+                        await writer.WriteStringAsync(AllocateStringValue(null, state.StringBuffer, state.StringSize), token: token).ConfigureAwait(false);
                     }
                     break;
+
                 case JsonParserToken.Float:
-                    writer.WriteDouble(new LazyNumberValue(AllocateStringValue(null, state.StringBuffer, state.StringSize)));
+                    await writer.WriteDoubleAsync(new LazyNumberValue(AllocateStringValue(null, state.StringBuffer, state.StringSize)), token).ConfigureAwait(false);
                     break;
+
                 case JsonParserToken.Integer:
-                    writer.WriteInteger(state.Long);
+                    await writer.WriteIntegerAsync(state.Long, token).ConfigureAwait(false);
                     break;
+
                 case JsonParserToken.StartObject:
-                    WriteObject(writer, state, parser);
+                    await WriteObjectAsync(writer, state, parser, token).ConfigureAwait(false);
                     break;
+
                 case JsonParserToken.StartArray:
-                    WriteArray(writer, state, parser);
+                    await WriteArrayAsync(writer, state, parser, token).ConfigureAwait(false);
                     break;
+
                 default:
                     throw new ArgumentOutOfRangeException("Could not understand " + state.CurrentTokenType);
             }
         }
 
-        public void WriteArray(AbstractBlittableJsonTextWriter writer, JsonParserState state, ObjectJsonParser parser)
+        public async ValueTask WriteArrayAsync(AsyncBlittableJsonTextWriter writer, JsonParserState state, ObjectJsonParser parser, CancellationToken token)
         {
             EnsureNotDisposed();
             if (state.CurrentTokenType != JsonParserToken.StartArray)
                 throw new InvalidOperationException("StartArray expected, but got " + state.CurrentTokenType);
 
-            writer.WriteStartArray();
+            await writer.WriteStartArrayAsync(token).ConfigureAwait(false);
             bool first = true;
             while (true)
             {
@@ -1153,12 +1101,12 @@ namespace Sparrow.Json
                     break;
 
                 if (first == false)
-                    writer.WriteComma();
+                    await writer.WriteCommaAsync(token).ConfigureAwait(false);
                 first = false;
 
-                WriteValue(writer, state, parser);
+                await WriteValueAsync(writer, state, parser, token).ConfigureAwait(false);
             }
-            writer.WriteEndArray();
+            await writer.WriteEndArrayAsync(token).ConfigureAwait(false);
         }
 
         public bool GrowAllocation(AllocatedMemoryData allocation, int sizeIncrease)

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Threading.Tasks;
 using Raven.Client.Documents.Queries;
 using Raven.Server.Json;
 using Raven.Server.ServerWide;
@@ -18,11 +19,11 @@ namespace Raven.Server.Documents.Queries
         public long QueryId { get; }
 
         public bool IsStreaming { get; }
-        
+
         public OperationCancelToken Token { get; }
 
         public long DurationInMs => _stopwatch.ElapsedMilliseconds;
-        
+
         public TimeSpan Duration => _stopwatch.Elapsed;
 
         private readonly Stopwatch _stopwatch;
@@ -38,38 +39,38 @@ namespace Raven.Server.Documents.Queries
             Token = token;
         }
 
-        public void Write(AsyncBlittableJsonTextWriter writer, JsonOperationContext context)
+        public async ValueTask Write(AsyncBlittableJsonTextWriter writer, JsonOperationContext context)
         {
-            writer.WriteStartObject();
+            await writer.WriteStartObjectAsync();
 
-            writer.WritePropertyName(nameof(DurationInMs));
-            writer.WriteDouble(DurationInMs);
-            writer.WriteComma();
-            
-            writer.WritePropertyName(nameof(Duration));
-            writer.WriteString(Duration.ToString());
-            writer.WriteComma();
+            await writer.WritePropertyNameAsync(nameof(DurationInMs));
+            await writer.WriteDoubleAsync(DurationInMs);
+            await writer.WriteCommaAsync();
 
-            writer.WritePropertyName(nameof(IndexName));
-            writer.WriteString(IndexName);
-            writer.WriteComma();
+            await writer.WritePropertyNameAsync(nameof(Duration));
+            await writer.WriteStringAsync(Duration.ToString());
+            await writer.WriteCommaAsync();
 
-            writer.WritePropertyName(nameof(QueryId));
-            writer.WriteInteger(QueryId);
-            writer.WriteComma();
+            await writer.WritePropertyNameAsync(nameof(IndexName));
+            await writer.WriteStringAsync(IndexName);
+            await writer.WriteCommaAsync();
 
-            writer.WritePropertyName(nameof(StartTime));
-            writer.WriteDateTime(StartTime, isUtc: true);
-            writer.WriteComma();
+            await writer.WritePropertyNameAsync(nameof(QueryId));
+            await writer.WriteIntegerAsync(QueryId);
+            await writer.WriteCommaAsync();
 
-            writer.WritePropertyName(nameof(QueryInfo));
-            writer.WriteIndexQuery(context, QueryInfo);
-            writer.WriteComma();
-            
-            writer.WritePropertyName(nameof(IsStreaming));
-            writer.WriteBool(IsStreaming);
+            await writer.WritePropertyNameAsync(nameof(StartTime));
+            await writer.WriteDateTimeAsync(StartTime, isUtc: true);
+            await writer.WriteCommaAsync();
 
-            writer.WriteEndObject();
+            await writer.WritePropertyNameAsync(nameof(QueryInfo));
+            await writer.WriteIndexQuery(context, QueryInfo);
+            await writer.WriteCommaAsync();
+
+            await writer.WritePropertyNameAsync(nameof(IsStreaming));
+            await writer.WriteBoolAsync(IsStreaming);
+
+            await writer.WriteEndObjectAsync();
         }
     }
 }

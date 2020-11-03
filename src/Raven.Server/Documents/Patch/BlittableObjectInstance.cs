@@ -14,6 +14,7 @@ using Raven.Client.Documents.Indexes;
 using Raven.Server.Documents.Indexes;
 using Raven.Server.Documents.Queries.Results;
 using Sparrow.Json;
+using Sparrow.Server.Json.Sync;
 
 namespace Raven.Server.Documents.Patch
 {
@@ -137,7 +138,7 @@ namespace Raven.Server.Documents.Patch
                             var field = propertyFields[i];
                             var stringValue = field.StringValue(parent.LuceneState);
 
-                            var itemAsBlittable = parent.Blittable._context.ReadForMemory(stringValue, field.Name);
+                            var itemAsBlittable = parent.Blittable._context.Sync.ReadForMemory(stringValue, field.Name);
 
                             arrayItems[i] = TranslateToJs(parent, field.Name, BlittableJsonToken.StartObject, itemAsBlittable);
                         }
@@ -158,7 +159,7 @@ namespace Raven.Server.Documents.Patch
                 var val = fieldable.StringValue(_parent.LuceneState);
                 if (fieldType.IsJson)
                 {
-                    BlittableJsonReaderObject valueAsBlittable = parent.Blittable._context.ReadForMemory(val, property);
+                    BlittableJsonReaderObject valueAsBlittable = parent.Blittable._context.Sync.ReadForMemory(val, property);
                     value = TranslateToJs(parent, property, BlittableJsonToken.StartObject, valueAsBlittable);
                     return true;
                 }

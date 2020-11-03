@@ -9,7 +9,7 @@ namespace Raven.Server.Web.System
     public sealed class DebugHandler : RequestHandler
     {
         [RavenAction("/debug/routes", "GET", AuthorizationStatus.ValidUser)]
-        public Task Routes()
+        public async Task Routes()
         {
             var debugRoutes = Server.Router.AllRoutes
                 .Where(x => x.IsDebugInformationEndpoint)
@@ -22,56 +22,54 @@ namespace Raven.Server.Web.System
                 .OrderBy(x => x.Key);
 
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                writer.WriteStartObject();
-                writer.WritePropertyName("Debug");
-                writer.WriteStartArray();
+                await writer.WriteStartObjectAsync();
+                await writer.WritePropertyNameAsync("Debug");
+                await writer.WriteStartArrayAsync();
                 var first = true;
                 foreach (var route in debugRoutes)
                 {
                     if (first == false)
                     {
-                        writer.WriteComma();
+                        await writer.WriteCommaAsync();
                     }
                     first = false;
 
-                    writer.WriteStartObject();
-                    writer.WritePropertyName("Path");
-                    writer.WriteString(route.Key);
-                    writer.WriteComma();
-                    writer.WritePropertyName("Methods");
-                    writer.WriteString(string.Join(", ", route.Select(x => x.Method)));
-                    writer.WriteEndObject();
+                    await writer.WriteStartObjectAsync();
+                    await writer.WritePropertyNameAsync("Path");
+                    await writer.WriteStringAsync(route.Key);
+                    await writer.WriteCommaAsync();
+                    await writer.WritePropertyNameAsync("Methods");
+                    await writer.WriteStringAsync(string.Join(", ", route.Select(x => x.Method)));
+                    await writer.WriteEndObjectAsync();
                 }
-                writer.WriteEndArray();
+                await writer.WriteEndArrayAsync();
 
-                writer.WriteComma();
-                writer.WritePropertyName("Production");
-                writer.WriteStartArray();
+                await writer.WriteCommaAsync();
+                await writer.WritePropertyNameAsync("Production");
+                await writer.WriteStartArrayAsync();
                 first = true;
                 foreach (var route in productionRoutes)
                 {
                     if (first == false)
                     {
-                        writer.WriteComma();
+                        await writer.WriteCommaAsync();
                     }
                     first = false;
 
-                    writer.WriteStartObject();
-                    writer.WritePropertyName("Path");
-                    writer.WriteString(route.Key);
-                    writer.WriteComma();
-                    writer.WritePropertyName("Methods");
-                    writer.WriteString(string.Join(", ", route.Select(x => x.Method)));
-                    writer.WriteEndObject();
+                    await writer.WriteStartObjectAsync();
+                    await writer.WritePropertyNameAsync("Path");
+                    await writer.WriteStringAsync(route.Key);
+                    await writer.WriteCommaAsync();
+                    await writer.WritePropertyNameAsync("Methods");
+                    await writer.WriteStringAsync(string.Join(", ", route.Select(x => x.Method)));
+                    await writer.WriteEndObjectAsync();
                 }
-                writer.WriteEndArray();
+                await writer.WriteEndArrayAsync();
 
-                writer.WriteEndObject();
+                await writer.WriteEndObjectAsync();
             }
-
-            return Task.CompletedTask;
         }
     }
 }

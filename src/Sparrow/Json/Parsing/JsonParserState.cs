@@ -8,7 +8,7 @@ namespace Sparrow.Json.Parsing
     {
         public const int EscapePositionItemSize = 5;
         public const int ControlCharacterItemSize = 5;
-        public byte* StringBuffer;
+        public UnmanagedMemory StringBuffer;
         public int StringSize;
         public int? CompressedSize;
         public long Long;
@@ -184,7 +184,7 @@ namespace Sparrow.Json.Parsing
                     Buffer.MemoryCopy(from, to, (uint)sizeToCopy, (uint)sizeToCopy);
                     str[i] = (byte)'\\';
                     str[i + 1] = (byte)'u';
-                    fixed (byte* controlString = AbstractBlittableJsonTextWriter.ControlCodeEscapes[value])
+                    fixed (byte* controlString = AsyncBlittableJsonTextWriter.ControlCodeEscapes[value])
                     {
                         Memory.Copy(str + i + 2, controlString, 4);
                     }
@@ -213,7 +213,7 @@ namespace Sparrow.Json.Parsing
 
         public void Reset()
         {
-            StringBuffer = null;
+            //StringBuffer = null; // TODO [ppekrol]
             StringSize = 0;
             CompressedSize = null;
             Long = 0;

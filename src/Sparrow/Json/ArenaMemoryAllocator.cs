@@ -78,7 +78,7 @@ namespace Sparrow.Json
 
         public bool GrowAllocation(AllocatedMemoryData allocation, int sizeIncrease)
         {
-            byte* end = allocation.Address + allocation.SizeInBytes;
+            byte* end = allocation.Memory.Address + allocation.SizeInBytes;
             var distance = end - _ptrCurrent;
             if (distance != 0)
                 return false;
@@ -122,11 +122,7 @@ namespace Sparrow.Json
                 var section = _freed[index];
                 _freed[index] = section->Previous;
 
-                allocation = new AllocatedMemoryData()
-                {
-                    Address = (byte*)section,
-                    SizeInBytes = section->SizeInBytes
-                };
+                allocation = new AllocatedMemoryData((byte*)section, section->SizeInBytes);
                 goto Return;
             }
 
@@ -135,11 +131,7 @@ namespace Sparrow.Json
                 GrowArena(size);
             }
 
-            allocation = new AllocatedMemoryData()
-            {
-                SizeInBytes = size,
-                Address = _ptrCurrent
-            };
+            allocation = new AllocatedMemoryData(_ptrCurrent, size);
 
             _ptrCurrent += size;
             _used += size;
@@ -357,7 +349,7 @@ namespace Sparrow.Json
             if (_isDisposed ?? true)
                 return;
 
-            var address = allocation.Address;
+            var address = allocation.Memory.Address;
 
 #if DEBUG
             Debug.Assert(address != _ptrCurrent);
@@ -422,8 +414,11 @@ namespace Sparrow.Json
         public JsonOperationContext Parent;
         public NativeMemory.ThreadStats AllocatingThread;
 
-        private MemoryManager<byte> _memoryManager;
-        public MemoryManager<byte> MemoryManager => _memoryManager ??= new UnmanagedMemoryManager(Address, SizeInBytes);
+        public AllocatedMemoryData(byte* address, int sizeInBytes)
+        {
+            SizeInBytes = sizeInBytes;
+            Memory = new UnmanagedMemory(address, sizeInBytes);
+        }
 
 #if MEM_GUARD_STACK || TRACK_ALLOCATED_MEMORY_DATA
         public string AllocatedBy = Environment.StackTrace;
@@ -431,13 +426,13 @@ namespace Sparrow.Json
 #endif
 
 #if !DEBUG
-        public byte* Address;
+        public readonly UnmanagedMemory Memory;
 #else
         public bool IsLongLived;
         public bool IsReturned;
-        private byte* _address;
+        private UnmanagedMemory _memory;
 
-        public byte* Address
+        public UnmanagedMemory Memory
         {
             get
             {
@@ -447,7 +442,7 @@ namespace Sparrow.Json
                     IsReturned)
                     ThrowObjectDisposedException();
 
-                return _address;
+                return _memory;
             }
             set
             {
@@ -457,7 +452,7 @@ namespace Sparrow.Json
                     IsReturned)
                     ThrowObjectDisposedException();
 
-                _address = value;
+                _memory = value;
             }
         }
 

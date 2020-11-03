@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Raven.Server.ServerWide;
 
@@ -6,13 +7,13 @@ namespace Raven.Server.Documents.Queries
 {
     public class StreamDocumentQueryResult : StreamQueryResult<Document>
     {
-        public override void AddResult(Document result)
+        public override async ValueTask AddResultAsync(Document result)
         {
             if (HasAnyWrites() == false)
-                StartResponseIfNeeded();
+                await StartResponseIfNeededAsync();
 
             using (result)
-                GetWriter().AddResult(result);
+                await GetWriter().AddResultAsync(result);
             GetToken().Delay();
         }
 

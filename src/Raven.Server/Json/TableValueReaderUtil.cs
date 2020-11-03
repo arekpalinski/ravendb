@@ -11,8 +11,8 @@ namespace Raven.Server.Json
         public static unsafe ReleaseMemory CloneTableValueReader(DocumentsOperationContext context, Table.TableValueHolder read)
         {
             var copyReadMemory = context.GetMemory(read.Reader.Size);
-            Memory.Copy(copyReadMemory.Address, read.Reader.Pointer, read.Reader.Size);
-            read.Reader = new TableValueReader(copyReadMemory.Address, read.Reader.Size);
+            Memory.Copy(copyReadMemory.Memory.Address, read.Reader.Pointer, read.Reader.Size);
+            read.Reader = new TableValueReader(copyReadMemory.Memory.Address, read.Reader.Size);
             return new ReleaseMemory(context, copyReadMemory);
         }
 

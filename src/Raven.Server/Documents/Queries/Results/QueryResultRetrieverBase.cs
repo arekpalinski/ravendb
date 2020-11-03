@@ -20,6 +20,7 @@ using Raven.Server.ServerWide.Context;
 using Raven.Server.Utils;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
+using Sparrow.Server.Json.Sync;
 
 namespace Raven.Server.Documents.Queries.Results
 {
@@ -419,7 +420,7 @@ namespace Raven.Server.Documents.Queries.Results
             if (fieldType.IsJson == false)
                 return stringValue;
 
-            return context.ReadForMemory(stringValue, field.Name);
+            return context.Sync.ReadForMemory(stringValue, field.Name);
         }
 
         private static void ThrowBinaryValuesNotSupported()

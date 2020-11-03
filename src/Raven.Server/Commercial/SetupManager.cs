@@ -46,6 +46,7 @@ using Sparrow.Json;
 using Sparrow.Json.Parsing;
 using Sparrow.Logging;
 using Sparrow.Platform;
+using Sparrow.Server.Json.Sync;
 using Sparrow.Server.Platform.Posix;
 using Sparrow.Utils;
 using OpenFlags = System.Security.Cryptography.X509Certificates.OpenFlags;
@@ -283,10 +284,10 @@ namespace Raven.Server.Commercial
             {
                 foreach (var entry in archive.Entries)
                 {
-                    // try to find setup.json file first, as we make decisions based on its contents 
+                    // try to find setup.json file first, as we make decisions based on its contents
                     if (entry.Name.Equals("setup.json"))
                     {
-                        var json = context.Read(entry.Open(), "license/json");
+                        var json = context.Sync.ReadForMemory(entry.Open(), "license/json");
 
                         SetupSettings setupSettings = JsonDeserializationServer.SetupSettings(json);
                         firstNodeTag = setupSettings.Nodes[0].Tag;
@@ -319,13 +320,13 @@ namespace Raven.Server.Commercial
 
                     if (entry.Name.Equals("license.json"))
                     {
-                        var json = context.Read(entry.Open(), "license/json");
+                        var json = context.Sync.ReadForMemory(entry.Open(), "license/json");
                         license = JsonDeserializationServer.License(json);
                     }
 
                     if (entry.Name.Equals("settings.json"))
                     {
-                        using (var settingsJson = context.ReadForMemory(entry.Open(), "settings-json-from-zip"))
+                        using (var settingsJson = context.Sync.ReadForMemory(entry.Open(), "settings-json-from-zip"))
                         {
                             settingsJson.TryGet(RavenConfiguration.GetKey(x => x.Core.PublicServerUrl), out string publicServerUrl);
 
@@ -342,7 +343,6 @@ namespace Raven.Server.Commercial
                                 var tag = entry.FullName.Substring(0, entry.FullName.Length - "/settings.json".Length);
                                 otherNodesUrls.Add(tag, publicServerUrl);
                             }
-
                         }
                     }
                 }
@@ -498,7 +498,6 @@ namespace Raven.Server.Commercial
                 progress.AddInfo("Configuration settings created.");
                 progress.AddInfo("Setting up RavenDB in Let's Encrypt security mode finished successfully.");
                 onProgress(progress);
-
             }
             catch (Exception e)
             {
@@ -631,9 +630,8 @@ namespace Raven.Server.Commercial
                 var result = await client.NewOrder(new[] { wildcardHost }, token);
 
                 result.TryGetValue(host, out var challenge);
-                // we may already be authorized for this? 
+                // we may already be authorized for this?
                 return (challenge, null);
-
             }
             catch (Exception e)
             {
@@ -700,7 +698,6 @@ namespace Raven.Server.Commercial
                         $"Got unsuccessful response from registration request: {response.StatusCode}.{Environment.NewLine}{responseString}");
                 }
 
-
                 var id = JsonConvert.DeserializeObject<Dictionary<string, string>>(responseString).First().Value;
 
                 try
@@ -729,7 +726,6 @@ namespace Raven.Server.Commercial
                         }
 
                         registrationResult = JsonConvert.DeserializeObject<RegistrationResult>(responseString);
-
                     } while (registrationResult.Status == "PENDING");
                 }
                 catch (Exception e)
@@ -740,6 +736,7 @@ namespace Raven.Server.Commercial
                 }
             }
         }
+
         private static async Task UpdateDnsRecordsTask(
             Action<IOperationProgress> onProgress,
             SetupProgressAndResult progress,
@@ -757,7 +754,6 @@ namespace Raven.Server.Commercial
                     RootDomain = setupInfo.RootDomain,
                     SubDomains = new List<RegistrationNodeInfo>()
                 };
-
 
                 foreach (var node in setupInfo.NodeSetupInfos)
                 {
@@ -784,7 +780,6 @@ namespace Raven.Server.Commercial
                     progress.AddInfo("Cached DNS values matched, skipping DNS update");
                     return;
                 }
-
 
                 var serializeObject = JsonConvert.SerializeObject(registrationInfo);
                 HttpResponseMessage response;
@@ -882,7 +877,7 @@ namespace Raven.Server.Commercial
             var localNode = setupInfo.NodeSetupInfos[setupInfo.LocalNodeTag];
             var localIps = new List<IPEndPoint>();
 
-            // Because we can get from user either an ip or a hostname, we resolve the hostname and get the actual ips it is mapped to 
+            // Because we can get from user either an ip or a hostname, we resolve the hostname and get the actual ips it is mapped to
             foreach (var hostnameOrIp in localNode.Addresses)
             {
                 if (hostnameOrIp.Equals("0.0.0.0"))
@@ -959,7 +954,7 @@ namespace Raven.Server.Commercial
 
                     if (localIps.Count == 0 && currentIps.Count == 1 &&
                         (Equals(currentIps[0], IPAddress.Any) || Equals(currentIps[0], IPAddress.IPv6Any)))
-                        return; // listen to any ip in this 
+                        return; // listen to any ip in this
 
                     if (localIps.All(ip => currentIps.Contains(ip.Address)))
                         return; // we already listen to all these IPs, no need to check
@@ -1019,7 +1014,7 @@ namespace Raven.Server.Commercial
 
                     if (localIps.Count == 0 && currentIps.Count == 1 &&
                         (Equals(currentIps[0], IPAddress.Any) || Equals(currentIps[0], IPAddress.IPv6Any)))
-                        return; // listen to any ip in this 
+                        return; // listen to any ip in this
 
                     if (localIps.All(ip => currentIps.Contains(ip.Address)))
                         return; // we already listen to all these IPs, no need to check
@@ -1528,7 +1523,7 @@ namespace Raven.Server.Commercial
                         BlittableJsonReaderObject settingsJson;
                         using (var fs = SafeFileStream.Create(settingsPath, FileMode.Open, FileAccess.Read))
                         {
-                            settingsJson = context.ReadForMemory(fs, "settings-json");
+                            settingsJson = await context.ReadForMemoryAsync(fs, "settings-json");
                         }
 
                         settingsJson.Modifications = new DynamicJsonValue(settingsJson);
@@ -1647,7 +1642,7 @@ namespace Raven.Server.Commercial
                                     writer.Flush();
                                 }
 
-                                // we save this multiple times on each node, to make it easier 
+                                // we save this multiple times on each node, to make it easier
                                 // to deploy by just copying the node
                                 entry = archive.CreateEntry($"{node.Key}/{certificateFileName}");
                                 entry.ExternalAttributes = ((int)(FilePermissions.S_IRUSR | FilePermissions.S_IWUSR)) << 16;
@@ -1680,7 +1675,6 @@ namespace Raven.Server.Commercial
                                 writer.Flush();
                                 await entryStream.FlushAsync(token);
                             }
-
                         }
                         catch (Exception e)
                         {
@@ -1773,7 +1767,6 @@ namespace Raven.Server.Commercial
             str += Environment.NewLine +
                    $"The new server is available at: {publicServerUrl}"
                    + Environment.NewLine;
-
 
             str += $"The current node ('{nodeTag}') has already been configured and requires no further action on your part." +
                    Environment.NewLine;

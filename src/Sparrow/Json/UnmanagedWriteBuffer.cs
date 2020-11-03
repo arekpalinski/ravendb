@@ -70,7 +70,7 @@ namespace Sparrow.Json
             {
                 if (Used == _buffer.Length)
                 {
-                    _stream.Write(_buffer.Memory.Span.Slice(0, Used));
+                    _stream.Write(_buffer.Memory.Memory.Span.Slice(0, Used));
                     Used = 0;
                 }
 
@@ -93,7 +93,7 @@ namespace Sparrow.Json
         {
             if (Used == _buffer.Length)
             {
-                _stream.Write(_buffer.Memory.Span.Slice(0, Used));
+                _stream.Write(_buffer.Memory.Memory.Span.Slice(0, Used));
                 Used = 0;
             }
             _sizeInBytes++;
@@ -116,7 +116,7 @@ namespace Sparrow.Json
             using (_returnBuffer)
             {
                 if (Used != 0)
-                    _stream.Write(_buffer.Memory.Span.Slice(0, Used));
+                    _stream.Write(_buffer.Memory.Memory.Span.Slice(0, Used));
                 Used = 0;
             }            
         }
@@ -223,7 +223,7 @@ namespace Sparrow.Json
                 Previous = null,
                 DeallocationPendingPrevious = null,
                 Allocation = allocatedMemoryData,
-                Address = allocatedMemoryData.Address,
+                Address = allocatedMemoryData.Memory.Address,
                 Used = 0,
                 AccumulatedSizeInBytes = 0
             };
@@ -343,7 +343,7 @@ namespace Sparrow.Json
             _head.Previous = previousHead;
             _head.DeallocationPendingPrevious = previousHead;
             _head.Allocation = allocation;
-            _head.Address = allocation.Address;
+            _head.Address = allocation.Memory.Address;
             _head.Used = 0;
             _head.AccumulatedSizeInBytes = previousHead.AccumulatedSizeInBytes;
         }
@@ -470,7 +470,9 @@ Grow:
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void EnsureSingleChunk(JsonParserState state)
         {
-            EnsureSingleChunk(out state.StringBuffer, out state.StringSize);
+            EnsureSingleChunk(out var buffer, out var size);
+            state.StringBuffer = new UnmanagedMemory(buffer, size);
+            state.StringSize = size;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

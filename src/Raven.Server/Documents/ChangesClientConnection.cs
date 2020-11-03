@@ -542,12 +542,12 @@ namespace Raven.Server.Documents
                         context.Reset();
                         context.Renew();
 
-                        using (var writer = new BlittableJsonTextWriter(context, ms))
+                        await using (var writer = new AsyncBlittableJsonTextWriter(context, ms))
                         {
                             sp.Restart();
 
                             var first = true;
-                            writer.WriteStartArray();
+                            await writer.WriteStartArrayAsync();
 
                             do
                             {
@@ -556,18 +556,18 @@ namespace Raven.Server.Documents
                                     break;
 
                                 if (first == false)
-                                    writer.WriteComma();
+                                    await writer.WriteCommaAsync();
 
                                 first = false;
-                                context.Write(writer, value);
+                                await context.WriteAsync(writer, value);
 
-                                writer.Flush();
+                                await writer.FlushAsync();
 
                                 if (ms.Length > 16 * 1024)
                                     break;
                             } while (_sendQueue.Count > 0 && sp.Elapsed < TimeSpan.FromSeconds(5));
 
-                            writer.WriteEndArray();
+                            await writer.WriteEndArrayAsync();
                         }
 
                         if (_disposeToken.IsCancellationRequested)

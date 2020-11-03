@@ -67,7 +67,6 @@ namespace SlowTests.Issues
                     documentId = question.Id;
                 }
 
-
                 using (var session = store.OpenAsyncSession())
                 {
                     var question = await session.LoadAsync<Question>(documentId);
@@ -78,7 +77,7 @@ namespace SlowTests.Issues
         }
 
         [Fact]
-        public void JsonWithEscapeChar()
+        public async Task JsonWithEscapeChar()
         {
             using (var stream = new MemoryStream())
             using (var context = JsonOperationContext.ShortTermSingleUse())
@@ -91,18 +90,18 @@ namespace SlowTests.Issues
 
                         var expectedString = new string((char)i, j);
 
-                        using (var writer = new BlittableJsonTextWriter(context, stream))
+                        await using (var writer = new AsyncBlittableJsonTextWriter(context, stream))
                         {
-                            writer.WriteStartObject();
+                            await writer.WriteStartObjectAsync();
 
-                            writer.WritePropertyName("Name");
-                            writer.WriteString(expectedString);
+                            await writer.WritePropertyNameAsync("Name");
+                            await writer.WriteStringAsync(expectedString);
 
-                            writer.WriteEndObject();
+                            await writer.WriteEndObjectAsync();
                         }
 
                         stream.Position = 0;
-                        var json = context.ReadForDisk(stream, "json");
+                        var json = await context.ReadForDiskAsync(stream, "json");
                         json.BlittableValidation();
 
                         Assert.True(json.TryGet("Name", out string actualString));
@@ -113,9 +112,9 @@ namespace SlowTests.Issues
         }
 
         [Fact]
-        public void JsonWithEscapeChar_Manual()
+        public async Task JsonWithEscapeChar_Manual()
         {
-            using (var stream = new MemoryStream())
+            await using (var stream = new MemoryStream())
             using (var context = JsonOperationContext.ShortTermSingleUse())
             {
                 var expectedString0 = new string((char)7, 10);
@@ -124,36 +123,36 @@ namespace SlowTests.Issues
                 var expectedString3 = "zzzz" + new string((char)7, 3) + "bbbb" + new string((char)7, 2) + "cccc" + new string((char)7, 5) + "xxxx";
                 string expectedJson;
 
-                using (var writer = new BlittableJsonTextWriter(context, stream))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, stream))
                 {
-                    writer.WriteStartObject();
+                    await writer.WriteStartObjectAsync();
 
-                    writer.WritePropertyName("Name0");
-                    writer.WriteString(expectedString0);
-                    writer.WriteComma();
+                    await writer.WritePropertyNameAsync("Name0");
+                    await writer.WriteStringAsync(expectedString0);
+                    await writer.WriteCommaAsync();
 
-                    writer.WritePropertyName("Name1");
-                    writer.WriteString(expectedString1);
-                    writer.WriteComma();
+                    await writer.WritePropertyNameAsync("Name1");
+                    await writer.WriteStringAsync(expectedString1);
+                    await writer.WriteCommaAsync();
 
-                    writer.WritePropertyName("Name2");
-                    writer.WriteString(expectedString2);
-                    writer.WriteComma();
+                    await writer.WritePropertyNameAsync("Name2");
+                    await writer.WriteStringAsync(expectedString2);
+                    await writer.WriteCommaAsync();
 
-                    writer.WritePropertyName("Name3");
-                    writer.WriteString(expectedString3);
+                    await writer.WritePropertyNameAsync("Name3");
+                    await writer.WriteStringAsync(expectedString3);
 
-                    writer.WriteEndObject();
+                    await writer.WriteEndObjectAsync();
                 }
 
                 stream.Position = 0;
                 using (var sr = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true))
-                    expectedJson = sr.ReadToEnd();
+                    expectedJson = await sr.ReadToEndAsync();
 
                 Assert.Equal("{\"Name0\":\"\\u0007\\u0007\\u0007\\u0007\\u0007\\u0007\\u0007\\u0007\\u0007\\u0007\",\"Name1\":\"\\u0007\\u0007\\u0007bbbb\\u0007\\u0007cccc\\u0007\\u0007\\u0007\\u0007\\u0007\",\"Name2\":\"zzzz\\u0007\\u0007\\u0007bbbb\\u0007\\u0007cccc\\u0007\\u0007\\u0007\\u0007\\u0007\",\"Name3\":\"zzzz\\u0007\\u0007\\u0007bbbb\\u0007\\u0007cccc\\u0007\\u0007\\u0007\\u0007\\u0007xxxx\"}", expectedJson);
 
                 stream.Position = 0;
-                var json = context.ReadForDisk(stream, "json");
+                var json = await context.ReadForDiskAsync(stream, "json");
                 json.BlittableValidation();
 
                 var actualJson = json.ToString();

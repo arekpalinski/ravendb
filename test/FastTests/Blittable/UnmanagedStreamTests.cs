@@ -60,13 +60,13 @@ namespace FastTests.Blittable
                     {
                         var allocatedMemoryData = ctx.GetMemory(rand.Next(1, i * 7));
                         totalSize += allocatedMemoryData.SizeInBytes;
-                        FillData((byte*)allocatedMemoryData.Address, allocatedMemoryData.SizeInBytes);
+                        FillData((byte*)allocatedMemoryData.Memory.Address, allocatedMemoryData.SizeInBytes);
                         allocatedMemoryList.Add(allocatedMemoryData);
-                        newStream.Write((byte*)allocatedMemoryData.Address, allocatedMemoryData.SizeInBytes);
+                        newStream.Write((byte*)allocatedMemoryData.Memory.Address, allocatedMemoryData.SizeInBytes);
                     }
                     var buffer = ctx.GetMemory(newStream.SizeInBytes);
 
-                    var copiedSize = newStream.CopyTo((byte*)buffer.Address);
+                    var copiedSize = newStream.CopyTo((byte*)buffer.Memory.Address);
                     Assert.Equal(copiedSize, newStream.SizeInBytes);
 
                     var curIndex = 0;
@@ -76,7 +76,7 @@ namespace FastTests.Blittable
                         curTuple++;
                         for (var i = 0; i < allocatedMemoryData.SizeInBytes; i++)
                         {
-                            Assert.Equal(*((byte*)buffer.Address + curIndex), *((byte*)((byte*)allocatedMemoryData.Address + i)));
+                            Assert.Equal(*((byte*)buffer.Memory.Address + curIndex), *((byte*)((byte*)allocatedMemoryData.Memory.Address + i)));
                             curIndex++;
                         }
                         ctx.ReturnMemory(allocatedMemoryData);
@@ -110,14 +110,14 @@ namespace FastTests.Blittable
                     for (var i = 5000; i > 1; i -= 500)
                     {
                         var pointer = ctx.GetMemory(rand.Next(1, i * 7));
-                        FillData((byte*)pointer.Address, pointer.SizeInBytes);
+                        FillData((byte*)pointer.Memory.Address, pointer.SizeInBytes);
                         allocatedMemory.Add(pointer);
-                        newStream.Write((byte*)pointer.Address, pointer.SizeInBytes);
+                        newStream.Write((byte*)pointer.Memory.Address, pointer.SizeInBytes);
                     }
 
                     var buffer = ctx.GetMemory(newStream.SizeInBytes);
 
-                    var copiedSize = newStream.CopyTo((byte*)buffer.Address);
+                    var copiedSize = newStream.CopyTo((byte*)buffer.Memory.Address);
                     Assert.Equal(copiedSize, newStream.SizeInBytes);
 
                     var curIndex = 0;
@@ -125,7 +125,7 @@ namespace FastTests.Blittable
                     {
                         for (var i = 0; i < tuple.SizeInBytes; i++)
                         {
-                            Assert.Equal(*((byte*)buffer.Address + curIndex), *((byte*)((byte*)tuple.Address + i)));
+                            Assert.Equal(*((byte*)buffer.Memory.Address + curIndex), *((byte*)((byte*)tuple.Memory.Address + i)));
                             curIndex++;
                         }
                         ctx.ReturnMemory(tuple);
@@ -146,11 +146,11 @@ namespace FastTests.Blittable
                     for (var i = 1; i < 5000; i += 500)
                     {
                         var allocatedMemory = ctx.GetMemory(rand.Next(1, i * 7));
-                        FillData((byte*)allocatedMemory.Address, allocatedMemory.SizeInBytes);
+                        FillData((byte*)allocatedMemory.Memory.Address, allocatedMemory.SizeInBytes);
                         allocatedMemoryList.Add(allocatedMemory);
                         for (var j = 0; j < allocatedMemory.SizeInBytes; j++)
                         {
-                            newStream.WriteByte(*((byte*)allocatedMemory.Address + j));
+                            newStream.WriteByte(*((byte*)allocatedMemory.Memory.Address + j));
                         }
                     }
 
@@ -158,7 +158,7 @@ namespace FastTests.Blittable
 
                     try
                     {
-                        var copiedSize = newStream.CopyTo((byte*)buffer.Address);
+                        var copiedSize = newStream.CopyTo((byte*)buffer.Memory.Address);
                         Assert.Equal(copiedSize, newStream.SizeInBytes);
                     }
                     catch (Exception e)
@@ -174,8 +174,8 @@ namespace FastTests.Blittable
                         {
                             try
                             {
-                                var bufferValue = *((byte*)buffer.Address + curIndex);
-                                var allocatedMemoryValue = *((byte*)((byte*)allocatedMemory.Address + i));
+                                var bufferValue = *((byte*)buffer.Memory.Address + curIndex);
+                                var allocatedMemoryValue = *((byte*)((byte*)allocatedMemory.Memory.Address + i));
                                 Assert.Equal(bufferValue,
                                     allocatedMemoryValue);
                                 curIndex++;

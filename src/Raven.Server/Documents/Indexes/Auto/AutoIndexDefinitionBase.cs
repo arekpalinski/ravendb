@@ -1,10 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
 using Raven.Client.Documents.Conventions;
 using Raven.Client.Documents.Indexes;
-using Raven.Client.Documents.Session;
 using Sparrow.Json;
+using Sparrow.Server.Json.Sync;
 
 namespace Raven.Server.Documents.Indexes.Auto
 {
@@ -13,7 +12,7 @@ namespace Raven.Server.Documents.Indexes.Auto
         public IndexState State { get; set; }
 
         protected AutoIndexDefinitionBase(string indexName, string collection, AutoIndexField[] fields, long? indexVersion = null)
-            : base(indexName, new [] { collection }, IndexLockMode.Unlock, IndexPriority.Normal, fields, indexVersion ?? IndexVersion.CurrentVersion)
+            : base(indexName, new[] { collection }, IndexLockMode.Unlock, IndexPriority.Normal, fields, indexVersion ?? IndexVersion.CurrentVersion)
         {
             if (string.IsNullOrEmpty(collection))
                 throw new ArgumentNullException(nameof(collection));

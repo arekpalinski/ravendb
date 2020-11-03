@@ -19,12 +19,12 @@ namespace Raven.Server.Documents.Handlers.Debugging
     public class NodeDebugHandler : RequestHandler
     {
         [RavenAction("/admin/debug/node/remote-connections", "GET", AuthorizationStatus.Operator, IsDebugInformationEndpoint = true)]
-        public Task ListRemoteConnections()
+        public async Task ListRemoteConnections()
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out JsonOperationContext context))
-            using (var write = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var write = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                context.Write(write,
+                await context.WriteAsync(write,
                     new DynamicJsonValue
                     {
                         ["Remote-Connections"] = new DynamicJsonArray(RemoteConnection.RemoteConnectionsList
@@ -38,35 +38,31 @@ namespace Raven.Server.Documents.Handlers.Debugging
                                 [nameof(RemoteConnection.RemoteConnectionInfo.Number)] = connection.Number,
                             }))
                     });
-                write.Flush();
+                await write.FlushAsync();
             }
-            return Task.CompletedTask;
         }
 
         [RavenAction("/admin/debug/node/engine-logs", "GET", AuthorizationStatus.Operator, IsDebugInformationEndpoint = true)]
-        public Task ListRecentEngineLogs()
+        public async Task ListRecentEngineLogs()
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out JsonOperationContext context))
-            using (var write = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var write = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                context.Write(write, ServerStore.Engine.InMemoryDebug.ToJson());
-                write.Flush();
+                await context.WriteAsync(write, ServerStore.Engine.InMemoryDebug.ToJson());
+                await write.FlushAsync();
             }
-            return Task.CompletedTask;
         }
 
         [RavenAction("/admin/debug/node/state-change-history", "GET", AuthorizationStatus.Operator, IsDebugInformationEndpoint = true)]
-        public Task GetStateChangeHistory()
+        public async Task GetStateChangeHistory()
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out JsonOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                writer.WriteStartObject();
-                writer.WriteArray("States", ServerStore.Engine.PrevStates.Select(s => s.ToString()));
-                writer.WriteEndObject();
+                await writer.WriteStartObjectAsync();
+                await writer.WriteArrayAsync("States", ServerStore.Engine.PrevStates.Select(s => s.ToString()));
+                await writer.WriteEndObjectAsync();
             }
-
-            return Task.CompletedTask;
         }
 
         [RavenAction("/admin/debug/node/ping", "GET", AuthorizationStatus.Operator, IsDebugInformationEndpoint = true)]
@@ -89,26 +85,26 @@ namespace Raven.Server.Documents.Handlers.Debugging
             }
 
             using (ServerStore.ContextPool.AllocateOperationContext(out JsonOperationContext context))
-            using (var write = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var write = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                write.WriteStartObject();
-                write.WritePropertyName("Result");
+                await write.WriteStartObjectAsync();
+                await write.WritePropertyNameAsync("Result");
 
-                write.WriteStartArray();
+                await write.WriteStartArrayAsync();
                 while (tasks.Count > 0)
                 {
                     var task = await Task.WhenAny(tasks);
                     tasks.Remove(task);
-                    context.Write(write, task.Result.ToJson());
+                    await context.WriteAsync(write, task.Result.ToJson());
                     if (tasks.Count > 0)
                     {
-                        write.WriteComma();
+                        await write.WriteCommaAsync();
                     }
-                    write.Flush();
+                    await write.FlushAsync();
                 }
-                write.WriteEndArray();
-                write.WriteEndObject();
-                write.Flush();
+                await write.WriteEndArrayAsync();
+                await write.WriteEndObjectAsync();
+                await write.FlushAsync();
             }
         }
 
@@ -157,13 +153,13 @@ namespace Raven.Server.Documents.Handlers.Debugging
                             [nameof(TcpConnectionHeaderMessage.OperationVersion)] = -1
                         };
 
-                        using (var writer = new BlittableJsonTextWriter(context, stream))
+                        await using (var writer = new AsyncBlittableJsonTextWriter(context, stream))
                         using (var msgJson = context.ReadObject(msg, "message"))
                         {
                             result.SendTime = sp.ElapsedMilliseconds;
-                            context.Write(writer, msgJson);
+                            await context.WriteAsync(writer, msgJson);
                         }
-                        using (var response = context.ReadForMemory(stream, "cluster-ConnectToPeer-header-response"))
+                        using (var response = await context.ReadForMemoryAsync(stream, "cluster-ConnectToPeer-header-response"))
                         {
                             JsonDeserializationServer.TcpConnectionHeaderResponse(response);
                             result.ReceiveTime = sp.ElapsedMilliseconds;

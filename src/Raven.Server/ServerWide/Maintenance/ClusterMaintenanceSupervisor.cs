@@ -15,6 +15,7 @@ using Raven.Server.Rachis;
 using Raven.Server.Utils;
 using Sparrow.Json;
 using Sparrow.Logging;
+using Sparrow.Server.Json.Sync;
 
 namespace Raven.Server.ServerWide.Maintenance
 {
@@ -24,6 +25,7 @@ namespace Raven.Server.ServerWide.Maintenance
 
         //maintenance handler is valid for specific term, otherwise it's requests will be rejected by nodes
         private readonly long _term;
+
         private bool _isDisposed;
 
         private readonly ConcurrentDictionary<string, ClusterNode> _clusterNodes = new ConcurrentDictionary<string, ClusterNode>();
@@ -112,7 +114,7 @@ namespace Raven.Server.ServerWide.Maintenance
 
             public ClusterNodeStatusReport ReceivedReport = new ClusterNodeStatusReport(
                 new ServerReport(),
-                new Dictionary<string, DatabaseStatusReport>(), 
+                new Dictionary<string, DatabaseStatusReport>(),
                 ClusterNodeStatusReport.ReportStatus.WaitingForResponse,
                 null, DateTime.MinValue, null);
 
@@ -175,7 +177,7 @@ namespace Raven.Server.ServerWide.Maintenance
                 var onErrorDelayTime = _parent.Config.OnErrorDelayTime.AsTimeSpan;
                 var receiveFromWorkerTimeout = _parent.Config.ReceiveFromWorkerTimeout.AsTimeSpan;
                 var tcpTimeout = _parent.Config.TcpConnectionTimeout.AsTimeSpan;
-                
+
                 if (tcpTimeout < receiveFromWorkerTimeout)
                 {
                     if (_log.IsInfoEnabled)
@@ -190,7 +192,7 @@ namespace Raven.Server.ServerWide.Maintenance
                 {
                     try
                     {
-                        if (firstIteration == false) 
+                        if (firstIteration == false)
                         {
                             // avoid tight loop if there was timeout / error
                             _token.WaitHandle.WaitOne(onErrorDelayTime);
@@ -229,7 +231,7 @@ namespace Raven.Server.ServerWide.Maintenance
                                 try
                                 {
                                     // even if there is a timeout event, we will keep waiting on the same connection until the TCP timeout occurs.
-                                    rawReport = context.ReadForMemory(stream, _readStatusUpdateDebugString);
+                                    rawReport = context.Sync.ReadForMemory(stream, _readStatusUpdateDebugString);
                                     timeoutEvent.Defer(_parent._leaderClusterTag);
                                 }
                                 catch (Exception e)
@@ -260,14 +262,13 @@ namespace Raven.Server.ServerWide.Maintenance
                                 unchangedReports.Clear();
 
                                 ReceivedReport = _lastSuccessfulReceivedReport = nodeReport;
-
                             }
                         }
                     }
                     catch (Exception e)
                     {
                         if (_token.IsCancellationRequested)
-                            return; 
+                            return;
 
                         if (_log.IsInfoEnabled)
                         {
@@ -399,21 +400,20 @@ namespace Raven.Server.ServerWide.Maintenance
 
                 var connection = await TcpUtils.WrapStreamWithSslAsync(tcpClient, tcpConnectionInfo, _parent._server.Server.Certificate.Certificate, _parent._server.Server.CipherSuitesPolicy, timeout);
                 using (_contextPool.AllocateOperationContext(out JsonOperationContext ctx))
-                using (var writer = new BlittableJsonTextWriter(ctx, connection))
+                await using (var writer = new AsyncBlittableJsonTextWriter(ctx, connection))
                 {
-                    var parameters = new TcpNegotiateParameters
+                    var parameters = new AsyncTcpNegotiateParameters
                     {
                         Database = null,
                         Operation = TcpConnectionHeaderMessage.OperationTypes.Heartbeats,
                         Version = TcpConnectionHeaderMessage.HeartbeatsTcpVersion,
-                        ReadResponseAndGetVersionCallback = SupervisorReadResponseAndGetVersion,
+                        ReadResponseAndGetVersionCallbackAsync = SupervisorReadResponseAndGetVersionAsync,
                         DestinationUrl = url,
                         DestinationNodeTag = ClusterTag
-                        
                     };
-                    supportedFeatures = TcpNegotiation.NegotiateProtocolVersion(ctx, connection, parameters);
+                    supportedFeatures = await TcpNegotiation.NegotiateProtocolVersionAsync(ctx, connection, parameters);
 
-                    WriteClusterMaintenanceConnectionHeader(writer);
+                    await WriteClusterMaintenanceConnectionHeaderAsync(writer);
                 }
 
                 return new ClusterMaintenanceConnection
@@ -424,15 +424,16 @@ namespace Raven.Server.ServerWide.Maintenance
                 };
             }
 
-            private int SupervisorReadResponseAndGetVersion(JsonOperationContext ctx, BlittableJsonTextWriter writer, Stream stream, string url)
+            private async ValueTask<int> SupervisorReadResponseAndGetVersionAsync(JsonOperationContext ctx, AsyncBlittableJsonTextWriter writer, Stream stream, string url)
             {
-                using (var responseJson = ctx.ReadForMemory(stream, _readStatusUpdateDebugString + "/Read-Handshake-Response"))
+                using (var responseJson = await ctx.ReadForMemoryAsync(stream, _readStatusUpdateDebugString + "/Read-Handshake-Response"))
                 {
                     var headerResponse = JsonDeserializationServer.TcpConnectionHeaderResponse(responseJson);
                     switch (headerResponse.Status)
                     {
                         case TcpConnectionStatus.Ok:
                             return headerResponse.Version;
+
                         case TcpConnectionStatus.AuthorizationFailed:
                             throw new AuthorizationException(
                                 $"Node with ClusterTag = {ClusterTag} replied to initial handshake with authorization failure {headerResponse.Message}");
@@ -442,7 +443,7 @@ namespace Raven.Server.ServerWide.Maintenance
                                 return headerResponse.Version;
                             }
                             //Kindly request the server to drop the connection
-                            WriteOperationHeaderToRemote(writer, headerResponse.Version, drop: true);
+                            await WriteOperationHeaderToRemoteAsync(writer, headerResponse.Version, drop: true);
                             throw new InvalidOperationException($"Node with ClusterTag = {ClusterTag} replied to initial handshake with mismatching tcp version {headerResponse.Message}");
                         default:
                             throw new InvalidOperationException($"{url} replied with unknown status {headerResponse.Status}, message:{headerResponse.Message}");
@@ -450,41 +451,41 @@ namespace Raven.Server.ServerWide.Maintenance
                 }
             }
 
-            private void WriteOperationHeaderToRemote(BlittableJsonTextWriter writer, int remoteVersion = -1, bool drop = false)
+            private static async ValueTask WriteOperationHeaderToRemoteAsync(AsyncBlittableJsonTextWriter writer, int remoteVersion = -1, bool drop = false)
             {
                 var operation = drop ? TcpConnectionHeaderMessage.OperationTypes.Drop : TcpConnectionHeaderMessage.OperationTypes.Heartbeats;
-                writer.WriteStartObject();
+                await writer.WriteStartObjectAsync();
                 {
-                    writer.WritePropertyName(nameof(TcpConnectionHeaderMessage.Operation));
-                    writer.WriteString(operation.ToString());
-                    writer.WriteComma();
-                    writer.WritePropertyName(nameof(TcpConnectionHeaderMessage.OperationVersion));
-                    writer.WriteInteger(TcpConnectionHeaderMessage.HeartbeatsTcpVersion);
-                    writer.WriteComma();
-                    writer.WritePropertyName(nameof(TcpConnectionHeaderMessage.DatabaseName));
-                    writer.WriteString((string)null);
+                    await writer.WritePropertyNameAsync(nameof(TcpConnectionHeaderMessage.Operation));
+                    await writer.WriteStringAsync(operation.ToString());
+                    await writer.WriteCommaAsync();
+                    await writer.WritePropertyNameAsync(nameof(TcpConnectionHeaderMessage.OperationVersion));
+                    await writer.WriteIntegerAsync(TcpConnectionHeaderMessage.HeartbeatsTcpVersion);
+                    await writer.WriteCommaAsync();
+                    await writer.WritePropertyNameAsync(nameof(TcpConnectionHeaderMessage.DatabaseName));
+                    await writer.WriteStringAsync((string)null);
                     if (drop)
                     {
-                        writer.WriteComma();
-                        writer.WritePropertyName(nameof(TcpConnectionHeaderMessage.Info));
-                        writer.WriteString($"Couldn't agree on heartbeats tcp version ours:{TcpConnectionHeaderMessage.HeartbeatsTcpVersion} theirs:{remoteVersion}");
+                        await writer.WriteCommaAsync();
+                        await writer.WritePropertyNameAsync(nameof(TcpConnectionHeaderMessage.Info));
+                        await writer.WriteStringAsync($"Couldn't agree on heartbeats tcp version ours:{TcpConnectionHeaderMessage.HeartbeatsTcpVersion} theirs:{remoteVersion}");
                     }
                 }
-                writer.WriteEndObject();
-                writer.Flush();
+                await writer.WriteEndObjectAsync();
+                await writer.FlushAsync();
             }
 
-            private void WriteClusterMaintenanceConnectionHeader(BlittableJsonTextWriter writer)
+            private async ValueTask WriteClusterMaintenanceConnectionHeaderAsync(AsyncBlittableJsonTextWriter writer)
             {
-                writer.WriteStartObject();
+                await writer.WriteStartObjectAsync();
                 {
-                    writer.WritePropertyName(nameof(ClusterMaintenanceConnectionHeader.LeaderClusterTag));
-                    writer.WriteString(_parent._leaderClusterTag);
-                    writer.WritePropertyName(nameof(ClusterMaintenanceConnectionHeader.Term));
-                    writer.WriteInteger(_parent._term);
+                    await writer.WritePropertyNameAsync(nameof(ClusterMaintenanceConnectionHeader.LeaderClusterTag));
+                    await writer.WriteStringAsync(_parent._leaderClusterTag);
+                    await writer.WritePropertyNameAsync(nameof(ClusterMaintenanceConnectionHeader.Term));
+                    await writer.WriteIntegerAsync(_parent._term);
                 }
-                writer.WriteEndObject();
-                writer.Flush();
+                await writer.WriteEndObjectAsync();
+                await writer.FlushAsync();
             }
 
             protected bool Equals(ClusterNode other)

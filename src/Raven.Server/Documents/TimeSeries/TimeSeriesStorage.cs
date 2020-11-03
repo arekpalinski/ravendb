@@ -1855,7 +1855,7 @@ namespace Raven.Server.Documents.TimeSeries
                 var mem = context.GetMemory(size);
                 try
                 {
-                    var bufferSpan = new Span<byte>(mem.Address, size);
+                    var bufferSpan = new Span<byte>(mem.Memory.Address, size);
                     documentId.AsSpan().CopyTo(bufferSpan);
                     var offset = documentId.Size;
                     bufferSpan[offset++] = SpecialChars.LuceneRecordSeparator;
@@ -1866,7 +1866,7 @@ namespace Raven.Server.Documents.TimeSeries
                     if (Utf8Formatter.TryFormat(baseline.Ticks, bufferSpan.Slice(offset), out var bytesWritten, FormatD18) == false || bytesWritten != FormatD18.Precision)
                         throw new InvalidOperationException($"Could not write '{baseline.Ticks}' ticks. Bytes written {bytesWritten}, but expected {FormatD18.Precision}.");
 
-                    return context.GetLazyString(mem.Address, size);
+                    return context.GetLazyString(mem.Memory.Address, size);
                 }
                 finally
                 {

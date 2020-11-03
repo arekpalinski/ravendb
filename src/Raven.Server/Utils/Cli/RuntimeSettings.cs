@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime;
 using Sparrow.Json;
+using Sparrow.Server.Json.Sync;
 
 namespace Raven.Server.Utils.Cli
 {
@@ -14,7 +15,7 @@ namespace Raven.Server.Utils.Cli
 
         private static (bool HasValue, bool Value) TryGetRetainVMSettingValue()
         {
-            // REMARK: Whenever CoreCLR includes this we can get rid of this method. 
+            // REMARK: Whenever CoreCLR includes this we can get rid of this method.
             var runtimeConfigurationPath = Path.Combine(AppContext.BaseDirectory, "Raven.Server.runtimeconfig.json");
 
             // Try read runtime configuration from file
@@ -22,9 +23,8 @@ namespace Raven.Server.Utils.Cli
             {
                 using (var context = JsonOperationContext.ShortTermSingleUse())
                 using (FileStream f = File.OpenRead(runtimeConfigurationPath))
-                using (BlittableJsonReaderObject @object = context.Read(f, "n"))
+                using (BlittableJsonReaderObject @object = context.Sync.ReadForMemory(f, "n"))
                 {
-      
                     if (@object.TryGet("runtimeOptions", out BlittableJsonReaderObject runtime) &&
                         runtime.TryGet("configProperties", out BlittableJsonReaderObject properties) &&
                         properties.TryGet("System.GC.RetainVM", out bool value))

@@ -82,23 +82,22 @@ namespace SlowTests.Issues
             }
 
             public override bool IsReadRequest { get; } = false;
-            
 
             public override HttpRequestMessage CreateRequest(JsonOperationContext ctx, ServerNode node, out string url)
             {
                 var request = new HttpRequestMessage
                 {
                     Method = HttpMethod.Post,
-                    Content = new BlittableJsonContent(stream =>
+                    Content = new BlittableJsonContent(async stream =>
                     {
-                        using (var writer = new BlittableJsonTextWriter(ctx, stream))
+                        await using (var writer = new AsyncBlittableJsonTextWriter(ctx, stream))
                         {
-                            writer.WriteStartObject();
-                            writer.WritePropertyName(nameof(SubscriptionTryout.ChangeVector));
-                            writer.WriteString(_tryout.ChangeVector);
-                            writer.WritePropertyName(nameof(SubscriptionTryout.Query));
-                            writer.WriteString(_tryout.Query);
-                            writer.WriteEndObject();
+                            await writer.WriteStartObjectAsync();
+                            await writer.WritePropertyNameAsync(nameof(SubscriptionTryout.ChangeVector));
+                            await writer.WriteStringAsync(_tryout.ChangeVector);
+                            await writer.WritePropertyNameAsync(nameof(SubscriptionTryout.Query));
+                            await writer.WriteStringAsync(_tryout.Query);
+                            await writer.WriteEndObjectAsync();
                         }
                     })
                 };

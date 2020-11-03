@@ -9,22 +9,20 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http.Features.Authentication;
 using Org.BouncyCastle.OpenSsl;
 using Org.BouncyCastle.Pkcs;
-using Raven.Client.Util;
 using Raven.Client.Documents.Commands;
 using Raven.Client.Exceptions.Security;
 using Raven.Client.Http;
 using Raven.Client.ServerWide;
 using Raven.Client.ServerWide.Operations.Certificates;
+using Raven.Client.Util;
 using Raven.Server.Commercial;
 using Raven.Server.Config;
-using Raven.Server.Documents.Handlers.Debugging;
 using Raven.Server.Json;
 using Raven.Server.Routing;
 using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Commands;
 using Raven.Server.ServerWide.Context;
 using Raven.Server.Utils;
-using Raven.Server.Web.System;
 using Sparrow.Json;
 using Sparrow.Server.Platform.Posix;
 using Sparrow.Utils;
@@ -33,7 +31,6 @@ namespace Raven.Server.Web.Authentication
 {
     public class AdminCertificatesHandler : ServerRequestHandler
     {
-
         [RavenAction("/admin/certificates", "POST", AuthorizationStatus.Operator, DisableOnCpuCreditsExhaustion = true)]
         public async Task Generate()
         {
@@ -49,7 +46,7 @@ namespace Raven.Server.Web.Authentication
 
                 var stream = TryGetRequestFromStream("Options") ?? RequestBodyStream();
 
-                var certificateJson = ctx.ReadForDisk(stream, "certificate-generation");
+                var certificateJson = await ctx.ReadForDiskAsync(stream, "certificate-generation");
 
                 var certificate = JsonDeserializationServer.CertificateDefinition(certificateJson);
 
@@ -138,7 +135,6 @@ namespace Raven.Server.Web.Authentication
             return ms.ToArray();
         }
 
-
         public static void WriteCertificateAsPem(string name, byte[] rawBytes, string exportPassword, ZipArchive archive)
         {
             var a = new Pkcs12Store();
@@ -201,7 +197,6 @@ namespace Raven.Server.Web.Authentication
             }
         }
 
-
         [RavenAction("/admin/certificates", "PUT", AuthorizationStatus.Operator)]
         public async Task Put()
         {
@@ -210,7 +205,7 @@ namespace Raven.Server.Web.Authentication
 
             await ServerStore.EnsureNotPassiveAsync();
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
-            using (var certificateJson = ctx.ReadForDisk(RequestBodyStream(), "put-certificate"))
+            using (var certificateJson = await ctx.ReadForDiskAsync(RequestBodyStream(), "put-certificate"))
             {
                 var certificate = JsonDeserializationServer.CertificateDefinition(certificateJson);
 
@@ -305,7 +300,7 @@ namespace Raven.Server.Web.Authentication
                     currentCertDef.Certificate = Convert.ToBase64String(x509Certificate.Export(X509ContentType.Cert));
                 }
 
-                // In case of a collection, we group all the certificates together and treat them as one unit. 
+                // In case of a collection, we group all the certificates together and treat them as one unit.
                 // They all have the same name and permissions but a different thumbprint.
                 // The first certificate in the collection will be the primary certificate and its thumbprint will be the one shown in a GET request
                 // The other certificates are secondary certificates and will contain a link to the primary certificate.
@@ -366,7 +361,7 @@ namespace Raven.Server.Web.Authentication
                 foreach (var cert in allCerts)
                 {
                     if (cert.Value.TryGet(nameof(CertificateDefinition.NotAfter), out DateTime notAfter) && DateTime.UtcNow > notAfter)
-                            keysToDelete.Add(cert.Key);
+                        keysToDelete.Add(cert.Key);
                 }
 
                 await DeleteInternal(keysToDelete, GetRaftRequestIdFromQuery());
@@ -449,7 +444,7 @@ namespace Raven.Server.Web.Authentication
         }
 
         [RavenAction("/admin/certificates", "GET", AuthorizationStatus.Operator)]
-        public Task GetCertificates()
+        public async Task GetCertificates()
         {
             var thumbprint = GetStringQueryString("thumbprint", required: false);
             var name = GetStringQueryString("name", required: false);
@@ -492,25 +487,22 @@ namespace Raven.Server.Web.Authentication
                         if (TryGetAndAddCertificateByThumbprint(context, certificateList, thumbprint, metadataOnly) == false)
                         {
                             HttpContext.Response.StatusCode = (int)HttpStatusCode.NotFound;
-                            return Task.CompletedTask;
+                            return;
                         }
-                            }
+                    }
 
                     var wellKnown = ServerStore.Configuration.Security.WellKnownAdminCertificates;
 
-                    using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                    await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                     {
-                        writer.WriteStartObject();
-                        writer.WriteArray(context, "Results", certificateList.ToArray(), (w, c, cert) =>
-                        {
-                            c.Write(w, cert.Value);
-                        });
-                        writer.WriteComma();
-                        writer.WritePropertyName("LoadedServerCert");
-                        writer.WriteString(Server.Certificate.Certificate?.Thumbprint);
-                        writer.WriteComma();
-                        writer.WriteArray("WellKnownAdminCerts", wellKnown);
-                        writer.WriteEndObject();
+                        await writer.WriteStartObjectAsync();
+                        await writer.WriteArrayAsync(context, "Results", certificateList.ToArray(), (w, c, cert) => c.WriteAsync(w, cert.Value));
+                        await writer.WriteCommaAsync();
+                        await writer.WritePropertyNameAsync("LoadedServerCert");
+                        await writer.WriteStringAsync(Server.Certificate.Certificate?.Thumbprint);
+                        await writer.WriteCommaAsync();
+                        await writer.WriteArrayAsync("WellKnownAdminCerts", wellKnown);
+                        await writer.WriteEndObjectAsync();
                     }
                 }
                 finally
@@ -519,27 +511,25 @@ namespace Raven.Server.Web.Authentication
                         cert.Value?.Dispose();
                 }
             }
-
-            return Task.CompletedTask;
         }
 
         private bool TryGetCertificateByThumbprint(TransactionOperationContext context, string thumbprint, out BlittableJsonReaderObject certificate)
         {
             certificate = ServerStore.CurrentRachisState == RachisState.Passive
-                ?ServerStore.Cluster.GetLocalStateByThumbprint(context, thumbprint)
-                :ServerStore.Cluster.GetCertificateByThumbprint(context, thumbprint);
+                ? ServerStore.Cluster.GetLocalStateByThumbprint(context, thumbprint)
+                : ServerStore.Cluster.GetCertificateByThumbprint(context, thumbprint);
             return certificate != null;
         }
 
         private bool TryGetAndAddCertificateByThumbprint(TransactionOperationContext context, Dictionary<string, BlittableJsonReaderObject> certificateList,
             string thumbprint, bool metadataOnly)
-            {
+        {
             if (TryGetCertificateByThumbprint(context, thumbprint, out var certificate) == false)
                 return false;
 
             var definition = JsonDeserializationServer.CertificateDefinition(certificate);
             if (string.IsNullOrEmpty(definition.CollectionPrimaryKey) == false)
-                {
+            {
                 certificate.Dispose();
                 if (TryGetCertificateByThumbprint(context, definition.CollectionPrimaryKey, out certificate) == false)
                     return false;
@@ -553,22 +543,22 @@ namespace Raven.Server.Web.Authentication
 
             certificateList.TryAdd(thumbprint, certificate);
             return true;
-                }
+        }
 
         private void GetAllRegisteredCertificates(
-            TransactionOperationContext context, 
-            Dictionary<string, BlittableJsonReaderObject> certificates, 
+            TransactionOperationContext context,
+            Dictionary<string, BlittableJsonReaderObject> certificates,
             bool includeSecondary,
             string name = null,
             bool metadataOnly = false)
-            {
+        {
             var localCertificates = ServerStore.CurrentRachisState == RachisState.Passive
                 // If we are passive, we take the certs from the local state
                 ? ClusterStateMachine.GetAllCertificatesFromLocalState(context)
                 : ClusterStateMachine.GetAllCertificatesFromCluster(context, GetStart(), GetPageSize());
-            
+
             foreach (var (thumbprint, certificate) in localCertificates)
-                {
+            {
                 var def = JsonDeserializationServer.CertificateDefinition(certificate);
                 if (name != null && name != def.Name || includeSecondary == false && string.IsNullOrEmpty(def.CollectionPrimaryKey) == false)
                 {
@@ -587,13 +577,14 @@ namespace Raven.Server.Web.Authentication
         }
 
         [RavenAction("/certificates/whoami", "GET", AuthorizationStatus.ValidUser)]
-        public Task WhoAmI()
+        public async Task WhoAmI()
         {
             var clientCert = GetCurrentCertificate();
 
             if (clientCert == null)
             {
-                return NoContent();
+                NoContentStatus();
+                return;
             }
 
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
@@ -641,13 +632,11 @@ namespace Raven.Server.Web.Authentication
                     }
                 }
 
-                using (var writer = new BlittableJsonTextWriter(ctx, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(ctx, ResponseBodyStream()))
                 {
-                    writer.WriteObject(certificate);
+                    await writer.WriteObjectAsync(certificate);
                 }
             }
-
-            return Task.CompletedTask;
         }
 
         [RavenAction("/admin/certificates/edit", "POST", AuthorizationStatus.Operator)]
@@ -659,7 +648,7 @@ namespace Raven.Server.Web.Authentication
             var clientCert = feature?.Certificate;
 
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
-            using (var certificateJson = ctx.ReadForDisk(RequestBodyStream(), "edit-certificate"))
+            using (var certificateJson = await ctx.ReadForDiskAsync(RequestBodyStream(), "edit-certificate"))
             {
                 var newCertificate = JsonDeserializationServer.CertificateDefinition(certificateJson);
 
@@ -729,7 +718,7 @@ namespace Raven.Server.Web.Authentication
                             var clusterNodes = allItems.Select(item => JsonDeserializationServer.CertificateDefinition(item.Value))
                                 .Where(certificateDef => certificateDef.SecurityClearance == SecurityClearance.ClusterNode)
                                 .ToList();
-                            
+
                             foreach (var cert in clusterNodes)
                             {
                                 var x509Certificate2 = new X509Certificate2(Convert.FromBase64String(cert.Certificate), (string)null, X509KeyStorageFlags.MachineKeySet);
@@ -762,24 +751,22 @@ namespace Raven.Server.Web.Authentication
         }
 
         [RavenAction("/admin/certificates/mode", "GET", AuthorizationStatus.ClusterAdmin)]
-        public Task Mode()
+        public async Task Mode()
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
             {
-                using (var writer = new BlittableJsonTextWriter(ctx, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(ctx, ResponseBodyStream()))
                 {
-                    writer.WriteStartObject();
-                    writer.WritePropertyName("SetupMode");
-                    writer.WriteString(ServerStore.Configuration.Core.SetupMode.ToString());
-                    writer.WriteEndObject();
+                    await writer.WriteStartObjectAsync();
+                    await writer.WritePropertyNameAsync("SetupMode");
+                    await writer.WriteStringAsync(ServerStore.Configuration.Core.SetupMode.ToString());
+                    await writer.WriteEndObjectAsync();
                 }
             }
-
-            return Task.CompletedTask;
         }
 
         [RavenAction("/admin/certificates/cluster-domains", "GET", AuthorizationStatus.ClusterAdmin)]
-        public Task ClusterDomains()
+        public async Task ClusterDomains()
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
             using (context.OpenReadTransaction())
@@ -803,27 +790,25 @@ namespace Raven.Server.Web.Authentication
                     };
                 }
 
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
-                    writer.WriteStartObject();
-                    writer.WritePropertyName("ClusterDomains");
+                    await writer.WriteStartObjectAsync();
+                    await writer.WritePropertyNameAsync("ClusterDomains");
 
-                    writer.WriteStartArray();
+                    await writer.WriteStartArrayAsync();
                     var first = true;
                     foreach (var domain in domains)
                     {
                         if (first == false)
-                            writer.WriteComma();
+                            await writer.WriteCommaAsync();
                         first = false;
-                        writer.WriteString(domain);
+                        await writer.WriteStringAsync(domain);
                     }
-                    writer.WriteEndArray();
+                    await writer.WriteEndArrayAsync();
 
-                    writer.WriteEndObject();
+                    await writer.WriteEndObjectAsync();
                 }
             }
-
-            return Task.CompletedTask;
         }
 
         [RavenAction("/admin/certificates/replacement/reset", "POST", AuthorizationStatus.ClusterAdmin)]
@@ -840,10 +825,10 @@ namespace Raven.Server.Web.Authentication
         }
 
         [RavenAction("/admin/certificates/replacement/status", "GET", AuthorizationStatus.ClusterAdmin)]
-        public Task ReplacementStatus()
+        public async Task ReplacementStatus()
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
                 using (context.OpenReadTransaction())
                 {
@@ -858,22 +843,22 @@ namespace Raven.Server.Web.Authentication
                         certStatus.TryGet(nameof(CertificateReplacement.Replaced), out int replaced);
 
                         // Not writing the certificate itself, because it has the private key
-                        writer.WriteStartObject();
-                        writer.WritePropertyName(nameof(CertificateReplacement.Confirmations));
-                        writer.WriteInteger(confirmations);
-                        writer.WriteComma();
-                        writer.WritePropertyName(nameof(CertificateReplacement.Thumbprint));
-                        writer.WriteString(thumbprint);
-                        writer.WriteComma();
-                        writer.WritePropertyName(nameof(CertificateReplacement.OldThumbprint));
-                        writer.WriteString(oldThumbprint);
-                        writer.WriteComma();
-                        writer.WritePropertyName(nameof(CertificateReplacement.ReplaceImmediately));
-                        writer.WriteBool(replaceImmediately);
-                        writer.WriteComma();
-                        writer.WritePropertyName(nameof(CertificateReplacement.Replaced));
-                        writer.WriteInteger(replaced);
-                        writer.WriteEndObject();
+                        await writer.WriteStartObjectAsync();
+                        await writer.WritePropertyNameAsync(nameof(CertificateReplacement.Confirmations));
+                        await writer.WriteIntegerAsync(confirmations);
+                        await writer.WriteCommaAsync();
+                        await writer.WritePropertyNameAsync(nameof(CertificateReplacement.Thumbprint));
+                        await writer.WriteStringAsync(thumbprint);
+                        await writer.WriteCommaAsync();
+                        await writer.WritePropertyNameAsync(nameof(CertificateReplacement.OldThumbprint));
+                        await writer.WriteStringAsync(oldThumbprint);
+                        await writer.WriteCommaAsync();
+                        await writer.WritePropertyNameAsync(nameof(CertificateReplacement.ReplaceImmediately));
+                        await writer.WriteBoolAsync(replaceImmediately);
+                        await writer.WriteCommaAsync();
+                        await writer.WritePropertyNameAsync(nameof(CertificateReplacement.Replaced));
+                        await writer.WriteIntegerAsync(replaced);
+                        await writer.WriteEndObjectAsync();
                     }
                     else
                     {
@@ -881,12 +866,10 @@ namespace Raven.Server.Web.Authentication
                     }
                 }
             }
-
-            return Task.CompletedTask;
         }
 
         [RavenAction("/admin/certificates/letsencrypt/renewal-date", "GET", AuthorizationStatus.ClusterAdmin)]
-        public Task RenewalDate()
+        public async Task RenewalDate()
         {
             if (ServerStore.Configuration.Core.SetupMode != SetupMode.LetsEncrypt)
                 throw new InvalidOperationException("This server wasn't set up using the Let's Encrypt setup mode.");
@@ -895,21 +878,19 @@ namespace Raven.Server.Web.Authentication
                 throw new InvalidOperationException("The server certificate is not loaded.");
 
             var (_, renewalDate) = Server.CalculateRenewalDate(Server.Certificate, false);
-            
-            using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
-            {
-                writer.WriteStartObject();
-                writer.WritePropertyName("EstimatedRenewal");
-                writer.WriteDateTime(renewalDate, true);
-                writer.WriteEndObject();
-            }
 
-            return Task.CompletedTask;
+            using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
+            {
+                await writer.WriteStartObjectAsync();
+                await writer.WritePropertyNameAsync("EstimatedRenewal");
+                await writer.WriteDateTimeAsync(renewalDate, true);
+                await writer.WriteEndObjectAsync();
+            }
         }
 
         [RavenAction("/admin/certificates/letsencrypt/force-renew", "POST", AuthorizationStatus.ClusterAdmin, CorsMode = CorsMode.Cluster)]
-        public Task ForceRenew()
+        public async Task ForceRenew()
         {
             if (ServerStore.IsLeader())
             {
@@ -923,23 +904,23 @@ namespace Raven.Server.Web.Authentication
                 {
                     var success = Server.RefreshClusterCertificate(true, GetRaftRequestIdFromQuery());
                     using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-                    using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                    await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                     {
-                        writer.WriteStartObject();
-                        writer.WritePropertyName(nameof(ForceRenewResult.Success));
-                        writer.WriteBool(success);
-                        writer.WriteEndObject();
+                        await writer.WriteStartObjectAsync();
+                        await writer.WritePropertyNameAsync(nameof(ForceRenewResult.Success));
+                        await writer.WriteBoolAsync(success);
+                        await writer.WriteEndObjectAsync();
                     }
 
-                    return Task.CompletedTask;
+                    return;
                 }
                 catch (Exception e)
                 {
                     throw new InvalidOperationException($"Failed to force renew the Let's Encrypt server certificate for domain: {Server.Certificate.Certificate.GetNameInfo(X509NameType.SimpleName, false)}", e);
                 }
             }
+
             RedirectToLeader();
-            return Task.CompletedTask;
         }
 
         [RavenAction("/admin/certificates/refresh", "POST", AuthorizationStatus.ClusterAdmin, CorsMode = CorsMode.Cluster)]
@@ -981,7 +962,7 @@ namespace Raven.Server.Web.Authentication
 
                 await ServerStore.EnsureNotPassiveAsync();
                 using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
-                using (var certificateJson = ctx.ReadForDisk(RequestBodyStream(), "replace-cluster-cert"))
+                using (var certificateJson = await ctx.ReadForDiskAsync(RequestBodyStream(), "replace-cluster-cert"))
                 {
                     try
                     {
@@ -1040,12 +1021,12 @@ namespace Raven.Server.Web.Authentication
                 HttpContext.Response.StatusCode = (int)HttpStatusCode.Created;
                 return;
             }
-            
+
             RedirectToLeader();
         }
 
         [RavenAction("/admin/certificates/local-state", "GET", AuthorizationStatus.Operator)]
-        public Task GetLocalState()
+        public async Task GetLocalState()
         {
             var includeSecondary = GetBoolValueQueryString("secondary", required: false) ?? false;
 
@@ -1072,14 +1053,11 @@ namespace Raven.Server.Web.Authentication
                             localCertificate.Dispose();
                     }
 
-                    using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                    await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                     {
-                        writer.WriteStartObject();
-                        writer.WriteArray(context, "Results", certificateList.ToArray(), (w, c, cert) =>
-                        {
-                            c.Write(w, cert.Value);
-                        });
-                        writer.WriteEndObject();
+                        await writer.WriteStartObjectAsync();
+                        await writer.WriteArrayAsync(context, "Results", certificateList.ToArray(), (w, c, cert) => c.WriteAsync(w, cert.Value));
+                        await writer.WriteEndObjectAsync();
                     }
                 }
                 finally
@@ -1088,8 +1066,6 @@ namespace Raven.Server.Web.Authentication
                         cert.Value?.Dispose();
                 }
             }
-
-            return Task.CompletedTask;
         }
 
         [RavenAction("/admin/certificates/local-state", "DELETE", AuthorizationStatus.ClusterAdmin)]

@@ -1,15 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features.Authentication;
 using Raven.Client.Documents.Operations.Replication;
 using Raven.Client.Exceptions.Cluster;
-using Raven.Client.Exceptions.Database;
 using Raven.Client.ServerWide;
 using Raven.Server.Extensions;
-using Raven.Server.Monitoring.Snmp.Objects.Database;
 using Raven.Server.Routing;
 using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Context;
@@ -22,27 +19,25 @@ namespace Raven.Server.Web.System
     public class TcpConnectionInfoHandler : RequestHandler
     {
         [RavenAction("/info/tcp", "GET", AuthorizationStatus.ValidUser)]
-        public Task Get()
+        public async Task Get()
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out JsonOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
                 var output = Server.ServerStore.GetTcpInfoAndCertificates(HttpContext.Request.GetClientRequestedNodeUrl());
-                context.Write(writer, output);
+                await context.WriteAsync(writer, output);
             }
-
-            return Task.CompletedTask;
         }
 
         [RavenAction("/info/remote-task/topology", "GET", AuthorizationStatus.RestrictedAccess)]
-        public Task GetRemoteTaskTopology()
+        public async Task GetRemoteTaskTopology()
         {
             var database = GetStringQueryString("database");
             var databaseGroupId = GetStringQueryString("groupId");
             var remoteTask = GetStringQueryString("remote-task");
 
-            if (Authenticate(HttpContext, ServerStore, database, remoteTask) == false)
-                return Task.CompletedTask;
+            if (await AuthenticateAsync(HttpContext, ServerStore, database, remoteTask) == false)
+                return;
 
             List<string> nodes;
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
@@ -57,7 +52,7 @@ namespace Raven.Server.Web.System
             }
 
             using (ServerStore.ContextPool.AllocateOperationContext(out JsonOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
                 var output = new DynamicJsonArray();
                 var clusterTopology = ServerStore.GetClusterTopology();
@@ -65,12 +60,11 @@ namespace Raven.Server.Web.System
                 {
                     output.Add(clusterTopology.GetUrlFromTag(node));
                 }
-                context.Write(writer, new DynamicJsonValue
+                await context.WriteAsync(writer, new DynamicJsonValue
                 {
                     ["Results"] = output
                 });
             }
-            return Task.CompletedTask;
         }
 
         [RavenAction("/info/remote-task/tcp", "GET", AuthorizationStatus.RestrictedAccess)]
@@ -90,22 +84,22 @@ namespace Raven.Server.Web.System
                 await ServerStore.DatabasesLandlord.TryGetOrCreateResourceStore(database);
             }
 
-            if (Authenticate(HttpContext, ServerStore, database, remoteTask) == false)
+            if (await AuthenticateAsync(HttpContext, ServerStore, database, remoteTask) == false)
                 return;
 
             using (ServerStore.ContextPool.AllocateOperationContext(out JsonOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                var output = Server.ServerStore.GetTcpInfoAndCertificates(HttpContext.Request.GetClientRequestedNodeUrl(), forExternalUse:true);
-                context.Write(writer, output);
+                var output = Server.ServerStore.GetTcpInfoAndCertificates(HttpContext.Request.GetClientRequestedNodeUrl(), forExternalUse: true);
+                await context.WriteAsync(writer, output);
             }
         }
 
-        public static bool Authenticate(HttpContext httpContext, ServerStore serverStore, string database, string remoteTask)
+        public static async ValueTask<bool> AuthenticateAsync(HttpContext httpContext, ServerStore serverStore, string database, string remoteTask)
         {
             var feature = httpContext.Features.Get<IHttpAuthenticationFeature>() as RavenServer.AuthenticateConnection;
 
-            if (feature == null) // we are not using HTTPS 
+            if (feature == null) // we are not using HTTPS
                 return true;
 
             switch (feature.Status)
@@ -120,11 +114,13 @@ namespace Raven.Server.Web.System
                     if (feature.CanAccess(database, requireAdmin: false))
                         return true;
 
-                    RequestRouter.UnlikelyFailAuthorization(httpContext, database, feature, AuthorizationStatus.RestrictedAccess);
+                    await RequestRouter.UnlikelyFailAuthorizationAsync(httpContext, database, feature, AuthorizationStatus.RestrictedAccess);
                     return false;
+
                 case RavenServer.AuthenticationStatus.UnfamiliarIssuer:
-                    RequestRouter.UnlikelyFailAuthorization(httpContext, database, feature, AuthorizationStatus.RestrictedAccess);
+                    await RequestRouter.UnlikelyFailAuthorizationAsync(httpContext, database, feature, AuthorizationStatus.RestrictedAccess);
                     return false;
+
                 case RavenServer.AuthenticationStatus.UnfamiliarCertificate:
                     using (serverStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
                     using (context.OpenReadTransaction())
@@ -136,7 +132,7 @@ namespace Raven.Server.Web.System
                                 return true;
                         }
 
-                        RequestRouter.UnlikelyFailAuthorization(httpContext, database, feature, AuthorizationStatus.RestrictedAccess);
+                        await RequestRouter.UnlikelyFailAuthorizationAsync(httpContext, database, feature, AuthorizationStatus.RestrictedAccess);
                         return false;
                     }
 

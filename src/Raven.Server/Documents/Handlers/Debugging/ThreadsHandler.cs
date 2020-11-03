@@ -51,9 +51,9 @@ namespace Raven.Server.Documents.Handlers.Debugging
 
                 using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
                 {
-                    using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                    await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                     {
-                        context.Write(writer, DocumentConventions.DefaultForServer.Serialization.DefaultConverter.ToBlittable(result, context));
+                        await context.WriteAsync(writer, DocumentConventions.DefaultForServer.Serialization.DefaultConverter.ToBlittable(result, context));
                     }
                 }
             }
@@ -64,7 +64,7 @@ namespace Raven.Server.Documents.Handlers.Debugging
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out JsonOperationContext context))
             {
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
                     try
                     {
@@ -74,7 +74,7 @@ namespace Raven.Server.Documents.Handlers.Debugging
                         await Task.Delay(100);
 
                         var result = threadsUsage.Calculate();
-                        context.Write(writer,
+                        await context.WriteAsync(writer,
                             new DynamicJsonValue
                             {
                                 ["Runaway Threads"] = result.ToJson()
@@ -82,14 +82,14 @@ namespace Raven.Server.Documents.Handlers.Debugging
                     }
                     catch (Exception e)
                     {
-                        context.Write(writer,
+                        await context.WriteAsync(writer,
                             new DynamicJsonValue
                             {
                                 ["Error"] = e.ToString()
                             });
                     }
 
-                    writer.Flush();
+                    await writer.FlushAsync();
                 }
             }
         }

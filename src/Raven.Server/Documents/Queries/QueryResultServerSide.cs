@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Raven.Client.Documents.Operations.CompareExchange;
 using Raven.Client.Documents.Operations.Counters;
 using Raven.Client.Documents.Operations.TimeSeries;
@@ -46,13 +47,13 @@ namespace Raven.Server.Documents.Queries
             }
         }
 
-        public abstract void AddResult(T result);
+        public abstract ValueTask AddResultAsync(T result);
 
         public abstract void AddHighlightings(Dictionary<string, Dictionary<string, string[]>> highlightings);
 
         public abstract void AddExplanation(ExplanationResult explanationResult);
 
-        public abstract void HandleException(Exception e);
+        public abstract Task HandleExceptionAsync(Exception e);
 
         public abstract bool SupportsExceptionHandling { get; }
 

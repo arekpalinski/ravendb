@@ -460,7 +460,7 @@ namespace Raven.Server.Documents.PeriodicBackup.Restore
 
                                     using (var stream = GetInputStream(entryStream, snapshotEncryptionKey))
                                     {
-                                        var json = context.Read(stream, "read database settings for restore");
+                                        var json = await context.ReadForMemoryAsync(stream, "read database settings for restore");
                                         json.BlittableValidation();
 
                                         restoreSettings = JsonDeserializationServer.RestoreSettings(json);

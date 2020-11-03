@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Raven.Client.Documents.Conventions;
 using Raven.Client.Json.Serialization;
 using Sparrow;
@@ -34,13 +36,13 @@ namespace Raven.Client.Http
             return Path.Combine(conventions.TopologyCacheLocation, $"{databaseName}.{topologyHash}.raven-database-topology");
         }
 
-        public static Topology TryLoad(string databaseName, string topologyHash, DocumentConventions conventions, JsonOperationContext context)
+        public static Task<Topology> TryLoadAsync(string databaseName, string topologyHash, DocumentConventions conventions, JsonOperationContext context)
         {
             var path = GetPath(databaseName, topologyHash, conventions);
-            return TryLoad(path, context);
+            return TryLoadAsync(path, context);
         }
 
-        private static Topology TryLoad(string path, JsonOperationContext context)
+        private static async Task<Topology> TryLoadAsync(string path, JsonOperationContext context)
         {
             try
             {
@@ -48,7 +50,7 @@ namespace Raven.Client.Http
                     return null;
 
                 using (var stream = SafeFileStream.Create(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                using (var json = context.Read(stream, "raven-database-topology"))
+                using (var json = await context.ReadForMemoryAsync(stream, "raven-database-topology").ConfigureAwait(false))
                 {
                     return JsonDeserializationClient.Topology(json);
                 }
@@ -61,7 +63,7 @@ namespace Raven.Client.Http
             }
         }
 
-        public static void TrySaving(string databaseName, string topologyHash, Topology topology, DocumentConventions conventions, JsonOperationContext context)
+        public static async Task TrySavingAsync(string databaseName, string topologyHash, Topology topology, DocumentConventions conventions, JsonOperationContext context, CancellationToken token)
         {
             try
             {
@@ -72,7 +74,7 @@ namespace Raven.Client.Http
                     return;
                 }
 
-                var existingTopology = TryLoad(path, context);
+                var existingTopology = await TryLoadAsync(path, context).ConfigureAwait(false);
                 if (existingTopology?.Etag >= topology.Etag)
                 {
                     if (_logger.IsInfoEnabled)
@@ -82,30 +84,30 @@ namespace Raven.Client.Http
                 }
 
                 using (var stream = SafeFileStream.Create(path, FileMode.Create, FileAccess.Write, FileShare.Read))
-                using (var writer = new BlittableJsonTextWriter(context, stream))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, stream))
                 {
-                    writer.WriteStartObject();
+                    await writer.WriteStartObjectAsync().ConfigureAwait(false);
 
-                    writer.WritePropertyName(context.GetLazyString(nameof(topology.Nodes)));
-                    writer.WriteStartArray();
+                    await writer.WritePropertyNameAsync(context.GetLazyString(nameof(topology.Nodes))).ConfigureAwait(false);
+                    await writer.WriteStartArrayAsync().ConfigureAwait(false);
                     for (var i = 0; i < topology.Nodes.Count; i++)
                     {
                         var node = topology.Nodes[i];
                         if (i != 0)
-                            writer.WriteComma();
-                        WriteNode(writer, node, context);
+                            await writer.WriteCommaAsync().ConfigureAwait(false);
+                        await WriteNodeAsync(writer, node, context).ConfigureAwait(false);
                     }
-                    writer.WriteEndArray();
+                    await writer.WriteEndArrayAsync().ConfigureAwait(false);
 
-                    writer.WriteComma();
-                    writer.WritePropertyName(context.GetLazyString(nameof(topology.Etag)));
-                    writer.WriteInteger(topology.Etag);
+                    await writer.WriteCommaAsync().ConfigureAwait(false);
+                    await writer.WritePropertyNameAsync(context.GetLazyString(nameof(topology.Etag))).ConfigureAwait(false);
+                    await writer.WriteIntegerAsync(topology.Etag).ConfigureAwait(false);
 
-                    writer.WriteComma();
-                    writer.WritePropertyName(context.GetLazyString("PersistedAt"));
-                    writer.WriteString(DateTimeOffset.UtcNow.ToString(DefaultFormat.DateTimeOffsetFormatsToWrite));
+                    await writer.WriteCommaAsync().ConfigureAwait(false);
+                    await writer.WritePropertyNameAsync(context.GetLazyString("PersistedAt")).ConfigureAwait(false);
+                    await writer.WriteStringAsync(DateTimeOffset.UtcNow.ToString(DefaultFormat.DateTimeOffsetFormatsToWrite)).ConfigureAwait(false);
 
-                    writer.WriteEndObject();
+                    await writer.WriteEndObjectAsync().ConfigureAwait(false);
                 }
             }
             catch (Exception e)
@@ -115,27 +117,27 @@ namespace Raven.Client.Http
             }
         }
 
-        private static void WriteNode(BlittableJsonTextWriter writer, ServerNode node, JsonOperationContext context)
+        private static async ValueTask WriteNodeAsync(AsyncBlittableJsonTextWriter writer, ServerNode node, JsonOperationContext context)
         {
-            writer.WriteStartObject();
+            await writer.WriteStartObjectAsync().ConfigureAwait(false);
 
-            writer.WritePropertyName(context.GetLazyString(nameof(ServerNode.Url)));
-            writer.WriteString(context.GetLazyString(node.Url));
+            await writer.WritePropertyNameAsync(context.GetLazyString(nameof(ServerNode.Url))).ConfigureAwait(false);
+            await writer.WriteStringAsync(context.GetLazyString(node.Url)).ConfigureAwait(false);
 
-            writer.WriteComma();
-            writer.WritePropertyName(context.GetLazyString(nameof(ServerNode.Database)));
-            writer.WriteString(context.GetLazyString(node.Database));
+            await writer.WriteCommaAsync().ConfigureAwait(false);
+            await writer.WritePropertyNameAsync(context.GetLazyString(nameof(ServerNode.Database))).ConfigureAwait(false);
+            await writer.WriteStringAsync(context.GetLazyString(node.Database)).ConfigureAwait(false);
 
             // ClusterTag and ServerRole included for debugging purpose only
-            writer.WriteComma();
-            writer.WritePropertyName(context.GetLazyString(nameof(ServerNode.ClusterTag)));
-            writer.WriteString(context.GetLazyString(node.ClusterTag));
+            await writer.WriteCommaAsync().ConfigureAwait(false);
+            await writer.WritePropertyNameAsync(context.GetLazyString(nameof(ServerNode.ClusterTag))).ConfigureAwait(false);
+            await writer.WriteStringAsync(context.GetLazyString(node.ClusterTag)).ConfigureAwait(false);
 
-            writer.WriteComma();
-            writer.WritePropertyName(context.GetLazyString(nameof(ServerNode.ServerRole)));
-            writer.WriteString(context.GetLazyString(node.ServerRole.ToString()));
+            await writer.WriteCommaAsync().ConfigureAwait(false);
+            await writer.WritePropertyNameAsync(context.GetLazyString(nameof(ServerNode.ServerRole))).ConfigureAwait(false);
+            await writer.WriteStringAsync(context.GetLazyString(node.ServerRole.ToString())).ConfigureAwait(false);
 
-            writer.WriteEndObject();
+            await writer.WriteEndObjectAsync().ConfigureAwait(false);
         }
     }
 }

@@ -28,7 +28,7 @@ namespace Raven.Server.Web.System
     public class AdminServerWideBackupHandler : ServerRequestHandler
     {
         [RavenAction("/admin/configuration/server-wide", "GET", AuthorizationStatus.ClusterAdmin)]
-        public Task GetConfigurationServerWide()
+        public async Task GetConfigurationServerWide()
         {
             // FullPath removes the trailing '/' so adding it back for the studio
             var localRootPath = ServerStore.Configuration.Backup.LocalRootPath;
@@ -42,12 +42,10 @@ namespace Raven.Server.Web.System
             };
 
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                context.Write(writer, result);
+                await context.WriteAsync(writer, result);
             }
-
-            return Task.CompletedTask;
         }
 
         // Used for Create, Edit
@@ -67,7 +65,7 @@ namespace Raven.Server.Web.System
                 var (newIndex, _) = await ServerStore.PutServerWideBackupConfigurationAsync(configuration, GetRaftRequestIdFromQuery());
                 await ServerStore.WaitForCommitIndexChange(RachisConsensus.CommitIndexModification.GreaterOrEqual, newIndex);
                
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 using (context.OpenReadTransaction())
                 {
                     var backupName = ServerStore.Cluster.GetServerWideBackupNameByTaskId(context, newIndex);
@@ -81,8 +79,8 @@ namespace Raven.Server.Web.System
                     };
 
                     HttpContext.Response.StatusCode = (int)HttpStatusCode.Created;
-                    context.Write(writer, putResponse.ToJson());
-                    writer.Flush();
+                    await context.WriteAsync(writer, putResponse.ToJson());
+                    await writer.FlushAsync();
                 }
             }
         }
@@ -97,7 +95,7 @@ namespace Raven.Server.Web.System
                 var (newIndex, _) = await ServerStore.DeleteServerWideBackupConfigurationAsync(name, GetRaftRequestIdFromQuery());
                 await ServerStore.WaitForCommitIndexChange(RachisConsensus.CommitIndexModification.GreaterOrEqual, newIndex);
                
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 using (context.OpenReadTransaction())
                 {
                     var deleteResponse = new PutServerWideBackupConfigurationResponse()
@@ -107,8 +105,8 @@ namespace Raven.Server.Web.System
                     };
 
                     HttpContext.Response.StatusCode = (int)HttpStatusCode.OK;
-                    context.Write(writer, deleteResponse.ToJson());
-                    writer.Flush();
+                    await context.WriteAsync(writer, deleteResponse.ToJson());
+                    await writer.FlushAsync();
                 }
             }
         }
@@ -116,13 +114,13 @@ namespace Raven.Server.Web.System
         // Get all server-wide backups -OR- specific task by the task name... 
         // todo : consider also returning each db specific details for the studio list view here
         [RavenAction("/admin/configuration/server-wide/backup", "GET", AuthorizationStatus.ClusterAdmin)]
-        public Task GetServerWideBackupConfigurationCommand()
+        public async Task GetServerWideBackupConfigurationCommand()
         {
             var taskName = GetStringQueryString("name", required: false);
 
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
             using (context.OpenReadTransaction())
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
                 var backups = ServerStore.Cluster.GetServerWideBackupConfigurations(context, taskName);
                 ServerWideBackupConfigurationResults backupsResult = new ServerWideBackupConfigurationResults();
@@ -137,10 +135,8 @@ namespace Raven.Server.Web.System
                     backupsResult.Results.Add(backup);
                 }
                 
-                context.Write(writer, backupsResult.ToJson());
-                writer.Flush();
-
-                return Task.CompletedTask;
+                await context.WriteAsync(writer, backupsResult.ToJson());
+                await writer.FlushAsync();
             }
         }
         
@@ -167,7 +163,7 @@ namespace Raven.Server.Web.System
                 var (newIndex, _) = await ServerStore.PutServerWideBackupConfigurationAsync(serverWideBackup, GetRaftRequestIdFromQuery());
                 await ServerStore.WaitForCommitIndexChange(RachisConsensus.CommitIndexModification.GreaterOrEqual, newIndex);
 
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
                     var toggleResponse = new PutServerWideBackupConfigurationResponse()
                     {
@@ -175,8 +171,8 @@ namespace Raven.Server.Web.System
                         RaftCommandIndex = newIndex 
                     };
 
-                    context.Write(writer, toggleResponse.ToJson());
-                    writer.Flush();
+                    await context.WriteAsync(writer, toggleResponse.ToJson());
+                    await writer.FlushAsync();
                 }
             }
         }

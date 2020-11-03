@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Raven.Server.ServerWide;
 using Sparrow.Json;
@@ -7,13 +8,13 @@ namespace Raven.Server.Documents.Queries
 {
     public class StreamDocumentIndexEntriesQueryResult : StreamQueryResult<BlittableJsonReaderObject>
     {
-        public override void AddResult(BlittableJsonReaderObject result)
+        public override async ValueTask AddResultAsync(BlittableJsonReaderObject result)
         {
             if (HasAnyWrites() == false)
-                StartResponseIfNeeded();
+                await StartResponseIfNeededAsync();
 
             using (result)
-                GetWriter().AddResult(result);
+                await GetWriter().AddResultAsync(result);
             GetToken().Delay();
         }
 

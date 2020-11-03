@@ -7,6 +7,7 @@ using Raven.Server.Extensions;
 using Raven.Server.Json;
 
 using Sparrow.Json;
+using Sparrow.Server.Json.Sync;
 using Voron;
 
 namespace Raven.Server.Documents.Indexes.Static
@@ -116,7 +117,7 @@ namespace Raven.Server.Documents.Indexes.Static
             using (var tx = environment.ReadTransaction())
             {
                 using (var stream = GetIndexDefinitionStream(environment, tx))
-                using (var reader = context.ReadForDisk(stream, "index/def"))
+                using (var reader = context.Sync.ReadForDisk(stream, "index/def"))
                 {
                     var definition = ReadIndexDefinition(reader);
                     definition.Name = ReadName(reader);

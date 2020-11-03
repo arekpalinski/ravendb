@@ -1,10 +1,12 @@
 ﻿using System;
 using System.IO;
+using System.Threading.Tasks;
 using Raven.Client.Util;
 using Raven.Server.Json;
 using Raven.Server.ServerWide.Context;
 using Sparrow.Json;
 using Sparrow.Logging;
+using Sparrow.Server.Json.Sync;
 
 namespace Raven.Server.ServerWide
 {
@@ -28,6 +30,34 @@ namespace Raven.Server.ServerWide
         public DateTime? LastRequestTime;
 
         public DateTime? LastAuthorizedNonClusterAdminRequestTime;
+
+        public async ValueTask WriteToAsync(AsyncBlittableJsonTextWriter writer)
+        {
+            await writer.WriteStartObjectAsync();
+
+            await writer.WritePropertyNameAsync(nameof(UpTime));
+            await writer.WriteStringAsync(UpTime.ToString("c"));
+            await writer.WriteCommaAsync();
+
+            await writer.WritePropertyNameAsync(nameof(StartUpTime));
+            await writer.WriteDateTimeAsync(StartUpTime, isUtc: true);
+            await writer.WriteCommaAsync();
+
+            await writer.WritePropertyNameAsync(nameof(LastRequestTime));
+            if (LastRequestTime.HasValue)
+                await writer.WriteDateTimeAsync(LastRequestTime.Value, isUtc: true);
+            else
+                await writer.WriteNullAsync();
+            await writer.WriteCommaAsync();
+
+            await writer.WritePropertyNameAsync(nameof(LastAuthorizedNonClusterAdminRequestTime));
+            if (LastAuthorizedNonClusterAdminRequestTime.HasValue)
+                await writer.WriteDateTimeAsync(LastAuthorizedNonClusterAdminRequestTime.Value, isUtc: true);
+            else
+                await writer.WriteNullAsync();
+
+            await writer.WriteEndObjectAsync();
+        }
 
         public void WriteTo(BlittableJsonTextWriter writer)
         {
@@ -72,7 +102,7 @@ namespace Raven.Server.ServerWide
                     if (result == null)
                         return;
 
-                    using (var json = context.ReadForMemory(result.Reader.AsStream(), nameof(ServerStatistics)))
+                    using (var json = context.Sync.ReadForMemory(result.Reader.AsStream(), nameof(ServerStatistics)))
                     {
                         var stats = JsonDeserializationServer.ServerStatistics(json);
 
@@ -104,8 +134,8 @@ namespace Raven.Server.ServerWide
                         using (var writer = new BlittableJsonTextWriter(context, ms))
                         {
                             WriteTo(writer);
-
                             writer.Flush();
+
                             ms.Position = 0;
 
                             var tree = tx.InnerTransaction.CreateTree(nameof(ServerStatistics));
