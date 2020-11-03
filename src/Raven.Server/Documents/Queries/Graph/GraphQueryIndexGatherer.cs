@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Threading.Tasks;
 using NCrontab.Advanced.Extensions;
 
 namespace Raven.Server.Documents.Queries.Graph
@@ -9,7 +10,7 @@ namespace Raven.Server.Documents.Queries.Graph
         
         public List<QueryQueryStep> QueryStepsWithoutExplicitIndex { get; } = new List<QueryQueryStep>();
 
-        public override void VisitQueryQueryStep(QueryQueryStep qqs)
+        public override Task VisitQueryQueryStepAsync(QueryQueryStep qqs)
         {
             var name = qqs.GetIndexName;
             if (name.IsNullOrWhiteSpace() == false)
@@ -20,6 +21,8 @@ namespace Raven.Server.Documents.Queries.Graph
             {
                 QueryStepsWithoutExplicitIndex.Add(qqs);
             }
+
+            return Task.CompletedTask;
         }
     }
 }

@@ -2252,7 +2252,7 @@ namespace SlowTests.Server.Documents.PeriodicBackup
             await store.Maintenance.SendAsync(new StartBackupOperation(isFullBackup, backupTaskId));
             var operation = new GetPeriodicBackupStatusOperation(backupTaskId);
             var databaseLastEtag = store.Maintenance.Send(new GetStatisticsOperation()).LastDatabaseEtag;
-            var backupLastEtag = await WaitForValueAsync(async () => store.Maintenance.Send(operation).Status.LastEtag, databaseLastEtag);
+            var backupLastEtag = await WaitForValueAsync(() => store.Maintenance.Send(operation).Status.LastEtag, databaseLastEtag);
             Assert.Equal(databaseLastEtag, backupLastEtag);
         }
         

@@ -7,32 +7,31 @@ namespace Raven.Server.Documents.Handlers.Debugging
     public class ScriptRunnersDebugInfoHandler : DatabaseRequestHandler
     {
         [RavenAction("/databases/*/debug/script-runners", "GET", AuthorizationStatus.ValidUser, IsDebugInformationEndpoint = true)]
-        public Task GetJSDebugInfo()
+        public async Task GetJSDebugInfo()
         {
             var detailed = GetBoolValueQueryString("detailed", required: false) ?? false;
 
             using (Database.ServerStore.ContextPool.AllocateOperationContext(out JsonOperationContext context))
             {
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
-                    writer.WriteStartObject();
-                    writer.WritePropertyName("ScriptRunners");
+                    await writer.WriteStartObjectAsync();
+                    await writer.WritePropertyNameAsync("ScriptRunners");
 
-                    writer.WriteStartArray();
+                    await writer.WriteStartArrayAsync();
                     var first = true;
                     foreach (var runnerInfo in Database.Scripts.GetDebugInfo(detailed))
                     {
                         if (first == false)
-                            writer.WriteComma();
+                            await writer.WriteCommaAsync();
                         first = false;
                         using (var runnerInfoReader = context.ReadObject(runnerInfo, "runnerInfo"))
-                            writer.WriteObject(runnerInfoReader);
+                            await writer.WriteObjectAsync(runnerInfoReader);
                     }
-                    writer.WriteEndArray();
-                    writer.WriteEndObject();
+                    await writer.WriteEndArrayAsync();
+                    await writer.WriteEndObjectAsync();
                 }
             }
-            return Task.CompletedTask;
         }
     }
 }

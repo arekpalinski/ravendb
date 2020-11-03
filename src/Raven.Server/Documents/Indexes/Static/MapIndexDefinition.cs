@@ -7,6 +7,7 @@ using Raven.Server.Extensions;
 using Raven.Server.Json;
 
 using Sparrow.Json;
+using Sparrow.Server.Json.Sync;
 using Voron;
 
 namespace Raven.Server.Documents.Indexes.Static

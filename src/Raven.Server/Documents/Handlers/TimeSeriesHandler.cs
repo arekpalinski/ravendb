@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Primitives;
 using Raven.Client;
@@ -26,12 +27,11 @@ namespace Raven.Server.Documents.Handlers
 {
     public class TimeSeriesHandler : DatabaseRequestHandler
     {
-        
         [RavenAction("/databases/*/timeseries/stats", "GET", AuthorizationStatus.ValidUser)]
-        public Task Stats()
+        public async Task Stats()
         {
             var documentId = GetStringQueryString("docId");
-            
+
             using (ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
             using (context.OpenReadTransaction())
             {
@@ -39,7 +39,7 @@ namespace Raven.Server.Documents.Handlers
                 if (document == null)
                 {
                     HttpContext.Response.StatusCode = (int)HttpStatusCode.NotFound;
-                    return Task.CompletedTask;
+                    return;
                 }
 
                 var timeSeriesNames = new List<string>();
@@ -60,60 +60,58 @@ namespace Raven.Server.Documents.Handlers
                         }
                     }
                 }
-                
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
-                    writer.WriteStartObject();
-                    
-                    writer.WritePropertyName(nameof(TimeSeriesStatistics.DocumentId));
-                    writer.WriteString(documentId);
-                    writer.WriteComma();
-                    
-                    writer.WritePropertyName(nameof(TimeSeriesStatistics.TimeSeries));
-                    
-                    writer.WriteStartArray();
-                    
+                    await writer.WriteStartObjectAsync();
+
+                    await writer.WritePropertyNameAsync(nameof(TimeSeriesStatistics.DocumentId));
+                    await writer.WriteStringAsync(documentId);
+                    await writer.WriteCommaAsync();
+
+                    await writer.WritePropertyNameAsync(nameof(TimeSeriesStatistics.TimeSeries));
+
+                    await writer.WriteStartArrayAsync();
+
                     var first = true;
                     foreach (var tsName in timeSeriesNames)
                     {
                         if (first == false)
                         {
-                            writer.WriteComma();
+                            await writer.WriteCommaAsync();
                         }
                         first = false;
 
                         var stats = Database.DocumentsStorage.TimeSeriesStorage.Stats.GetStats(context, documentId, tsName);
 
-                        writer.WriteStartObject();
-                        
-                        writer.WritePropertyName(nameof(TimeSeriesItemDetail.Name));
-                        writer.WriteString(tsName);
-                        
-                        writer.WriteComma();
-                        
-                        writer.WritePropertyName(nameof(TimeSeriesItemDetail.NumberOfEntries));
-                        writer.WriteInteger(stats.Count);
+                        await writer.WriteStartObjectAsync();
 
-                        writer.WriteComma();
+                        await writer.WritePropertyNameAsync(nameof(TimeSeriesItemDetail.Name));
+                        await writer.WriteStringAsync(tsName);
 
-                        writer.WritePropertyName(nameof(TimeSeriesItemDetail.StartDate));
-                        writer.WriteDateTime(stats.Start, isUtc: true);
+                        await writer.WriteCommaAsync();
 
-                        writer.WriteComma();
+                        await writer.WritePropertyNameAsync(nameof(TimeSeriesItemDetail.NumberOfEntries));
+                        await writer.WriteIntegerAsync(stats.Count);
 
-                        writer.WritePropertyName(nameof(TimeSeriesItemDetail.EndDate));
-                        writer.WriteDateTime(stats.End, isUtc: true);
+                        await writer.WriteCommaAsync();
 
-                        writer.WriteEndObject();
+                        await writer.WritePropertyNameAsync(nameof(TimeSeriesItemDetail.StartDate));
+                        await writer.WriteDateTimeAsync(stats.Start, isUtc: true);
+
+                        await writer.WriteCommaAsync();
+
+                        await writer.WritePropertyNameAsync(nameof(TimeSeriesItemDetail.EndDate));
+                        await writer.WriteDateTimeAsync(stats.End, isUtc: true);
+
+                        await writer.WriteEndObjectAsync();
                     }
-                    
-                    writer.WriteEndArray();
 
-                    writer.WriteEndObject();
-                }    
+                    await writer.WriteEndArrayAsync();
+
+                    await writer.WriteEndObjectAsync();
+                }
             }
-            
-            return Task.CompletedTask;
         }
 
         [RavenAction("/databases/*/timeseries/ranges", "GET", AuthorizationStatus.ValidUser)]
@@ -143,7 +141,7 @@ namespace Raven.Server.Documents.Handlers
 
                 HttpContext.Response.Headers[Constants.Headers.Etag] = "\"" + actualEtag + "\"";
 
-                await WriteResponse(context, documentId, ranges);
+                await WriteResponse(context, documentId, ranges, Database.DatabaseShutdown);
             }
         }
 
@@ -161,8 +159,8 @@ namespace Raven.Server.Documents.Handlers
             using (ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
             using (context.OpenReadTransaction())
             {
-                var from = string.IsNullOrEmpty(fromStr) 
-                    ? DateTime.MinValue 
+                var from = string.IsNullOrEmpty(fromStr)
+                    ? DateTime.MinValue
                     : ParseDate(fromStr, name);
 
                 var to = string.IsNullOrEmpty(toStr)
@@ -195,12 +193,10 @@ namespace Raven.Server.Documents.Handlers
                     totalCount = stats.Count;
                 }
 
-                using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream(), Database.DatabaseShutdown))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
                     if (rangeResult != null)
-                        WriteRange(writer, rangeResult, totalCount);
-
-                    await writer.MaybeOuterFlushAsync();
+                    await WriteRangeAsync(writer, rangeResult, totalCount);
                 }
             }
         }
@@ -236,14 +232,14 @@ namespace Raven.Server.Documents.Handlers
                     Debug.Assert(pageSize <= 0, "Page size must be zero or less here");
                     return rangeResultDictionary; 
                 }
-                if (rangeResultDictionary.TryGetValue(name, out var list) == false)
-                {
-                    rangeResultDictionary[name] = new List<TimeSeriesRangeResult> { rangeResult };
-                }
-                else
-                {
-                    list.Add(rangeResult);
-                }
+                    if (rangeResultDictionary.TryGetValue(name, out var list) == false)
+                    {
+                        rangeResultDictionary[name] = new List<TimeSeriesRangeResult> { rangeResult };
+                    }
+                    else
+                    {
+                        list.Add(rangeResult);
+                    }
 
                 if (pageSize <= 0)
                     break;
@@ -261,7 +257,7 @@ namespace Raven.Server.Documents.Handlers
 
             var reader = new TimeSeriesReader(context, docId, name, from, to, offset: null);
 
-            // init hash 
+            // init hash
             var size = Sodium.crypto_generichash_bytes();
             Debug.Assert((int)size == 32);
             var cryptoGenerichashStatebytes = (int)Sodium.crypto_generichash_statebytes();
@@ -275,7 +271,7 @@ namespace Raven.Server.Documents.Handlers
 
             foreach (var (individualValues, segmentResult) in reader.SegmentsOrValues())
             {
-                if (individualValues == null && 
+                if (individualValues == null &&
                     start > segmentResult.Summary.NumberOfLiveEntries)
                 {
                     lastSeenEntry = segmentResult.End;
@@ -317,13 +313,13 @@ namespace Raven.Server.Documents.Handlers
 
             if ((initialStart > 0 ) && (values.Count == 0))
                 // this is a special case, because before the 'start' we might have values
-                return new TimeSeriesRangeResult
-                {
+            return new TimeSeriesRangeResult
+            {
                     From = lastSeenEntry,
                     To = to,
-                    Entries = values.ToArray(),
+                Entries = values.ToArray(),
                     Hash = hash
-                };
+            };
 
             return new TimeSeriesRangeResult
             {
@@ -348,7 +344,7 @@ namespace Raven.Server.Documents.Handlers
 
         private static unsafe string CombineHashesFromMultipleRanges(Dictionary<string, List<TimeSeriesRangeResult>> ranges)
         {
-            // init hash 
+            // init hash
             var size = Sodium.crypto_generichash_bytes();
             Debug.Assert((int)size == 32);
             var cryptoGenerichashStatebytes = (int)Sodium.crypto_generichash_statebytes();
@@ -369,46 +365,45 @@ namespace Raven.Server.Documents.Handlers
             return ComputeHttpEtags.FinalizeHash(size, state);
         }
 
-        private async Task WriteResponse(DocumentsOperationContext context, string documentId, Dictionary<string, List<TimeSeriesRangeResult>> ranges)
+        private async Task WriteResponse(DocumentsOperationContext context, string documentId, Dictionary<string, List<TimeSeriesRangeResult>> ranges, CancellationToken token)
         {
-            using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream(), Database.DatabaseShutdown))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                writer.WriteStartObject();
+                await writer.WriteStartObjectAsync(token);
                 {
-                    writer.WritePropertyName(nameof(TimeSeriesDetails.Id));
-                    writer.WriteString(documentId);
+                    await writer.WritePropertyNameAsync(nameof(TimeSeriesDetails.Id), token);
+                    await writer.WriteStringAsync(documentId, token: token);
 
-                    writer.WriteComma();
-                    writer.WritePropertyName(nameof(TimeSeriesDetails.Values));
-                    await WriteTimeSeriesRangeResults(context, writer, documentId, ranges);
+                    await writer.WriteCommaAsync(token);
+                    await writer.WritePropertyNameAsync(nameof(TimeSeriesDetails.Values), token);
+                    await WriteTimeSeriesRangeResultsAsync(context, writer, documentId, ranges, token);
                 }
-                writer.WriteEndObject();
 
-                await writer.OuterFlushAsync();
+                await writer.WriteEndObjectAsync(token);
             }
         }
 
-        internal static async Task WriteTimeSeriesRangeResults(DocumentsOperationContext context, AsyncBlittableJsonTextWriter writer, string documentId, Dictionary<string, List<TimeSeriesRangeResult>> dictionary)
+        internal static async Task WriteTimeSeriesRangeResultsAsync(DocumentsOperationContext context, AsyncBlittableJsonTextWriter writer, string documentId, Dictionary<string, List<TimeSeriesRangeResult>> dictionary, CancellationToken token)
         {
             if (dictionary == null)
             {
-                writer.WriteNull();
+                await writer.WriteNullAsync(token);
                 return;
             }
 
-            writer.WriteStartObject();
+            await writer.WriteStartObjectAsync(token);
             {
                 bool first = true;
                 foreach (var (name, ranges) in dictionary)
                 {
                     if (first == false)
-                        writer.WriteComma();
+                        await writer.WriteCommaAsync(token);
 
                     first = false;
 
-                    writer.WritePropertyName(name);
+                    await writer.WritePropertyNameAsync(name, token);
 
-                    writer.WriteStartArray();
+                    await writer.WriteStartArrayAsync(token);
                     {
                         (long Count, DateTime Start, DateTime End) stats = default;
                         if (documentId != null)
@@ -422,82 +417,82 @@ namespace Raven.Server.Documents.Handlers
                             long? totalCount = null;
 
                             if (i > 0)
-                                writer.WriteComma();
+                                await writer.WriteCommaAsync(token);
 
                             if (stats != default && ranges[i].From <= stats.Start && ranges[i].To >= stats.End)
                             {
                                 totalCount = stats.Count;
                             }
 
-                            WriteRange(writer, ranges[i], totalCount);
+                            await WriteRangeAsync(writer, ranges[i], totalCount);
 
-                            await writer.MaybeOuterFlushAsync();
+                            await writer.FlushAsync(token);
                         }
                     }
-                    writer.WriteEndArray();
+                    await writer.WriteEndArrayAsync(token);
                 }
             }
-            writer.WriteEndObject();
+            await writer.WriteEndObjectAsync(token);
         }
 
-        private static void WriteRange(AsyncBlittableJsonTextWriter writer, TimeSeriesRangeResult rangeResult, long? totalCount)
+        private static async ValueTask WriteRangeAsync(AsyncBlittableJsonTextWriter writer, TimeSeriesRangeResult rangeResult, long? totalCount)
         {
-            writer.WriteStartObject();
+            await writer.WriteStartObjectAsync();
             {
-                writer.WritePropertyName(nameof(TimeSeriesRangeResult.From));
+                await writer.WritePropertyNameAsync(nameof(TimeSeriesRangeResult.From));
                 if (rangeResult.From == DateTime.MinValue)
-                    writer.WriteNull();
+                    await writer.WriteNullAsync();
                 else
-                    writer.WriteDateTime(rangeResult.From, true);
-                writer.WriteComma();
+                    await writer.WriteDateTimeAsync(rangeResult.From, true);
+                await writer.WriteCommaAsync();
 
-                writer.WritePropertyName(nameof(TimeSeriesRangeResult.To));
+                await writer.WritePropertyNameAsync(nameof(TimeSeriesRangeResult.To));
                 if (rangeResult.To == DateTime.MaxValue)
-                    writer.WriteNull();
+                    await writer.WriteNullAsync();
                 else
-                    writer.WriteDateTime(rangeResult.To, true);
-                writer.WriteComma();
+                    await writer.WriteDateTimeAsync(rangeResult.To, true);
+                await writer.WriteCommaAsync();
 
-                writer.WritePropertyName(nameof(TimeSeriesRangeResult.Entries));
-                WriteEntries(writer, rangeResult.Entries);
+                await writer.WritePropertyNameAsync(nameof(TimeSeriesRangeResult.Entries));
+                await WriteEntriesAsync(writer, rangeResult.Entries);
 
                 if (totalCount.HasValue)
                 {
-                    // add total entries count to the response 
-                    writer.WriteComma();
-                    writer.WritePropertyName(nameof(TimeSeriesRangeResult.TotalResults));
-                    writer.WriteInteger(totalCount.Value);
+                    // add total entries count to the response
+                    await writer.WriteCommaAsync();
+                    await writer.WritePropertyNameAsync(nameof(TimeSeriesRangeResult.TotalResults));
+                    await writer.WriteIntegerAsync(totalCount.Value);
                 }
             }
-            writer.WriteEndObject();
+            await writer.WriteEndObjectAsync();
         }
 
-        private static void WriteEntries(AbstractBlittableJsonTextWriter writer, TimeSeriesEntry[] entries)
+        private static async ValueTask WriteEntriesAsync(AsyncBlittableJsonTextWriter writer, TimeSeriesEntry[] entries)
         {
-            writer.WriteStartArray();
+            await writer.WriteStartArrayAsync();
 
             for (var i = 0; i < entries.Length; i++)
             {
                 if (i > 0)
-                    writer.WriteComma();
+                    await writer.WriteCommaAsync();
 
-                writer.WriteStartObject();
+                await writer.WriteStartObjectAsync();
                 {
-                    writer.WritePropertyName(nameof(TimeSeriesEntry.Timestamp));
-                    writer.WriteDateTime(entries[i].Timestamp, true);
-                    writer.WriteComma();
-                    writer.WritePropertyName(nameof(TimeSeriesEntry.Tag));
-                    writer.WriteString(entries[i].Tag);
-                    writer.WriteComma();
-                    writer.WriteArray(nameof(TimeSeriesEntry.Values), entries[i].Values);
-                    writer.WriteComma();
-                    writer.WritePropertyName(nameof(TimeSeriesEntry.IsRollup));
-                    writer.WriteBool(entries[i].IsRollup);
+                    await writer.WritePropertyNameAsync(nameof(TimeSeriesEntry.Timestamp));
+                    await writer.WriteDateTimeAsync(entries[i].Timestamp, true);
+                    await writer.WriteCommaAsync();
+                    await writer.WritePropertyNameAsync(nameof(TimeSeriesEntry.Tag));
+                    await writer.WriteStringAsync(entries[i].Tag);
+                    await writer.WriteCommaAsync();
+                    await writer.WriteArrayAsync(nameof(TimeSeriesEntry.Values), entries[i].Values);
+                    await writer.WriteCommaAsync();
+                    await writer.WritePropertyNameAsync(nameof(TimeSeriesEntry.IsRollup));
+                    await writer.WriteBoolAsync(entries[i].IsRollup);
                 }
-                writer.WriteEndObject();
+                await writer.WriteEndObjectAsync();
             }
 
-            writer.WriteEndArray();
+            await writer.WriteEndArrayAsync();
         }
 
         [RavenAction("/databases/*/timeseries", "POST", AuthorizationStatus.ValidUser)]
@@ -529,7 +524,7 @@ namespace Raven.Server.Documents.Handlers
         }
 
         [RavenAction("/databases/*/timeseries/config", "GET", AuthorizationStatus.ValidUser)]
-        public Task GetTimeSeriesConfig()
+        public async Task GetTimeSeriesConfig()
         {
             using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
             using (context.OpenReadTransaction())
@@ -542,9 +537,9 @@ namespace Raven.Server.Documents.Handlers
 
                 if (timeSeriesConfig != null)
                 {
-                    using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                    await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                     {
-                        context.Write(writer, timeSeriesConfig.ToJson());
+                        await context.WriteAsync(writer, timeSeriesConfig.ToJson());
                     }
                 }
                 else
@@ -552,7 +547,6 @@ namespace Raven.Server.Documents.Handlers
                     HttpContext.Response.StatusCode = (int)HttpStatusCode.NotFound;
                 }
             }
-            return Task.CompletedTask;
         }
 
         [RavenAction("/databases/*/admin/timeseries/config", "POST", AuthorizationStatus.DatabaseAdmin)]
@@ -560,7 +554,7 @@ namespace Raven.Server.Documents.Handlers
         {
             await DatabaseConfigurations(
                 ServerStore.ModifyTimeSeriesConfiguration,
-                "read-timeseries-config", 
+                "read-timeseries-config",
                 GetRaftRequestIdFromQuery(),
                 beforeSetupConfiguration: (string name, ref BlittableJsonReaderObject configuration, JsonOperationContext context) =>
                 {
@@ -594,7 +588,7 @@ namespace Raven.Server.Documents.Handlers
         [RavenAction("/databases/*/admin/timeseries/policy", "PUT", AuthorizationStatus.DatabaseAdmin)]
         public async Task AddTimeSeriesPolicy()
         {
-           await ServerStore.EnsureNotPassiveAsync();
+            await ServerStore.EnsureNotPassiveAsync();
             var collection = GetStringQueryString("collection", required: true);
 
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
@@ -633,7 +627,7 @@ namespace Raven.Server.Documents.Handlers
                 var (index, _) = await ServerStore.SendToLeaderAsync(editTimeSeries);
 
                 await WaitForIndexToBeApplied(context, index);
-                SendConfigurationResponse(context, index);
+                await SendConfigurationResponseAsync(context, index);
             }
         }
 
@@ -675,13 +669,12 @@ namespace Raven.Server.Documents.Handlers
                     var (index, _) = await ServerStore.SendToLeaderAsync(editTimeSeries);
 
                     await WaitForIndexToBeApplied(context, index);
-                    SendConfigurationResponse(context, index);
+                    await SendConfigurationResponseAsync(context, index);
                 }
             }
         }
 
         [RavenAction("/databases/*/timeseries/names/config", "POST", AuthorizationStatus.ValidUser)]
-
         public async Task ConfigTimeSeriesNames()
         {
             await ServerStore.EnsureNotPassiveAsync();
@@ -718,17 +711,17 @@ namespace Raven.Server.Documents.Handlers
                 var (index, _) = await ServerStore.SendToLeaderAsync(editTimeSeries);
 
                 await WaitForIndexToBeApplied(context, index);
-                SendConfigurationResponse(context, index);
+                await SendConfigurationResponseAsync(context, index);
             }
         }
 
-        private void SendConfigurationResponse(TransactionOperationContext context, long index)
+        private async Task SendConfigurationResponseAsync(TransactionOperationContext context, long index)
         {
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                var response = new DynamicJsonValue {["RaftCommandIndex"] = index,};
-                context.Write(writer, response);
-                writer.Flush();
+                var response = new DynamicJsonValue { ["RaftCommandIndex"] = index, };
+                await context.WriteAsync(writer, response);
+                await writer.FlushAsync();
             }
         }
 
@@ -818,7 +811,7 @@ namespace Raven.Server.Documents.Handlers
                         return null;
 
                     // this is fine, we explicitly support
-                    // setting the flag if we are in conflicted state is 
+                    // setting the flag if we are in conflicted state is
                     // done by the conflict resolver
 
                     // avoid loading same document again, we validate write using the metadata instance
@@ -831,13 +824,11 @@ namespace Raven.Server.Documents.Handlers
                 throw new DocumentDoesNotExistException(docId, "Cannot operate on time series of a missing document");
             }
 
-
             public static void ThrowArtificialDocument(Document doc)
             {
                 throw new InvalidOperationException($"Document '{doc.Id}' has '{nameof(DocumentFlags.Artificial)}' flag set. " +
                                                     "Cannot put TimeSeries on artificial documents.");
             }
-
 
             public override TransactionOperationsMerger.IReplayableCommandDto<TransactionOperationsMerger.MergedTransactionCommand> ToDto(JsonOperationContext context)
             {
@@ -908,7 +899,7 @@ namespace Raven.Server.Documents.Handlers
         }
 
         [RavenAction("/databases/*/timeseries/debug/segments-summary", "GET", AuthorizationStatus.ValidUser)]
-        public Task GetSegmentSummary()
+        public async Task GetSegmentSummary()
         {
             var documentId = GetStringQueryString("docId");
             var name = GetStringQueryString("name");
@@ -918,26 +909,25 @@ namespace Raven.Server.Documents.Handlers
             using (ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
             using (context.OpenReadTransaction())
             {
-                var segmantsSummary = Database.DocumentsStorage.TimeSeriesStorage.GetSegmentsSummary(context, documentId, name, from, to);
+                var segmentsSummary = Database.DocumentsStorage.TimeSeriesStorage.GetSegmentsSummary(context, documentId, name, from, to);
 
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
-                    writer.WriteStartObject();
-                    writer.WritePropertyName("Results");
-                    writer.WriteStartArray();
+                    await writer.WriteStartObjectAsync();
+                    await writer.WritePropertyNameAsync("Results");
+                    await writer.WriteStartArrayAsync();
                     var first = true;
-                    foreach (var summery in segmantsSummary)
+                    foreach (var summery in segmentsSummary)
                     {
                         if (!first)
-                            writer.WriteComma();
-                        context.Write(writer, summery.ToJson());
+                            await writer.WriteCommaAsync();
+                        await context.WriteAsync(writer, summery.ToJson());
                         first = false;
                     }
-                    writer.WriteEndArray();
-                    writer.WriteEndObject();
+                    await writer.WriteEndArrayAsync();
+                    await writer.WriteEndObjectAsync();
                 }
             }
-            return Task.CompletedTask;
         }
     }
 }

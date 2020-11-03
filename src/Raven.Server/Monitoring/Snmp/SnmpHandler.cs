@@ -14,7 +14,7 @@ namespace Raven.Server.Monitoring.Snmp
     public class SnmpHandler : RequestHandler
     {
         [RavenAction("/monitoring/snmp", "GET", AuthorizationStatus.Operator)]
-        public Task Get()
+        public async Task Get()
         {
             AssertSnmp();
 
@@ -24,25 +24,23 @@ namespace Raven.Server.Monitoring.Snmp
             if (data == null)
             {
                 HttpContext.Response.StatusCode = (int)HttpStatusCode.NotFound;
-                return Task.CompletedTask;
+                return;
             }
 
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                writer.WriteStartObject();
+                await writer.WriteStartObjectAsync();
 
-                writer.WritePropertyName("Value");
-                writer.WriteString(data.ToString());
+                await writer.WritePropertyNameAsync("Value");
+                await writer.WriteStringAsync(data.ToString());
 
-                writer.WriteEndObject();
+                await writer.WriteEndObjectAsync();
             }
-
-            return Task.CompletedTask;
         }
 
         [RavenAction("/monitoring/snmp/bulk", "GET", AuthorizationStatus.Operator)]
-        public Task GetBulk()
+        public async Task GetBulk()
         {
             AssertSnmp();
 
@@ -50,10 +48,8 @@ namespace Raven.Server.Monitoring.Snmp
 
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
             {
-                BulkInternal(oids.ToArray(), context);
+                await BulkInternal(oids.ToArray(), context);
             }
-
-            return Task.CompletedTask;
         }
 
         [RavenAction("/monitoring/snmp/bulk", "POST", AuthorizationStatus.Operator)]
@@ -72,17 +68,17 @@ namespace Raven.Server.Monitoring.Snmp
                 for (var i = 0; i < length; i++)
                     oids[i] = array[i].ToString();
 
-                BulkInternal(oids, context);
+                await BulkInternal(oids, context);
             }
         }
 
         [RavenAction("/monitoring/snmp/oids", "GET", AuthorizationStatus.Operator)]
-        public Task GetOids()
+        public async Task GetOids()
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
             using (context.OpenReadTransaction())
             {
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
                     var djv = new DynamicJsonValue
                     {
@@ -93,14 +89,12 @@ namespace Raven.Server.Monitoring.Snmp
 
                     var json = context.ReadObject(djv, "snmp/oids");
 
-                    writer.WriteObject(json);
+                    await writer.WriteObjectAsync(json);
                 }
             }
-
-            return Task.CompletedTask;
         }
 
-        private void BulkInternal(string[] oids, JsonOperationContext context)
+        private async ValueTask BulkInternal(string[] oids, JsonOperationContext context)
         {
             var results = new (string Oid, ISnmpData Data)[oids.Length];
             for (var i = 0; i < oids.Length; i++)
@@ -119,38 +113,38 @@ namespace Raven.Server.Monitoring.Snmp
                 }
             }
 
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                writer.WriteStartObject();
-                writer.WritePropertyName("Results");
+                await writer.WriteStartObjectAsync();
+                await writer.WritePropertyNameAsync("Results");
 
-                writer.WriteStartArray();
+                await writer.WriteStartArrayAsync();
 
                 var first = true;
                 foreach (var result in results)
                 {
                     if (first == false)
-                        writer.WriteComma();
+                        await writer.WriteCommaAsync();
 
                     first = false;
 
-                    writer.WriteStartObject();
+                    await writer.WriteStartObjectAsync();
 
-                    writer.WritePropertyName("OID");
-                    writer.WriteString(result.Oid);
-                    writer.WriteComma();
+                    await writer.WritePropertyNameAsync("OID");
+                    await writer.WriteStringAsync(result.Oid);
+                    await writer.WriteCommaAsync();
 
-                    writer.WritePropertyName("Value");
+                    await writer.WritePropertyNameAsync("Value");
                     if (result.Data != null)
-                        writer.WriteString(result.Data.ToString());
+                        await writer.WriteStringAsync(result.Data.ToString());
                     else
-                        writer.WriteNull();
+                        await writer.WriteNullAsync();
 
-                    writer.WriteEndObject();
+                    await writer.WriteEndObjectAsync();
                 }
 
-                writer.WriteEndArray();
-                writer.WriteEndObject();
+                await writer.WriteEndArrayAsync();
+                await writer.WriteEndObjectAsync();
             }
         }
 

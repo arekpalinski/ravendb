@@ -10,7 +10,7 @@ namespace Raven.Server.Documents.Handlers.Admin
     public class TransactionsModeHandler : DatabaseRequestHandler
     {
         [RavenAction("/databases/*/admin/transactions-mode", "GET", AuthorizationStatus.Operator)]
-        public Task CommitNonLazyTx()
+        public async Task CommitNonLazyTx()
         {
             var modeStr = GetQueryStringValueAndAssertIfSingleAndNotEmpty("mode");
             if (Enum.TryParse(modeStr, true, out TransactionsMode mode) == false)
@@ -19,11 +19,11 @@ namespace Raven.Server.Documents.Handlers.Admin
             var configDuration = Database.Configuration.Storage.TransactionsModeDuration.AsTimeSpan;
             var duration = GetTimeSpanQueryString("duration", required: false) ?? configDuration;
             using (ContextPool.AllocateOperationContext(out JsonOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                writer.WriteStartObject();
-                writer.WritePropertyName(("Environments"));
-                writer.WriteStartArray();
+                await writer.WriteStartObjectAsync();
+                await writer.WritePropertyNameAsync(("Environments"));
+                await writer.WriteStartArrayAsync();
                 bool first = true;
                 foreach (var storageEnvironment in Database.GetAllStoragesEnvironment())
                 {
@@ -32,7 +32,7 @@ namespace Raven.Server.Documents.Handlers.Admin
 
                     if (first == false)
                     {
-                        writer.WriteComma();
+                        await writer.WriteCommaAsync();
                     }
                     first = false;
 
@@ -50,19 +50,20 @@ namespace Raven.Server.Documents.Handlers.Admin
                         case TransactionsModeResult.ModeAlreadySet:
                             djv["Result"] = "Mode Already Set";
                             break;
+
                         case TransactionsModeResult.SetModeSuccessfully:
                             djv["Result"] = "Mode Set Successfully";
                             break;
+
                         default:
                             throw new ArgumentOutOfRangeException("Result is unexpected value: " + result);
                     }
 
-                    context.Write(writer, djv);
+                    await context.WriteAsync(writer, djv);
                 }
-                writer.WriteEndArray();
-                writer.WriteEndObject();
+                await writer.WriteEndArrayAsync();
+                await writer.WriteEndObjectAsync();
             }
-            return Task.CompletedTask;
         }
     }
 }

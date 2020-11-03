@@ -17,6 +17,7 @@ using Sparrow;
 using Sparrow.Json;
 using Sparrow.Logging;
 using Sparrow.LowMemory;
+using Sparrow.Server.Json.Sync;
 using Sparrow.Server.Meters;
 using Sparrow.Server.Utils;
 using Sparrow.Utils;
@@ -24,7 +25,6 @@ using Voron;
 using Voron.Debugging;
 using Voron.Global;
 using Voron.Impl;
-using Voron.Impl.Journal;
 
 namespace Raven.Server.Documents
 {
@@ -209,7 +209,7 @@ namespace Raven.Server.Documents
                     using (var writer = new BlittableJsonTextWriter(context, _txOpMerger._recording.Stream))
                     {
                         writer.WriteComma();
-                        context.Write(writer, commandDetailsReader);
+                        context.Sync.Write(writer, commandDetailsReader);
                     }
                 }
 
@@ -275,7 +275,7 @@ namespace Raven.Server.Documents
                         var commandDetails = new StartRecordingDetails();
                         var commandDetailsReader = SerializeRecordingCommandDetails(context, commandDetails);
 
-                        context.Write(writer, commandDetailsReader);
+                        context.Sync.Write(writer, commandDetailsReader);
                     }
 
                     state = new EnabledRecordingState(_txOpMerger);

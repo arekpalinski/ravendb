@@ -3,90 +3,15 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
 using Sparrow.Extensions;
+using Sparrow.Json;
 
-namespace Sparrow.Json
+namespace Sparrow.Server.Json.Sync
 {
-    public class AsyncBlittableJsonTextWriter : AbstractBlittableJsonTextWriter
+    public unsafe class BlittableJsonTextWriter : IDisposable
     {
-        private readonly Stream _outputStream;
-        private readonly CancellationToken _cancellationToken;
-
-        public AsyncBlittableJsonTextWriter(JsonOperationContext context, Stream stream, CancellationToken cancellationToken) : base(context, context.CheckoutMemoryStream())
-        {
-            _outputStream = stream;
-            _cancellationToken = cancellationToken;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ValueTask<int> MaybeOuterFlushAsync()
-        {
-            var innerStream = _stream as MemoryStream;
-            if (innerStream == null)
-                ThrowInvalidTypeException(_stream?.GetType());
-            if (innerStream.Length * 2 <= innerStream.Capacity)
-                return new ValueTask<int>(0);
-
-            Flush();
-            return new ValueTask<int>(OuterFlushAsync());
-        }
-
-        public async Task<int> OuterFlushAsync()
-        {
-            var innerStream = _stream as MemoryStream;
-            if (innerStream == null)
-                ThrowInvalidTypeException(_stream?.GetType());
-            Flush();
-            innerStream.TryGetBuffer(out var bytes);
-            var bytesCount = bytes.Count;
-            if (bytesCount == 0)
-                return 0;
-            await _outputStream.WriteAsync(bytes.Array, bytes.Offset, bytesCount, _cancellationToken).ConfigureAwait(false);
-            innerStream.SetLength(0);
-            return bytesCount;
-        }
-
-        public int OuterFlush()
-        {
-            var innerStream = _stream as MemoryStream;
-            if (innerStream == null)
-                ThrowInvalidTypeException(_stream?.GetType());
-            Flush();
-            innerStream.TryGetBuffer(out var bytes);
-            var bytesCount = bytes.Count;
-            if (bytesCount == 0)
-                return 0;
-            _outputStream.Write(bytes.Array, bytes.Offset, bytesCount);
-            _stream.SetLength(0);
-            return bytesCount;
-        }
-
-        public override void Dispose()
-        {
-            base.Dispose();
-            OuterFlush();
-            _context.ReturnMemoryStream((MemoryStream)_stream);
-        }
-
-        private void ThrowInvalidTypeException(Type typeOfStream)
-        {
-            throw new ArgumentException($"Expected stream to be MemoryStream, but got {(typeOfStream == null ? "null" : typeOfStream.ToString())}.");
-        }
-    }
-
-    public class BlittableJsonTextWriter : AbstractBlittableJsonTextWriter
-    {
-        public BlittableJsonTextWriter(JsonOperationContext context, Stream stream) : base(context, stream)
-        {
-        }
-    }
-
-    public abstract unsafe class AbstractBlittableJsonTextWriter : IDisposable
-    {
-        protected readonly JsonOperationContext _context;
-        protected readonly Stream _stream;
+        private readonly JsonOperationContext _context;
+        private readonly Stream _stream;
         private const byte StartObject = (byte)'{';
         private const byte EndObject = (byte)'}';
         private const byte StartArray = (byte)'[';
@@ -94,21 +19,6 @@ namespace Sparrow.Json
         private const byte Comma = (byte)',';
         private const byte Quote = (byte)'"';
         private const byte Colon = (byte)':';
-        public static readonly byte[] NaNBuffer = { (byte)'"', (byte)'N', (byte)'a', (byte)'N', (byte)'"' };
-        public static readonly byte[] PositiveInfinityBuffer =
-        {
-            (byte)'"', (byte)'I', (byte)'n', (byte)'f', (byte)'i', (byte)'n', (byte)'i', (byte)'t', (byte)'y', (byte)'"'
-        };
-        public static readonly byte[] NegativeInfinityBuffer =
-        {
-            (byte)'"', (byte)'-', (byte)'I', (byte)'n', (byte)'f', (byte)'i', (byte)'n', (byte)'i', (byte)'t', (byte)'y', (byte)'"'
-        };
-        public static readonly byte[] NullBuffer = { (byte)'n', (byte)'u', (byte)'l', (byte)'l', };
-        public static readonly byte[] TrueBuffer = { (byte)'t', (byte)'r', (byte)'u', (byte)'e', };
-        public static readonly byte[] FalseBuffer = { (byte)'f', (byte)'a', (byte)'l', (byte)'s', (byte)'e', };
-
-        private static readonly byte[] EscapeCharacters;
-        public static readonly byte[][] ControlCodeEscapes;
 
         private int _pos;
         private readonly byte* _buffer;
@@ -116,33 +26,7 @@ namespace Sparrow.Json
         private readonly JsonOperationContext.MemoryBuffer _pinnedBuffer;
         private readonly AllocatedMemoryData _parserAuxiliarMemory;
 
-        static AbstractBlittableJsonTextWriter()
-        {
-            ControlCodeEscapes = new byte[32][];
-
-            for (int i = 0; i < 32; i++)
-            {
-                ControlCodeEscapes[i] = Encodings.Utf8.GetBytes(i.ToString("X4"));
-            }
-
-            EscapeCharacters = new byte[256];
-            for (int i = 0; i < 32; i++)
-                EscapeCharacters[i] = 0;
-
-            for (int i = 32; i < EscapeCharacters.Length; i++)
-                EscapeCharacters[i] = 255;
-
-            EscapeCharacters[(byte)'\b'] = (byte)'b';
-            EscapeCharacters[(byte)'\t'] = (byte)'t';
-            EscapeCharacters[(byte)'\n'] = (byte)'n';
-            EscapeCharacters[(byte)'\f'] = (byte)'f';
-            EscapeCharacters[(byte)'\r'] = (byte)'r';
-            EscapeCharacters[(byte)'\\'] = (byte)'\\';
-            EscapeCharacters[(byte)'/'] = (byte)'/';
-            EscapeCharacters[(byte)'"'] = (byte)'"';
-        }
-
-        protected AbstractBlittableJsonTextWriter(JsonOperationContext context, Stream stream)
+        public BlittableJsonTextWriter(JsonOperationContext context, Stream stream)
         {
             _context = context;
             _stream = stream;
@@ -157,7 +41,7 @@ namespace Sparrow.Json
 
         public override string ToString()
         {
-            return Encodings.Utf8.GetString(_pinnedBuffer.Memory.Span.Slice(0, _pos));
+            return Encodings.Utf8.GetString(_pinnedBuffer.Memory.Memory.Span.Slice(0, _pos));
         }
 
         public void WriteObject(BlittableJsonReaderObject obj)
@@ -169,7 +53,7 @@ namespace Sparrow.Json
             }
 
             WriteStartObject();
-            
+
             var prop = new BlittableJsonReaderObject.PropertyDetails();
             using (var buffer = obj.GetPropertiesByInsertionOrder())
             {
@@ -188,7 +72,6 @@ namespace Sparrow.Json
                 }
             }
 
-
             WriteEndObject();
         }
 
@@ -204,10 +87,11 @@ namespace Sparrow.Json
                 {
                     WriteComma();
                 }
+
                 // write field value
                 WriteValue(propertyValueAndType.Item2, propertyValueAndType.Item1);
-
             }
+
             WriteEndArray();
         }
 
@@ -218,33 +102,42 @@ namespace Sparrow.Json
                 case BlittableJsonToken.String:
                     WriteString((LazyStringValue)val);
                     break;
+
                 case BlittableJsonToken.Integer:
                     WriteInteger((long)val);
                     break;
+
                 case BlittableJsonToken.StartArray:
                     WriteArrayToStream((BlittableJsonReaderArray)val);
                     break;
+
                 case BlittableJsonToken.EmbeddedBlittable:
                 case BlittableJsonToken.StartObject:
                     var blittableJsonReaderObject = (BlittableJsonReaderObject)val;
                     WriteObject(blittableJsonReaderObject);
                     break;
+
                 case BlittableJsonToken.CompressedString:
                     WriteString((LazyCompressedStringValue)val);
                     break;
+
                 case BlittableJsonToken.LazyNumber:
                     WriteDouble((LazyNumberValue)val);
                     break;
+
                 case BlittableJsonToken.Boolean:
                     WriteBool((bool)val);
                     break;
+
                 case BlittableJsonToken.Null:
                     WriteNull();
                     break;
+
                 case BlittableJsonToken.RawBlob:
                     var blob = (BlittableJsonReaderObject.RawBlob)val;
-                    WriteRawString(blob.Ptr, blob.Length);
+                    WriteRawString(blob.Ptr.Address, blob.Length);
                     break;
+
                 default:
                     throw new DataMisalignedException($"Unidentified Type {token}");
             }
@@ -253,7 +146,7 @@ namespace Sparrow.Json
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteDateTime(DateTime value, bool isUtc)
         {
-            int size = value.GetDefaultRavenFormat(_parserAuxiliarMemory, isUtc);
+            int size = value.GetDefaultRavenFormat(_parserAuxiliarMemory.Memory.Memory.Span, isUtc);
 
             var strBuffer = _parserAuxiliarMemory.Address;
 
@@ -296,7 +189,7 @@ namespace Sparrow.Json
             int bufferSize = 2 * numberOfEscapeSequences + size + NumberOfQuotesChars;
             if (bufferSize >= JsonOperationContext.MemoryBuffer.Size)
             {
-                UnlikelyWriteLargeString(strBuffer, size, numberOfEscapeSequences, escapeSequencePos); // OK, do it the slow way. 
+                UnlikelyWriteLargeString(strBuffer, size, numberOfEscapeSequences, escapeSequencePos); // OK, do it the slow way.
                 return;
             }
 
@@ -305,7 +198,7 @@ namespace Sparrow.Json
 
             if (numberOfEscapeSequences == 0)
             {
-                // PERF: Fast Path. 
+                // PERF: Fast Path.
                 WriteRawString(strBuffer, size);
             }
             else
@@ -381,13 +274,13 @@ namespace Sparrow.Json
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteEscapeCharacter(byte* buffer, byte b)
         {
-            byte r = EscapeCharacters[b];
+            byte r = AsyncBlittableJsonTextWriter.EscapeCharacters[b];
             if (r == 0)
             {
                 EnsureBuffer(6);
                 buffer[_pos++] = (byte)'\\';
                 buffer[_pos++] = (byte)'u';
-                fixed (byte* esc = ControlCodeEscapes[b])
+                fixed (byte* esc = AsyncBlittableJsonTextWriter.ControlCodeEscapes[b])
                     Memory.Copy(buffer + _pos, esc, 4);
                 _pos += 4;
                 return;
@@ -412,7 +305,7 @@ namespace Sparrow.Json
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteString(LazyCompressedStringValue str)
         {
-            var strBuffer = str.DecompressToTempBuffer(out AllocatedMemoryData allocated, _context);
+            var strBuffer = str.DecompressToTempBuffer(out AllocatedMemoryData allocated, _context).Address;
 
             try
             {
@@ -564,7 +457,7 @@ namespace Sparrow.Json
                 ThrowStreamClosed();
             if (_pos == 0)
                 return;
-            _stream.Write(_pinnedBuffer.Memory.Span.Slice(0, _pos));
+            _stream.Write(_pinnedBuffer.Memory.Memory.Span.Slice(0, _pos));
             _pos = 0;
         }
 
@@ -585,7 +478,7 @@ namespace Sparrow.Json
             EnsureBuffer(4);
             for (int i = 0; i < 4; i++)
             {
-                _buffer[_pos++] = NullBuffer[i];
+                _buffer[_pos++] = AsyncBlittableJsonTextWriter.NullBuffer[i];
             }
         }
 
@@ -593,7 +486,7 @@ namespace Sparrow.Json
         public void WriteBool(bool val)
         {
             EnsureBuffer(5);
-            var buffer = val ? TrueBuffer : FalseBuffer;
+            var buffer = val ? AsyncBlittableJsonTextWriter.TrueBuffer : AsyncBlittableJsonTextWriter.FalseBuffer;
             for (int i = 0; i < buffer.Length; i++)
             {
                 _buffer[_pos++] = buffer[i];
@@ -605,7 +498,6 @@ namespace Sparrow.Json
         {
             EnsureBuffer(1);
             _buffer[_pos++] = Comma;
-
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -671,8 +563,7 @@ namespace Sparrow.Json
 
                 localBuffer[idx++] = (byte)('0' + v);
                 val /= 10;
-            }
-            while (val != 0);
+            } while (val != 0);
 
             if (negative)
                 localBuffer[idx++] = (byte)'-';
@@ -693,19 +584,19 @@ namespace Sparrow.Json
         {
             if (val.IsNaN())
             {
-                WriteBufferFor(NaNBuffer);
+                WriteBufferFor(AsyncBlittableJsonTextWriter.NaNBuffer);
                 return;
             }
 
             if (val.IsPositiveInfinity())
             {
-                WriteBufferFor(PositiveInfinityBuffer);
+                WriteBufferFor(AsyncBlittableJsonTextWriter.PositiveInfinityBuffer);
                 return;
             }
 
             if (val.IsNegativeInfinity())
             {
-                WriteBufferFor(NegativeInfinityBuffer);
+                WriteBufferFor(AsyncBlittableJsonTextWriter.NegativeInfinityBuffer);
                 return;
             }
 
@@ -727,19 +618,19 @@ namespace Sparrow.Json
         {
             if (double.IsNaN(val))
             {
-                WriteBufferFor(NaNBuffer);
+                WriteBufferFor(AsyncBlittableJsonTextWriter.NaNBuffer);
                 return;
             }
 
             if (double.IsPositiveInfinity(val))
             {
-                WriteBufferFor(PositiveInfinityBuffer);
+                WriteBufferFor(AsyncBlittableJsonTextWriter.PositiveInfinityBuffer);
                 return;
             }
 
             if (double.IsNegativeInfinity(val))
             {
-                WriteBufferFor(NegativeInfinityBuffer);
+                WriteBufferFor(AsyncBlittableJsonTextWriter.NegativeInfinityBuffer);
                 return;
             }
 
@@ -786,7 +677,7 @@ namespace Sparrow.Json
 
             while (true)
             {
-                _pos = stream.Read(_pinnedBuffer.Memory.Span);
+                _pos = stream.Read(_pinnedBuffer.Memory.Memory.Span);
                 if (_pos == 0)
                     break;
 

@@ -1,4 +1,5 @@
 ﻿using System.IO;
+using System.Threading.Tasks;
 using Sparrow.Json;
 using Xunit;
 using Xunit.Abstractions;
@@ -12,18 +13,18 @@ namespace FastTests.Issues
         }
 
         [Fact]
-        public void CanCompareLazyStringValueAndLazyCompressedStringValue()
+        public async Task CanCompareLazyStringValueAndLazyCompressedStringValue()
         {
             using (var context = JsonOperationContext.ShortTermSingleUse())
-            using (var ms = new MemoryStream())
-            using (var writer = new BlittableJsonTextWriter(context, ms))
+            await using (var ms = new MemoryStream())
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ms))
             {
-                writer.WriteStartObject();
-                writer.WritePropertyName("Test");
-                writer.WriteString(new string('c', 1024 * 1024));
-                writer.WriteEndObject();
-                writer.Flush();
-                ms.Flush();
+                await writer.WriteStartObjectAsync();
+                await writer.WritePropertyNameAsync("Test");
+                await writer.WriteStringAsync(new string('c', 1024 * 1024));
+                await writer.WriteEndObjectAsync();
+                await writer.FlushAsync();
+                await ms.FlushAsync();
 
                 ms.Position = 0;
                 var json = context.Read(ms, "test");

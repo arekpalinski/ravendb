@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 using Microsoft.Xunit.Performance;
 using Sparrow.Json;
 
@@ -38,7 +39,7 @@ namespace Regression.Benchmark
         }
 
         [Benchmark]
-        public void WriteJsonFromStream()
+        public async Task WriteJsonFromStream()
         {
             List<BlittableJsonReaderObject> objects;
             objects = new List<BlittableJsonReaderObject>();
@@ -60,13 +61,13 @@ namespace Regression.Benchmark
 
                     var memoryStream = new MemoryStream();
 
-                    ExecuteBenchmark(() =>
+                    await ExecuteBenchmarkAsync(async () =>
                     {
 
                         foreach (var obj in objects)
                         {
                             // We write the whole thing.
-                            context.Write(memoryStream, obj);
+                            await context.WriteAsync(memoryStream, obj);
                         }
 
                     });

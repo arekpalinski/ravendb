@@ -1,5 +1,4 @@
 ﻿using System.Net;
-using System.Reflection;
 using System.Threading.Tasks;
 using Raven.Server.Commercial;
 using Raven.Server.Config.Categories;
@@ -18,9 +17,9 @@ namespace Raven.Server.Web.Studio
         {
             HttpContext.Response.ContentType = "text/plain; charset=utf-8";
 
-            using (var stream = typeof(LicenseManager).Assembly.GetManifestResourceStream("Raven.Server.Commercial.RavenDB.license.txt"))
+            await using (var stream = typeof(LicenseManager).Assembly.GetManifestResourceStream("Raven.Server.Commercial.RavenDB.license.txt"))
             {
-                using (var responseStream = ResponseBodyStream())
+                await using (var responseStream = ResponseBodyStream())
                 {
                     await stream.CopyToAsync(responseStream);
                 }
@@ -41,22 +40,20 @@ namespace Raven.Server.Web.Studio
         }
 
         [RavenAction("/license/status", "GET", AuthorizationStatus.ValidUser)]
-        public Task Status()
+        public async Task Status()
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
-                context.Write(writer, ServerStore.LicenseManager.LicenseStatus.ToJson());
+                await context.WriteAsync(writer, ServerStore.LicenseManager.LicenseStatus.ToJson());
             }
-
-            return Task.CompletedTask;
         }
-        
+
         [RavenAction("/license/configuration", "GET", AuthorizationStatus.ValidUser)]
-        public Task GetLicenseConfigurationSettings()
+        public async Task GetLicenseConfigurationSettings()
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
                 var djv = new DynamicJsonValue
                 {
@@ -64,11 +61,9 @@ namespace Raven.Server.Web.Studio
                     [nameof(LicenseConfiguration.CanActivate)] = ServerStore.Configuration.Licensing.CanActivate,
                     [nameof(LicenseConfiguration.CanForceUpdate)] = ServerStore.Configuration.Licensing.CanForceUpdate
                 };
-                
-                context.Write(writer, djv);
-            }
 
-            return Task.CompletedTask;
+                await context.WriteAsync(writer, djv);
+            }
         }
 
         [RavenAction("/admin/license/activate", "POST", AuthorizationStatus.ClusterAdmin)]
@@ -111,10 +106,10 @@ namespace Raven.Server.Web.Studio
         public async Task LicenseSupport()
         {
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
                 var licenseSupport = await ServerStore.LicenseManager.GetLicenseSupportInfo();
-                context.Write(writer, licenseSupport.ToJson());
+                await context.WriteAsync(writer, licenseSupport.ToJson());
             }
         }
 
@@ -128,10 +123,10 @@ namespace Raven.Server.Web.Studio
             }
 
             using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-            using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
             {
                 var renewLicense = await ServerStore.LicenseManager.RenewLicense();
-                context.Write(writer, renewLicense.ToJson());
+                await context.WriteAsync(writer, renewLicense.ToJson());
             }
         }
     }

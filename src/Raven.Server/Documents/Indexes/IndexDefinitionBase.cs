@@ -10,6 +10,7 @@ using Raven.Server.ServerWide.Context;
 using Sparrow;
 using Sparrow.Json;
 using Sparrow.Server;
+using Sparrow.Server.Json.Sync;
 using Voron;
 using Voron.Impl;
 
@@ -79,7 +80,7 @@ namespace Raven.Server.Documents.Indexes
                     writer.WriteComma();
 
                 isFirst = false;
-                writer.WriteString((collection));
+                writer.WriteString(collection);
             }
 
             writer.WriteEndArray();

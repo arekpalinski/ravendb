@@ -122,11 +122,7 @@ namespace Sparrow.Json
                 var section = _freed[index];
                 _freed[index] = section->Previous;
 
-                allocation = new AllocatedMemoryData()
-                {
-                    Address = (byte*)section,
-                    SizeInBytes = section->SizeInBytes
-                };
+                allocation = new AllocatedMemoryData((byte*)section, section->SizeInBytes);
                 goto Return;
             }
 
@@ -135,11 +131,7 @@ namespace Sparrow.Json
                 GrowArena(size);
             }
 
-            allocation = new AllocatedMemoryData()
-            {
-                SizeInBytes = size,
-                Address = _ptrCurrent
-            };
+            allocation = new AllocatedMemoryData(_ptrCurrent, size);
 
             _ptrCurrent += size;
             _used += size;
@@ -422,8 +414,15 @@ namespace Sparrow.Json
         public JsonOperationContext Parent;
         public NativeMemory.ThreadStats AllocatingThread;
 
-        private MemoryManager<byte> _memoryManager;
-        public MemoryManager<byte> MemoryManager => _memoryManager ??= new UnmanagedMemoryManager(Address, SizeInBytes);
+        public readonly UnmanagedMemory Memory;
+
+        public AllocatedMemoryData(byte* address, int sizeInBytes)
+        {
+            Address = address;
+            SizeInBytes = sizeInBytes;
+            var memoryManager = new UnmanagedMemoryManager(address, sizeInBytes);
+            Memory = new UnmanagedMemory(address, memoryManager.Memory); // TODO [ppekrol]
+        }
 
 #if MEM_GUARD_STACK || TRACK_ALLOCATED_MEMORY_DATA
         public string AllocatedBy = Environment.StackTrace;
@@ -431,7 +430,7 @@ namespace Sparrow.Json
 #endif
 
 #if !DEBUG
-        public byte* Address;
+        public readonly byte* Address;
 #else
         public bool IsLongLived;
         public bool IsReturned;

@@ -1928,7 +1928,7 @@ namespace Raven.Server
                             if (_tcpLogger.IsInfoEnabled)
                                 _tcpLogger.Info("Failed to process TCP connection run", e);
 
-                            SendErrorIfPossible(tcp, e);
+                            await SendErrorIfPossible(tcp, e);
                             try
                             {
                                 tcp?.Dispose();
@@ -2049,13 +2049,13 @@ namespace Raven.Server
                             $"Didn't agree on {header.Operation} protocol version: {header.OperationVersion} will request to use version: {supported}.");
                     }
 
-                    RespondToTcpConnection(stream, context, $"Not supporting version {header.OperationVersion} for {header.Operation}", TcpConnectionStatus.TcpVersionMismatch,
+                    await RespondToTcpConnection(stream, context, $"Not supporting version {header.OperationVersion} for {header.Operation}", TcpConnectionStatus.TcpVersionMismatch,
                         supported);
                 }
 
                 bool authSuccessful = TryAuthorize(Configuration, tcp.Stream, header, tcpClient, out var err);
                 //At this stage the error is not relevant.
-                RespondToTcpConnection(stream, context, null,
+                await RespondToTcpConnection(stream, context, null,
                     authSuccessful ? TcpConnectionStatus.Ok : TcpConnectionStatus.AuthorizationFailed,
                     supported);
 
@@ -2166,7 +2166,7 @@ namespace Raven.Server
             }
         }
 
-        private static void RespondToTcpConnection(Stream stream, JsonOperationContext context, string error, TcpConnectionStatus status, int version)
+        private static async ValueTask RespondToTcpConnection(Stream stream, JsonOperationContext context, string error, TcpConnectionStatus status, int version)
         {
             var message = new DynamicJsonValue
             {
@@ -2179,14 +2179,14 @@ namespace Raven.Server
                 message[nameof(TcpConnectionHeaderResponse.Message)] = error;
             }
 
-            using (var writer = new BlittableJsonTextWriter(context, stream))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, stream))
             {
-                context.Write(writer, message);
-                writer.Flush();
+                await context.WriteAsync(writer, message);
+                await writer.FlushAsync();
             }
         }
 
-        private void SendErrorIfPossible(TcpConnectionOptions tcp, Exception e)
+        private async ValueTask SendErrorIfPossible(TcpConnectionOptions tcp, Exception e)
         {
             var tcpStream = tcp?.Stream;
             if (tcpStream == null)
@@ -2195,9 +2195,9 @@ namespace Raven.Server
             try
             {
                 using (var context = JsonOperationContext.ShortTermSingleUse())
-                using (var errorWriter = new BlittableJsonTextWriter(context, tcpStream))
+                await using (var errorWriter = new AsyncBlittableJsonTextWriter(context, tcpStream))
                 {
-                    context.Write(errorWriter, new DynamicJsonValue
+                    await context.WriteAsync(errorWriter, new DynamicJsonValue
                     {
                         ["Type"] = "Error",
                         ["Exception"] = e.ToString(),

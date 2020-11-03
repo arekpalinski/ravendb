@@ -70,6 +70,8 @@ namespace Sparrow.Json
         public byte this[int index] => Buffer[index];
         public byte* Buffer => _buffer;
 
+        public UnmanagedMemory MemoryBuffer => new UnmanagedMemory(_buffer, _size);
+
         private int _size;
         public int Size => _size;
 

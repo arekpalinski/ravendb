@@ -2524,7 +2524,7 @@ namespace Raven.Server.Documents.Indexes
         {
             var result = new StreamDocumentQueryResult(response, writer, token);
             await QueryInternal(result, query, queryContext, pulseDocsReadingTransaction: true, token);
-            result.Flush();
+            await result.FlushAsync();
 
             DocumentDatabase.QueryMetadataCache.MaybeAddToCache(query.Metadata, Name);
         }
@@ -2534,7 +2534,7 @@ namespace Raven.Server.Documents.Indexes
         {
             var result = new StreamDocumentIndexEntriesQueryResult(response, writer, token);
             await IndexEntriesQueryInternal(result, query, queryContext, token);
-            result.Flush();
+            await result.FlushAsync();
             DocumentDatabase.QueryMetadataCache.MaybeAddToCache(query.Metadata, Name);
         }
 
@@ -2736,7 +2736,7 @@ namespace Raven.Server.Documents.Indexes
                                                 );
                                             }
 
-                                            resultToFill.AddResult(document.Result);
+                                            await resultToFill.AddResultAsync(document.Result);
 
                                             if (document.Highlightings != null)
                                                 resultToFill.AddHighlightings(document.Highlightings);
@@ -2761,7 +2761,7 @@ namespace Raven.Server.Documents.Indexes
                                     if (resultToFill.SupportsExceptionHandling == false)
                                         throw;
 
-                                    resultToFill.HandleException(e);
+                                    await resultToFill.HandleExceptionAsync(e);
                                 }
 
                                 using (fillScope?.Start())
@@ -2876,7 +2876,7 @@ namespace Raven.Server.Documents.Indexes
                             foreach (var indexEntry in reader.IndexEntries(query, totalResults, queryContext.Documents, GetOrAddSpatialField, token.Token))
                             {
                                 resultToFill.TotalResults = totalResults.Value;
-                                resultToFill.AddResult(indexEntry);
+                                await resultToFill.AddResultAsync(indexEntry);
                             }
                         }
                         return;
