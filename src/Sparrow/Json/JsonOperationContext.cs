@@ -184,7 +184,7 @@ namespace Sparrow.Json
             EnsureNotDisposed();
 
             var rawMemory = GetMemory(size);
-            buffer = new MemoryBuffer(new UnmanagedMemory(rawMemory.Address, rawMemory.SizeInBytes), rawMemory.ContextGeneration, this);
+            buffer = new MemoryBuffer(rawMemory.Address, rawMemory.SizeInBytes, rawMemory.ContextGeneration, this);
 
             return new MemoryBuffer.ReturnBuffer(rawMemory, buffer, this);
         }
@@ -244,11 +244,11 @@ namespace Sparrow.Json
 
             public int Used;
 
-            public MemoryBuffer(UnmanagedMemory buffer, int generation, JsonOperationContext context)
+            public MemoryBuffer(byte* address, int size, int generation, JsonOperationContext context)
             {
-                Memory = buffer;
-                Size = buffer.Size;
-                Address = buffer.Address;
+                Memory = new UnmanagedMemory(address, size);
+                Size = size;
+                Address = address;
 
                 Valid = 0;
                 Used = 0;
