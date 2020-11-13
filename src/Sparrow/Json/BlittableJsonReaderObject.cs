@@ -979,18 +979,27 @@ namespace Sparrow.Json
 
         public class RawBlob
         {
-            public UnmanagedMemory Ptr;
+            public RawBlob()
+            {
+            }
+
+            public RawBlob(byte* ptr, int length)
+            {
+                Address = ptr;
+                Length = length;
+            }
+
+            public byte* Address;
             public int Length;
+
+            private UnmanagedMemory _memory;
+            public UnmanagedMemory Memory => _memory ??= new UnmanagedMemory(Address, Length);
         }
 
         private RawBlob ReadRawBlob(int pos)
         {
             var size = ReadVariableSizeInt(pos, out byte offset);
-            return new RawBlob
-            {
-                Ptr = new UnmanagedMemory(_mem + pos + offset, size),
-                Length = size
-            };
+            return new RawBlob(_mem + pos + offset, size);
         }
 
         public void Dispose()

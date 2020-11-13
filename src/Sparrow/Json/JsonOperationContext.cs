@@ -195,8 +195,8 @@ namespace Sparrow.Json
 
 #if DEBUG
             private UnmanagedMemory _memory;
-            private byte* _pointer;
-            private int _length;
+            private byte* _address;
+            private int _size;
 
             private readonly int _generation;
             private readonly JsonOperationContext _parent;
@@ -211,33 +211,33 @@ namespace Sparrow.Json
                 private set { _memory = value; }
             }
 
-            public byte* Pointer
+            public byte* Address
             {
                 get
                 {
                     AssertState();
-                    return _pointer;
+                    return _address;
                 }
-                private set { _pointer = value; }
+                private set { _address = value; }
             }
 
-            public int Length
+            public int Size
             {
                 get
                 {
                     AssertState();
-                    return _length;
+                    return _size;
                 }
-                private set { _length = value; }
+                private set { _size = value; }
             }
 
             public bool IsReleased;
 #else
             public readonly UnmanagedMemory Memory;
 
-            public readonly byte* Pointer;
+            public readonly byte* Address;
 
-            public readonly int Length;
+            public readonly int Size;
 #endif
 
             public int Valid;
@@ -247,8 +247,8 @@ namespace Sparrow.Json
             public MemoryBuffer(UnmanagedMemory buffer, int generation, JsonOperationContext context)
             {
                 Memory = buffer;
-                Length = buffer.Size;
-                Pointer = buffer.Address;
+                Size = buffer.Size;
+                Address = buffer.Address;
 
                 Valid = 0;
                 Used = 0;

@@ -15,7 +15,7 @@ namespace Raven.Server.Documents
             using (context.GetMemoryBuffer(out JsonOperationContext.MemoryBuffer buffer))
             using (context.GetMemoryBuffer(out JsonOperationContext.MemoryBuffer cryptoState))
             {
-                if (cryptoState.Length < (int)Sodium.crypto_generichash_statebytes())
+                if (cryptoState.Size < (int)Sodium.crypto_generichash_statebytes())
                     throw new InvalidOperationException("BUG: shouldn't happen, the size of a generic hash state was too large!");
 
                 InitComputeHash(cryptoState);
@@ -29,7 +29,7 @@ namespace Raven.Server.Documents
 
                     bufferRead += count;
 
-                    if (bufferRead == buffer.Length)
+                    if (bufferRead == buffer.Size)
                     {
                         PartialComputeHash(cryptoState, buffer, bufferRead);
                         await file.WriteAsync(buffer.Memory.Memory, cancellationToken);
@@ -45,7 +45,7 @@ namespace Raven.Server.Documents
 
         private static unsafe void InitComputeHash(JsonOperationContext.MemoryBuffer cryptoState)
         {
-            var rc = Sodium.crypto_generichash_init(cryptoState.Pointer, null, UIntPtr.Zero, Sodium.crypto_generichash_bytes());
+            var rc = Sodium.crypto_generichash_init(cryptoState.Address, null, UIntPtr.Zero, Sodium.crypto_generichash_bytes());
             if (rc != 0)
                 throw new InvalidOperationException("Unable to hash attachment: " + rc);
         }
@@ -53,7 +53,7 @@ namespace Raven.Server.Documents
         private static unsafe string FinalizeGetHash(JsonOperationContext.MemoryBuffer cryptoState, JsonOperationContext.MemoryBuffer buffer)
         {
             var size = Sodium.crypto_generichash_bytes();
-            var rc = Sodium.crypto_generichash_final(cryptoState.Pointer, buffer.Pointer, size);
+            var rc = Sodium.crypto_generichash_final(cryptoState.Address, buffer.Address, size);
             if (rc != 0)
                 throw new InvalidOperationException("Unable to hash attachment: " + rc);
 
@@ -62,7 +62,7 @@ namespace Raven.Server.Documents
 
         private static unsafe void PartialComputeHash(JsonOperationContext.MemoryBuffer cryptoState, JsonOperationContext.MemoryBuffer buffer, int bufferRead)
         {
-            var rc = Sodium.crypto_generichash_update(cryptoState.Pointer, buffer.Pointer, (ulong)bufferRead);
+            var rc = Sodium.crypto_generichash_update(cryptoState.Address, buffer.Address, (ulong)bufferRead);
             if (rc != 0)
                 throw new InvalidOperationException("Unable to hash attachment: " + rc);
         }

@@ -97,12 +97,12 @@ namespace Sparrow.Json.Parsing
 
         public void SetBuffer(JsonOperationContext.MemoryBuffer inputBuffer)
         {
-            SetBuffer(inputBuffer.Pointer + inputBuffer.Used, inputBuffer.Valid - inputBuffer.Used);
+            SetBuffer(inputBuffer.Address + inputBuffer.Used, inputBuffer.Valid - inputBuffer.Used);
         }
 
         public void SetBuffer(JsonOperationContext.MemoryBuffer inputBuffer, int offset, int size)
         {
-            SetBuffer(inputBuffer.Pointer + offset, size);
+            SetBuffer(inputBuffer.Address + offset, size);
         }
 
         public void SetBuffer(byte* inputBuffer, int size)

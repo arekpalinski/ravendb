@@ -682,11 +682,7 @@ namespace Raven.Server.Smuggler.Documents
                         newEntry->Etag = (long)arr[j + 1];
                     }
 
-                    counterValues.Modifications[prop.Name] = new BlittableJsonReaderObject.RawBlob
-                    {
-                        Ptr = new UnmanagedMemory(newVal.Ptr, newVal.Length),
-                        Length = newVal.Length
-                    };
+                    counterValues.Modifications[prop.Name] = new BlittableJsonReaderObject.RawBlob(newVal.Ptr, newVal.Length);
                 }
 
                 return context.ReadObject(values, null);
@@ -1507,8 +1503,8 @@ namespace Raven.Server.Smuggler.Documents
 
             while (size > 0)
             {
-                var sizeToRead = (int)Math.Min(_writeBuffer.Length, size);
-                var read = _parser.Copy(_writeBuffer.Pointer, sizeToRead);
+                var sizeToRead = (int)Math.Min(_writeBuffer.Size, size);
+                var read = _parser.Copy(_writeBuffer.Address, sizeToRead);
 
                 attachment.Stream.Write(_writeBuffer.Memory.Memory.Span.Slice(0, read.BytesRead));
 

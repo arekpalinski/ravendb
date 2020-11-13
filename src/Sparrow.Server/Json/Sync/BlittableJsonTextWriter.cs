@@ -36,11 +36,11 @@ namespace Sparrow.Server.Json.Sync
             _stream = stream;
 
             _returnBuffer = context.GetMemoryBuffer(out _pinnedBuffer);
-            _buffer = _pinnedBuffer.Pointer;
+            _buffer = _pinnedBuffer.Address;
 
             _returnAuxiliarBuffer = context.GetMemoryBuffer(32, out var buffer);
-            _auxiliarBuffer = buffer.Pointer;
-            _auxiliarBufferLength = buffer.Length;
+            _auxiliarBuffer = buffer.Address;
+            _auxiliarBufferLength = buffer.Size;
         }
 
         public int Position => _pos;
@@ -140,7 +140,7 @@ namespace Sparrow.Server.Json.Sync
 
                 case BlittableJsonToken.RawBlob:
                     var blob = (BlittableJsonReaderObject.RawBlob)val;
-                    WriteRawString(blob.Ptr.Address, blob.Length);
+                    WriteRawString(blob.Address, blob.Length);
                     break;
 
                 default:

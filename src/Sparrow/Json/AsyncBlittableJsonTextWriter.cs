@@ -183,7 +183,7 @@ namespace Sparrow.Json
 
                 case BlittableJsonToken.RawBlob:
                     var blob = (BlittableJsonReaderObject.RawBlob)val;
-                    await WriteRawStringAsync(blob.Ptr, blob.Length, token).ConfigureAwait(false);
+                    await WriteRawStringAsync(blob.Memory, blob.Length, token).ConfigureAwait(false);
                     break;
 
                 default:

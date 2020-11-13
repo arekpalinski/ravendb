@@ -533,11 +533,7 @@ namespace Raven.Server.Documents.Handlers
 
                         lastCv = kvp.Value[kvp.Value.Count - 1].ChangeVector;
 
-                        counters[name] = new BlittableJsonReaderObject.RawBlob
-                        {
-                            Ptr = new UnmanagedMemory(newVal.Ptr, CountersStorage.SizeOfCounterValues * kvp.Value.Count),
-                            Length = CountersStorage.SizeOfCounterValues * kvp.Value.Count
-                        };
+                        counters[name] = new BlittableJsonReaderObject.RawBlob(newVal.Ptr, CountersStorage.SizeOfCounterValues * kvp.Value.Count);
                     }
 
                     var values = context.ReadObject(new DynamicJsonValue

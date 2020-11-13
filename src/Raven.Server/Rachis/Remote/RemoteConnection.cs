@@ -275,7 +275,7 @@ namespace Raven.Server.Rachis.Remote
             var size = Math.Min(count, _buffer.Valid - _buffer.Used);
             fixed (byte* pBuffer = buffer)
             {
-                Memory.Copy(pBuffer + offset, _buffer.Pointer + _buffer.Used, size);
+                Memory.Copy(pBuffer + offset, _buffer.Address + _buffer.Used, size);
                 _buffer.Used += size;
                 return size;
             }
