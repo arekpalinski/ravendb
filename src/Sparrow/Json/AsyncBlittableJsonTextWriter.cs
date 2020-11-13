@@ -403,7 +403,7 @@ namespace Sparrow.Json
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public async ValueTask WriteStringAsync(LazyCompressedStringValue str, CancellationToken token = default)
         {
-            var strBuffer = str.DecompressToTempBuffer(out AllocatedMemoryData allocated, _context);
+            var strBuffer = str.DecompressToUnmanagedMemory(out AllocatedMemoryData allocated, _context);
 
             try
             {

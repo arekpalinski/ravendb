@@ -308,7 +308,7 @@ namespace Sparrow.Server.Json.Sync
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteString(LazyCompressedStringValue str)
         {
-            var strBuffer = str.DecompressToTempBuffer(out AllocatedMemoryData allocated, _context).Address;
+            var strBuffer = str.DecompressToTempBuffer(out AllocatedMemoryData allocated, _context);
 
             try
             {
