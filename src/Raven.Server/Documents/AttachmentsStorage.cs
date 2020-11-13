@@ -339,8 +339,8 @@ namespace Raven.Server.Documents
             {
                 // we have to copy it to the side because we might do a defrag during update, and that
                 // can cause corruption if we read from the old value (which we just deleted)
-                Memory.Copy(copyOfDoc.Memory.Address, tvr.Pointer, tvr.Size);
-                var copyTvr = new TableValueReader(copyOfDoc.Memory.Address, tvr.Size);
+                Memory.Copy(copyOfDoc.Address, tvr.Pointer, tvr.Size);
+                var copyTvr = new TableValueReader(copyOfDoc.Address, tvr.Size);
                 var data = new BlittableJsonReaderObject(copyTvr.Read((int)DocumentsTable.Data, out int size), size, context);
                 var attachments = GetAttachmentsMetadataForDocument(context, lowerDocumentId);
 

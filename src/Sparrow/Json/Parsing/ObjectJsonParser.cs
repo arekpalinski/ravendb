@@ -364,7 +364,7 @@ namespace Sparrow.Json.Parsing
 
                 if (current is LazyStringValue lsv)
                 {
-                    _state.StringBuffer = lsv.MemoryBuffer;
+                    _state.StringBuffer = lsv.Buffer;
                     _state.StringSize = lsv.Size;
                     _state.CompressedSize = null;// don't even try
                     _state.CurrentTokenType = JsonParserToken.String;
@@ -374,7 +374,7 @@ namespace Sparrow.Json.Parsing
 
                 if (current is BlittableJsonReaderObject.RawBlob bs)
                 {
-                    _state.StringBuffer = bs.Ptr;
+                    _state.StringBuffer = bs.Ptr.Address;
                     _state.StringSize = bs.Length;
                     _state.CompressedSize = null;// don't even try
                     _state.CurrentTokenType = JsonParserToken.Blob;
@@ -383,7 +383,7 @@ namespace Sparrow.Json.Parsing
 
                 if (current is LazyCompressedStringValue lcsv)
                 {
-                    _state.StringBuffer = lcsv.MemoryBuffer;
+                    _state.StringBuffer = lcsv.Buffer;
                     _state.StringSize = lcsv.UncompressedSize;
                     _state.CompressedSize = lcsv.CompressedSize;
                     _state.CurrentTokenType = JsonParserToken.String;
@@ -393,7 +393,7 @@ namespace Sparrow.Json.Parsing
 
                 if (current is LazyNumberValue ldv)
                 {
-                    _state.StringBuffer = ldv.Inner.MemoryBuffer;
+                    _state.StringBuffer = ldv.Inner.Buffer;
                     _state.StringSize = ldv.Inner.Size;
                     _state.CompressedSize = null;// don't even try
                     _state.CurrentTokenType = JsonParserToken.Float;
@@ -587,18 +587,18 @@ namespace Sparrow.Json.Parsing
                 if (_currentStateBuffer != null)
                     _ctx.ReturnMemory(_currentStateBuffer);
                 _currentStateBuffer = _ctx.GetMemory(size);
-                Debug.Assert(_currentStateBuffer != null && _currentStateBuffer.Memory.Address != null);
+                Debug.Assert(_currentStateBuffer != null && _currentStateBuffer.Address != null);
             }
 
-            _state.StringBuffer = _currentStateBuffer.Memory;
+            _state.StringBuffer = _currentStateBuffer.Address;
 
             fixed (char* pChars = str)
             {
-                _state.StringSize = Encodings.Utf8.GetBytes(pChars, str.Length, _state.StringBuffer.Address, byteCount);
+                _state.StringSize = Encodings.Utf8.GetBytes(pChars, str.Length, _state.StringBuffer, byteCount);
                 _state.CompressedSize = null; // don't even try
-                _state.FindEscapePositionsIn(_state.StringBuffer.Address, ref _state.StringSize, escapePositionsSize);
+                _state.FindEscapePositionsIn(_state.StringBuffer, ref _state.StringSize, escapePositionsSize);
 
-                var escapePos = _state.StringBuffer.Address + _state.StringSize;
+                var escapePos = _state.StringBuffer + _state.StringSize;
                 _state.WriteEscapePositionsTo(escapePos);
             }
         }

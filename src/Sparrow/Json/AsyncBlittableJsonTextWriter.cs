@@ -43,9 +43,8 @@ namespace Sparrow.Json
         private readonly UnmanagedMemory _auxiliarBuffer;
 
         private int _pos;
-        private JsonOperationContext.MemoryBuffer.ReturnBuffer _returnBuffer;
-        private readonly JsonOperationContext.MemoryBuffer _pinnedBuffer;
-        private readonly AllocatedMemoryData _returnAuxiliarBuffer;
+        private readonly JsonOperationContext.MemoryBuffer.ReturnBuffer _returnBuffer;
+        private readonly JsonOperationContext.MemoryBuffer.ReturnBuffer _returnAuxiliarBuffer;
 
         static AsyncBlittableJsonTextWriter()
         {
@@ -78,11 +77,11 @@ namespace Sparrow.Json
             _context = context;
             _stream = stream;
 
-            _returnBuffer = context.GetMemoryBuffer(out _pinnedBuffer);
-            _buffer = _pinnedBuffer.Memory;
+            _returnBuffer = context.GetMemoryBuffer(out var pinnedBuffer);
+            _buffer = pinnedBuffer.Memory;
 
-            _returnAuxiliarBuffer = context.GetMemory(32);
-            _auxiliarBuffer = _returnAuxiliarBuffer.Memory;
+            _returnAuxiliarBuffer = context.GetMemoryBuffer(32, out pinnedBuffer);
+            _auxiliarBuffer = pinnedBuffer.Memory;
         }
 
         public int Position => _pos;
@@ -195,7 +194,11 @@ namespace Sparrow.Json
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public async ValueTask WriteDateTimeAsync(DateTime value, bool isUtc, CancellationToken token = default)
         {
-            int size = value.GetDefaultRavenFormat(_auxiliarBuffer, isUtc);
+            int size;
+            unsafe
+            {
+                size = value.GetDefaultRavenFormat(_auxiliarBuffer.Address, _auxiliarBuffer.Size, isUtc);
+            }
 
             await WriteRawStringWhichMustBeWithoutEscapeCharsAsync(_auxiliarBuffer, size, token).ConfigureAwait(false);
         }
@@ -238,7 +241,7 @@ namespace Sparrow.Json
             const int NumberOfQuotesChars = 2; // for " "
 
             int bufferSize = 2 * numberOfEscapeSequences + size + NumberOfQuotesChars;
-            if (bufferSize >= JsonOperationContext.MemoryBuffer.Size)
+            if (bufferSize >= JsonOperationContext.MemoryBuffer.DefaultSize)
             {
                 await UnlikelyWriteLargeStringAsync(strBuffer, size, numberOfEscapeSequences, escapeSequencePos, token).ConfigureAwait(false); // OK, do it the slow way.
                 return;
@@ -416,7 +419,7 @@ namespace Sparrow.Json
 
                 // We ensure our buffer will have enough space to deal with the whole string.
                 int bufferSize = 2 * numberOfEscapeSequences + size + 2;
-                if (bufferSize >= JsonOperationContext.MemoryBuffer.Size)
+                if (bufferSize >= JsonOperationContext.MemoryBuffer.DefaultSize)
                     goto WriteLargeCompressedString; // OK, do it the slow way instead.
 
                 await EnsureBufferAsync(bufferSize, token).ConfigureAwait(false);
@@ -529,7 +532,7 @@ namespace Sparrow.Json
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private async ValueTask WriteRawStringAsync(UnmanagedMemory buffer, int size, CancellationToken token = default)
         {
-            if (size < JsonOperationContext.MemoryBuffer.Size)
+            if (size < JsonOperationContext.MemoryBuffer.DefaultSize)
             {
                 await EnsureBufferAsync(size, token).ConfigureAwait(false);
 
@@ -551,7 +554,7 @@ namespace Sparrow.Json
             var posInStr = 0;
             while (posInStr < size)
             {
-                var amountToCopy = Math.Min(size - posInStr, JsonOperationContext.MemoryBuffer.Size);
+                var amountToCopy = Math.Min(size - posInStr, JsonOperationContext.MemoryBuffer.DefaultSize);
                 await FlushAsync(token).ConfigureAwait(false);
 
                 unsafe
@@ -607,9 +610,9 @@ namespace Sparrow.Json
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private async ValueTask EnsureBufferAsync(int len, CancellationToken token = default)
         {
-            if (len >= JsonOperationContext.MemoryBuffer.Size)
+            if (len >= JsonOperationContext.MemoryBuffer.DefaultSize)
                 ThrowValueTooBigForBuffer(len);
-            if (_pos + len < JsonOperationContext.MemoryBuffer.Size)
+            if (_pos + len < JsonOperationContext.MemoryBuffer.DefaultSize)
                 return;
 
             await FlushAsync(token).ConfigureAwait(false);
@@ -873,7 +876,7 @@ namespace Sparrow.Json
             finally
             {
                 _returnBuffer.Dispose();
-                _context.ReturnMemory(_returnAuxiliarBuffer);
+                _returnAuxiliarBuffer.Dispose();
             }
         }
 
@@ -893,7 +896,7 @@ namespace Sparrow.Json
 
             while (true)
             {
-                _pos = await stream.ReadAsync(_pinnedBuffer.Memory.Memory).ConfigureAwait(false);
+                _pos = await stream.ReadAsync(_buffer.Memory).ConfigureAwait(false);
                 if (_pos == 0)
                     break;
 
@@ -908,7 +911,7 @@ namespace Sparrow.Json
             var totalWritten = 0;
             while (leftToWrite > 0)
             {
-                var toWrite = Math.Min(JsonOperationContext.MemoryBuffer.Size, leftToWrite);
+                var toWrite = Math.Min(JsonOperationContext.MemoryBuffer.DefaultSize, leftToWrite);
 
                 unsafe
                 {

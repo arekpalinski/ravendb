@@ -43,7 +43,7 @@ namespace Sparrow.Json
         {
             var allocatedUncompressedData = DecompressToAllocatedMemoryData(_context);
 
-            var lazyStringValue = _context.AllocateStringValue(null, allocatedUncompressedData.Memory, UncompressedSize);
+            var lazyStringValue = _context.AllocateStringValue(null, allocatedUncompressedData.Address, UncompressedSize);
 
             lazyStringValue.AllocatedMemoryData = allocatedUncompressedData;
             return lazyStringValue;
@@ -94,14 +94,14 @@ namespace Sparrow.Json
         {
             var sizeOfEscapePositions = GetSizeOfEscapePositions();
             allocatedData = (externalContext ?? _context).GetMemory(UncompressedSize + sizeOfEscapePositions);
-            return DecompressToBuffer(allocatedData.Memory.Address, sizeOfEscapePositions);
+            return DecompressToBuffer(allocatedData.Address, sizeOfEscapePositions);
         }
 
         public AllocatedMemoryData DecompressToAllocatedMemoryData(JsonOperationContext externalContext)
         {
             var sizeOfEscapePositions = GetSizeOfEscapePositions();
             var allocatedBuffer = externalContext.GetMemory(UncompressedSize + sizeOfEscapePositions);
-            DecompressToBuffer(allocatedBuffer.Memory.Address, sizeOfEscapePositions);
+            DecompressToBuffer(allocatedBuffer.Address, sizeOfEscapePositions);
 
             return allocatedBuffer;
         }

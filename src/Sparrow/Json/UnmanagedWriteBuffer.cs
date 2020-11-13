@@ -223,7 +223,7 @@ namespace Sparrow.Json
                 Previous = null,
                 DeallocationPendingPrevious = null,
                 Allocation = allocatedMemoryData,
-                Address = allocatedMemoryData.Memory.Address,
+                Address = allocatedMemoryData.Address,
                 Used = 0,
                 AccumulatedSizeInBytes = 0
             };
@@ -343,7 +343,7 @@ namespace Sparrow.Json
             _head.Previous = previousHead;
             _head.DeallocationPendingPrevious = previousHead;
             _head.Allocation = allocation;
-            _head.Address = allocation.Memory.Address;
+            _head.Address = allocation.Address;
             _head.Used = 0;
             _head.AccumulatedSizeInBytes = previousHead.AccumulatedSizeInBytes;
         }
@@ -471,7 +471,7 @@ Grow:
         public void EnsureSingleChunk(JsonParserState state)
         {
             EnsureSingleChunk(out var buffer, out var size);
-            state.StringBuffer = new UnmanagedMemory(buffer, size);
+            state.StringBuffer = buffer;
             state.StringSize = size;
         }
 

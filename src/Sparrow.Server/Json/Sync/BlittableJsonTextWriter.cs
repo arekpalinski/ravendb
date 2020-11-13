@@ -20,11 +20,15 @@ namespace Sparrow.Server.Json.Sync
         private const byte Quote = (byte)'"';
         private const byte Colon = (byte)':';
 
-        private int _pos;
-        private readonly byte* _buffer;
-        private JsonOperationContext.MemoryBuffer.ReturnBuffer _returnBuffer;
         private readonly JsonOperationContext.MemoryBuffer _pinnedBuffer;
-        private readonly AllocatedMemoryData _parserAuxiliarMemory;
+        private readonly byte* _buffer;
+
+        private readonly byte* _auxiliarBuffer;
+        private readonly int _auxiliarBufferLength;
+
+        private int _pos;
+        private readonly JsonOperationContext.MemoryBuffer.ReturnBuffer _returnBuffer;
+        private readonly JsonOperationContext.MemoryBuffer.ReturnBuffer _returnAuxiliarBuffer;
 
         public BlittableJsonTextWriter(JsonOperationContext context, Stream stream)
         {
@@ -34,14 +38,16 @@ namespace Sparrow.Server.Json.Sync
             _returnBuffer = context.GetMemoryBuffer(out _pinnedBuffer);
             _buffer = _pinnedBuffer.Pointer;
 
-            _parserAuxiliarMemory = context.GetMemory(32);
+            _returnAuxiliarBuffer = context.GetMemoryBuffer(32, out var buffer);
+            _auxiliarBuffer = buffer.Pointer;
+            _auxiliarBufferLength = buffer.Length;
         }
 
         public int Position => _pos;
 
         public override string ToString()
         {
-            return Encodings.Utf8.GetString(_pinnedBuffer.Memory.Address, _pos);
+            return Encodings.Utf8.GetString(_buffer, _pos);
         }
 
         public void WriteObject(BlittableJsonReaderObject obj)
@@ -145,11 +151,9 @@ namespace Sparrow.Server.Json.Sync
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteDateTime(DateTime value, bool isUtc)
         {
-            int size = value.GetDefaultRavenFormat(_parserAuxiliarMemory.Memory, isUtc);
+            int size = value.GetDefaultRavenFormat(_auxiliarBuffer, _auxiliarBufferLength, isUtc);
 
-            var strBuffer = _parserAuxiliarMemory.Memory.Address;
-
-            WriteRawStringWhichMustBeWithoutEscapeChars(strBuffer, size);
+            WriteRawStringWhichMustBeWithoutEscapeChars(_auxiliarBuffer, size);
         }
 
         public void WriteString(string str, bool skipEscaping = false)
@@ -186,7 +190,7 @@ namespace Sparrow.Server.Json.Sync
             const int NumberOfQuotesChars = 2; // for " "
 
             int bufferSize = 2 * numberOfEscapeSequences + size + NumberOfQuotesChars;
-            if (bufferSize >= JsonOperationContext.MemoryBuffer.Size)
+            if (bufferSize >= JsonOperationContext.MemoryBuffer.DefaultSize)
             {
                 UnlikelyWriteLargeString(strBuffer, size, numberOfEscapeSequences, escapeSequencePos); // OK, do it the slow way.
                 return;
@@ -316,7 +320,7 @@ namespace Sparrow.Server.Json.Sync
 
                 // We ensure our buffer will have enough space to deal with the whole string.
                 int bufferSize = 2 * numberOfEscapeSequences + size + 2;
-                if (bufferSize >= JsonOperationContext.MemoryBuffer.Size)
+                if (bufferSize >= JsonOperationContext.MemoryBuffer.DefaultSize)
                     goto WriteLargeCompressedString; // OK, do it the slow way instead.
 
                 EnsureBuffer(bufferSize);
@@ -386,7 +390,7 @@ namespace Sparrow.Server.Json.Sync
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteRawString(byte* buffer, int size)
         {
-            if (size < JsonOperationContext.MemoryBuffer.Size)
+            if (size < JsonOperationContext.MemoryBuffer.DefaultSize)
             {
                 EnsureBuffer(size);
                 Memory.Copy(_buffer + _pos, buffer, size);
@@ -403,7 +407,7 @@ namespace Sparrow.Server.Json.Sync
             var posInStr = 0;
             while (posInStr < size)
             {
-                var amountToCopy = Math.Min(size - posInStr, JsonOperationContext.MemoryBuffer.Size);
+                var amountToCopy = Math.Min(size - posInStr, JsonOperationContext.MemoryBuffer.DefaultSize);
                 Flush();
                 Memory.Copy(_buffer, buffer + posInStr, amountToCopy);
                 posInStr += amountToCopy;
@@ -442,9 +446,9 @@ namespace Sparrow.Server.Json.Sync
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void EnsureBuffer(int len)
         {
-            if (len >= JsonOperationContext.MemoryBuffer.Size)
+            if (len >= JsonOperationContext.MemoryBuffer.DefaultSize)
                 ThrowValueTooBigForBuffer(len);
-            if (_pos + len < JsonOperationContext.MemoryBuffer.Size)
+            if (_pos + len < JsonOperationContext.MemoryBuffer.DefaultSize)
                 return;
 
             Flush();
@@ -534,7 +538,7 @@ namespace Sparrow.Server.Json.Sync
                 return;
             }
 
-            var localBuffer = _parserAuxiliarMemory.Memory.Address;
+            var localBuffer = _auxiliarBuffer;
 
             int idx = 0;
             var negative = false;
@@ -659,7 +663,7 @@ namespace Sparrow.Server.Json.Sync
             finally
             {
                 _returnBuffer.Dispose();
-                _context.ReturnMemory(_parserAuxiliarMemory);
+                _returnAuxiliarBuffer.Dispose();
             }
         }
 
@@ -696,7 +700,7 @@ namespace Sparrow.Server.Json.Sync
             var totalWritten = 0;
             while (leftToWrite > 0)
             {
-                var toWrite = Math.Min(JsonOperationContext.MemoryBuffer.Size, leftToWrite);
+                var toWrite = Math.Min(JsonOperationContext.MemoryBuffer.DefaultSize, leftToWrite);
                 Memory.Copy(_buffer, ptr + totalWritten, toWrite);
                 _pos += toWrite;
                 totalWritten += toWrite;

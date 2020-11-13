@@ -176,17 +176,22 @@ namespace Sparrow.Json
 
         public MemoryBuffer.ReturnBuffer GetMemoryBuffer(out MemoryBuffer buffer)
         {
+            return GetMemoryBuffer(MemoryBuffer.DefaultSize, out buffer);
+        }
+
+        public unsafe MemoryBuffer.ReturnBuffer GetMemoryBuffer(int size, out MemoryBuffer buffer)
+        {
             EnsureNotDisposed();
 
-            var rawMemory = GetMemory(MemoryBuffer.Size);
-            buffer = new MemoryBuffer(rawMemory.Memory, rawMemory.ContextGeneration, this);
+            var rawMemory = GetMemory(size);
+            buffer = new MemoryBuffer(new UnmanagedMemory(rawMemory.Address, rawMemory.SizeInBytes), rawMemory.ContextGeneration, this);
 
             return new MemoryBuffer.ReturnBuffer(rawMemory, buffer, this);
         }
 
         public unsafe class MemoryBuffer
         {
-            public const int Size = 32 * Constants.Size.Kilobyte;
+            public const int DefaultSize = 32 * Constants.Size.Kilobyte;
 
 #if DEBUG
             private UnmanagedMemory _memory;
@@ -492,13 +497,13 @@ namespace Sparrow.Json
 
             fixed (char* pField = field.Buffer)
             {
-                var address = memory.Memory.Address;
+                var address = memory.Address;
                 var actualSize = Encodings.Utf8.GetBytes(pField + field.Offset, field.Length, address, memory.SizeInBytes);
 
                 state.FindEscapePositionsIn(address, ref actualSize, escapePositionsSize);
 
                 state.WriteEscapePositionsTo(address + actualSize);
-                LazyStringValue result = longLived == false ? AllocateStringValue(field.Value, memory.Memory, actualSize) : new LazyStringValue(field.Value, memory.Memory, actualSize, this);
+                LazyStringValue result = longLived == false ? AllocateStringValue(field.Value, address, actualSize) : new LazyStringValue(field.Value, address, actualSize, this);
                 result.AllocatedMemoryData = memory;
 
                 if (state.EscapePositions.Count > 0)
@@ -519,14 +524,14 @@ namespace Sparrow.Json
             int memorySize = maxByteCount + escapePositionsSize;
             var memory = longLived ? GetLongLivedMemory(memorySize) : GetMemory(memorySize);
 
-            var address = memory.Memory.Address;
+            var address = memory.Address;
 
             Memory.Copy(address, ptr, size);
 
             state.FindEscapePositionsIn(address, ref size, escapePositionsSize);
 
             state.WriteEscapePositionsTo(address + size);
-            LazyStringValue result = longLived == false ? AllocateStringValue(null, memory.Memory, size) : new LazyStringValue(null, memory.Memory, size, this);
+            LazyStringValue result = longLived == false ? AllocateStringValue(null, address, size) : new LazyStringValue(null, address, size, this);
             result.AllocatedMemoryData = memory;
 
             if (state.EscapePositions.Count > 0)
@@ -875,7 +880,7 @@ namespace Sparrow.Json
 
         protected internal virtual unsafe void Reset(bool forceReleaseLongLivedAllocator = false)
         {
-            if (_tempBuffer != null && _tempBuffer.Memory.Address != null)
+            if (_tempBuffer != null && _tempBuffer.Address != null)
             {
                 _arenaAllocator.Return(_tempBuffer);
                 _tempBuffer = null;
@@ -1023,7 +1028,12 @@ namespace Sparrow.Json
                     await writer.WriteCommaAsync(token).ConfigureAwait(false);
                 first = false;
 
-                var lazyStringValue = AllocateStringValue(null, state.StringBuffer, state.StringSize);
+                LazyStringValue lazyStringValue;
+                unsafe
+                {
+                    lazyStringValue = AllocateStringValue(null, state.StringBuffer, state.StringSize);
+                }
+
                 await writer.WritePropertyNameAsync(lazyStringValue, token).ConfigureAwait(false);
 
                 if (parser.Read() == false)
@@ -1053,18 +1063,34 @@ namespace Sparrow.Json
                 case JsonParserToken.String:
                     if (state.CompressedSize.HasValue)
                     {
-                        var lazyCompressedStringValue = new LazyCompressedStringValue(null, state.StringBuffer,
-                            state.StringSize, state.CompressedSize.Value, this);
+                        LazyCompressedStringValue lazyCompressedStringValue;
+                        unsafe
+                        {
+                            lazyCompressedStringValue = new LazyCompressedStringValue(null, state.StringBuffer, state.StringSize, state.CompressedSize.Value, this);
+                        }
+
                         await writer.WriteStringAsync(lazyCompressedStringValue, token).ConfigureAwait(false);
                     }
                     else
                     {
-                        await writer.WriteStringAsync(AllocateStringValue(null, state.StringBuffer, state.StringSize), token: token).ConfigureAwait(false);
+                        LazyStringValue lazyStringValue;
+                        unsafe
+                        {
+                            lazyStringValue = AllocateStringValue(null, state.StringBuffer, state.StringSize);
+                        }
+
+                        await writer.WriteStringAsync(lazyStringValue, token: token).ConfigureAwait(false);
                     }
                     break;
 
                 case JsonParserToken.Float:
-                    await writer.WriteDoubleAsync(new LazyNumberValue(AllocateStringValue(null, state.StringBuffer, state.StringSize)), token).ConfigureAwait(false);
+                    LazyStringValue lazyStringValueForNumber;
+                    unsafe
+                    {
+                        lazyStringValueForNumber = AllocateStringValue(null, state.StringBuffer, state.StringSize);
+                    }
+
+                    await writer.WriteDoubleAsync(new LazyNumberValue(lazyStringValueForNumber), token).ConfigureAwait(false);
                     break;
 
                 case JsonParserToken.Integer:

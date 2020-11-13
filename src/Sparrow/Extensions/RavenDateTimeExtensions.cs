@@ -314,7 +314,7 @@ namespace Sparrow.Extensions
 
             memory = context.GetMemory(size);
 
-            var ptr = memory.Memory.Address;
+            var ptr = memory.Address;
             ProcessDefaultRavenFormat(ticks, ptr);
 
             if (isUtc)
@@ -330,17 +330,16 @@ namespace Sparrow.Extensions
         /// <param name="dt"></param>
         /// <param name="isUtc"></param>
         /// <returns></returns>
-        public static unsafe int GetDefaultRavenFormat(this DateTime dt, UnmanagedMemory memory, bool isUtc = false)
+        public static unsafe int GetDefaultRavenFormat(this DateTime dt, byte* ptr, int ptrSize, bool isUtc = false)
         {
             ValidateDate(dt, isUtc);
 
             int size = 27 + (isUtc ? 1 : 0);
-            if (memory.Size < size)
+            if (ptrSize < size)
                 goto Error;
 
             var ticks = dt.Ticks;
 
-            var ptr = memory.Address;
             ProcessDefaultRavenFormat(ticks, ptr);
 
             if (isUtc)

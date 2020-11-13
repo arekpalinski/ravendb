@@ -105,7 +105,7 @@ namespace Sparrow.Server.Platform.Win32
         private static string GetEncodedFilename(IntPtr processHandle, ref Win32MemoryProtectMethods.MEMORY_BASIC_INFORMATION memoryBasicInformation)
         {
             var memData = BuffersPool.Allocate(2048);
-            var pFilename = memData.Memory.Address;
+            var pFilename = memData.Address;
             try
             {
                 int stringLength;
@@ -239,7 +239,7 @@ namespace Sparrow.Server.Platform.Win32
             if (pages > 2)
             {
                 memData = BuffersPool.Allocate((int)(sizeof(PPSAPI_WORKING_SET_EX_INFORMATION) * pages));
-                var wsInfo = new IntPtr(memData.Memory.Address);
+                var wsInfo = new IntPtr(memData.Address);
                 pWsInfo = (PPSAPI_WORKING_SET_EX_INFORMATION*)wsInfo.ToPointer();
             }
             else

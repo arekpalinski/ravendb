@@ -548,7 +548,7 @@ namespace Raven.Server.Smuggler.Documents
             var size = segmentSize;
             while (size > 0)
             {
-                var read = _parser.Copy(mem.Memory.Address + offset, size);
+                var read = _parser.Copy(mem.Address + offset, size);
                 if (read.Done == false)
                 {
                     offset += read.BytesRead;
@@ -563,7 +563,7 @@ namespace Raven.Server.Smuggler.Documents
                 size -= read.BytesRead;
             }
 
-            return new TimeSeriesValuesSegment(mem.Memory.Address, segmentSize);
+            return new TimeSeriesValuesSegment(mem.Address, segmentSize);
         }
 
         private unsafe void SetBuffer(UnmanagedJsonParser parser, LazyStringValue value)

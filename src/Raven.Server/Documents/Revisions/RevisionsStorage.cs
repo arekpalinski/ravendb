@@ -893,8 +893,8 @@ namespace Raven.Server.Documents.Revisions
             var revisionCopy = context.GetMemory(tvr.Size);
             // we have to copy it to the side because we might do a defrag during update, and that
             // can cause corruption if we read from the old value (which we just deleted)
-            Memory.Copy(revisionCopy.Memory.Address, tvr.Pointer, tvr.Size);
-            var copyTvr = new TableValueReader(revisionCopy.Memory.Address, tvr.Size);
+            Memory.Copy(revisionCopy.Address, tvr.Pointer, tvr.Size);
+            var copyTvr = new TableValueReader(revisionCopy.Address, tvr.Size);
 
             var revision = TableValueToRevision(context, ref copyTvr);
             var flags = revision.Flags | DocumentFlags.Conflicted;
@@ -1778,10 +1778,10 @@ namespace Raven.Server.Documents.Revisions
             var size = sizeof(int) + sizeof(long);
             var mem = context.GetMemory(size);
             var flag = (int)DocumentFlags.Resolved;
-            Memory.Copy(mem.Memory.Address, (byte*)&flag, sizeof(int));
+            Memory.Copy(mem.Address, (byte*)&flag, sizeof(int));
             var ticks = Bits.SwapBytes(date.Ticks);
-            Memory.Copy(mem.Memory.Address + sizeof(int), (byte*)&ticks, sizeof(long));
-            return Slice.External(context.Allocator, mem.Memory.Address, size, out slice);
+            Memory.Copy(mem.Address + sizeof(int), (byte*)&ticks, sizeof(long));
+            return Slice.External(context.Allocator, mem.Address, size, out slice);
         }
 
         public IEnumerable<Document> GetResolvedDocumentsSince(DocumentsOperationContext context, DateTime since, long take = 1024)

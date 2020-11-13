@@ -1849,10 +1849,10 @@ namespace Raven.Server.Documents
             {
                 var size = lowerId.Size - ConflictedTombstoneOverhead;
                 var allocated = context.GetMemory(size + 1); // we need this extra byte to mark that there is no escaping
-                allocated.Memory.Address[size] = 0;
+                allocated.Address[size] = 0;
 
-                Memory.Copy(allocated.Memory.Address, lowerId.Buffer, size);
-                var lsv = context.AllocateStringValue(null, allocated.Memory, size);
+                Memory.Copy(allocated.Address, lowerId.Buffer, size);
+                var lsv = context.AllocateStringValue(null, allocated.Address, size);
                 lsv.AllocatedMemoryData = allocated;
                 return lsv;
             }

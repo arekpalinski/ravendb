@@ -873,7 +873,7 @@ namespace Sparrow.Json
                     return;
                 }
                 _allocation = context.GetMemory(size * 2 * sizeof(int));
-                Properties = (int*)_allocation.Memory.Address;
+                Properties = (int*)_allocation.Address;
                 Offsets = Properties + size;
                 Size = size;
             }
@@ -1055,8 +1055,8 @@ namespace Sparrow.Json
             if (Modifications == null)
             {
                 var mem = context.GetMemory(Size);
-                CopyTo(mem.Memory.Address);
-                return new BlittableJsonReaderObject(mem.Memory.Address, Size, context, mem);
+                CopyTo(mem.Address);
+                return new BlittableJsonReaderObject(mem.Address, Size, context, mem);
             }
 
             return context.ReadObject(this, null);

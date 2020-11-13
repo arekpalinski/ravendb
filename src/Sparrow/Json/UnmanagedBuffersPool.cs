@@ -52,7 +52,7 @@ namespace Sparrow.Json
                 while (stack.TryPop(out var allocatedMemoryDatas))
                 {
                     size += allocatedMemoryDatas.SizeInBytes;
-                    NativeMemory.Free(allocatedMemoryDatas.Memory.Address, allocatedMemoryDatas.SizeInBytes, allocatedMemoryDatas.AllocatingThread);
+                    NativeMemory.Free(allocatedMemoryDatas.Address, allocatedMemoryDatas.SizeInBytes, allocatedMemoryDatas.AllocatingThread);
 #if MEM_GUARD
 #if MEM_GUARD_STACK
                     allocatedMemoryDatas.FreedBy = Environment.StackTrace;
@@ -193,7 +193,7 @@ namespace Sparrow.Json
             var index = GetIndexFromSize(returned.SizeInBytes);
             if (index == -1)
             {
-                NativeMemory.Free(returned.Memory.Address, returned.SizeInBytes, returned.AllocatingThread);
+                NativeMemory.Free(returned.Address, returned.SizeInBytes, returned.AllocatingThread);
 
                 return; // strange size, just free it
             }

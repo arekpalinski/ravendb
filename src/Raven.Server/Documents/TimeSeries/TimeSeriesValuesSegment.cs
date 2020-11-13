@@ -77,9 +77,9 @@ namespace Raven.Server.Documents.TimeSeries
         {
             // for better reuse let use the const size of 'MaxSegmentSize'
             var memory = context.GetMemory(TimeSeriesStorage.MaxSegmentSize);
-            Memory.Set(memory.Memory.Address, 0, TimeSeriesStorage.MaxSegmentSize);
-            CopyTo(memory.Memory.Address);
-            segment = new TimeSeriesValuesSegment(memory.Memory.Address, _capacity);
+            Memory.Set(memory.Address, 0, TimeSeriesStorage.MaxSegmentSize);
+            CopyTo(memory.Address);
+            segment = new TimeSeriesValuesSegment(memory.Address, _capacity);
             return memory;
         }
 

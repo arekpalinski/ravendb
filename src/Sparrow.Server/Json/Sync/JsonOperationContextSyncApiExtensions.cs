@@ -44,7 +44,7 @@ namespace Sparrow.Server.Json.Sync
             syncContext.ObjectJsonParser.Reset(null);
         }
 
-        private static void WriteObject(JsonOperationContext.SyncJsonOperationContext syncContext, BlittableJsonTextWriter writer, JsonParserState state, ObjectJsonParser parser)
+        private unsafe static void WriteObject(JsonOperationContext.SyncJsonOperationContext syncContext, BlittableJsonTextWriter writer, JsonParserState state, ObjectJsonParser parser)
         {
             syncContext.EnsureNotDisposed();
 
@@ -79,7 +79,7 @@ namespace Sparrow.Server.Json.Sync
             writer.WriteEndObject();
         }
 
-        private static void WriteValue(JsonOperationContext.SyncJsonOperationContext syncContext, BlittableJsonTextWriter writer, JsonParserState state, ObjectJsonParser parser)
+        private unsafe static void WriteValue(JsonOperationContext.SyncJsonOperationContext syncContext, BlittableJsonTextWriter writer, JsonParserState state, ObjectJsonParser parser)
         {
             switch (state.CurrentTokenType)
             {

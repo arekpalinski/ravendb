@@ -78,7 +78,7 @@ namespace Sparrow.Json
 
         public bool GrowAllocation(AllocatedMemoryData allocation, int sizeIncrease)
         {
-            byte* end = allocation.Memory.Address + allocation.SizeInBytes;
+            byte* end = allocation.Address + allocation.SizeInBytes;
             var distance = end - _ptrCurrent;
             if (distance != 0)
                 return false;
@@ -349,7 +349,7 @@ namespace Sparrow.Json
             if (_isDisposed ?? true)
                 return;
 
-            var address = allocation.Memory.Address;
+            var address = allocation.Address;
 
 #if DEBUG
             Debug.Assert(address != _ptrCurrent);
@@ -417,7 +417,7 @@ namespace Sparrow.Json
         public AllocatedMemoryData(byte* address, int sizeInBytes)
         {
             SizeInBytes = sizeInBytes;
-            Memory = new UnmanagedMemory(address, sizeInBytes);
+            Address = address;
         }
 
 #if MEM_GUARD_STACK || TRACK_ALLOCATED_MEMORY_DATA
@@ -426,13 +426,14 @@ namespace Sparrow.Json
 #endif
 
 #if !DEBUG
-        public readonly UnmanagedMemory Memory;
+        public readonly byte* Address;
 #else
         public bool IsLongLived;
         public bool IsReturned;
-        private UnmanagedMemory _memory;
 
-        public UnmanagedMemory Memory
+        private byte* _address;
+
+        public byte* Address
         {
             get
             {
@@ -442,9 +443,10 @@ namespace Sparrow.Json
                     IsReturned)
                     ThrowObjectDisposedException();
 
-                return _memory;
+                return _address;
             }
-            set
+
+            private set
             {
                 if (IsLongLived == false &&
                     Parent != null &&
@@ -452,7 +454,7 @@ namespace Sparrow.Json
                     IsReturned)
                     ThrowObjectDisposedException();
 
-                _memory = value;
+                _address = value;
             }
         }
 

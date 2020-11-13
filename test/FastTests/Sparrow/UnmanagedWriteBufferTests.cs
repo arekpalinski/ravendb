@@ -39,7 +39,7 @@ namespace FastTests.Sparrow
                     Assert.Equal(buffer.SizeInBytes, 0);
                     buffer.WriteByte(10);
                     Assert.Equal(buffer.SizeInBytes, 1);
-                    Assert.Equal(allocation.Memory.Address[0], 10);
+                    Assert.Equal(allocation.Address[0], 10);
                 }
             }
         }
@@ -56,7 +56,7 @@ namespace FastTests.Sparrow
                     Assert.Equal(buffer.SizeInBytes, 0);
                     buffer.WriteByte(10);
                     Assert.Equal(buffer.SizeInBytes, 1);
-                    Assert.Equal(allocation.Memory.Address[0], 10);
+                    Assert.Equal(allocation.Address[0], 10);
                     buffer.WriteByte(20);
                     Assert.Equal(buffer.SizeInBytes, 2);
                 }
@@ -76,7 +76,7 @@ namespace FastTests.Sparrow
                     {
                         Assert.Equal(buffer.SizeInBytes, i);
                         buffer.WriteByte((byte)i);
-                        Assert.Equal(allocation.Memory.Address[i], (byte)i);
+                        Assert.Equal(allocation.Address[i], (byte)i);
                         Assert.Equal(buffer.SizeInBytes, i + 1);
                     }
                 }
@@ -100,7 +100,7 @@ namespace FastTests.Sparrow
 
                         // We can't verify that anything after the allocation was actually put into the correct place
                         if (i < DefaultBufferSize)
-                            Assert.Equal(allocation.Memory.Address[i], (byte)i);
+                            Assert.Equal(allocation.Address[i], (byte)i);
                     }
                 }
             }
@@ -120,7 +120,7 @@ namespace FastTests.Sparrow
                     Assert.Equal(buffer.SizeInBytes, NoAllocationsBatch.Length);
 
                     for (int i = 0; i < NoAllocationsBatch.Length; i++)
-                        Assert.Equal(allocation.Memory.Address[i], NoAllocationsBatch[i]);
+                        Assert.Equal(allocation.Address[i], NoAllocationsBatch[i]);
                 }
             }
         }
@@ -139,7 +139,7 @@ namespace FastTests.Sparrow
                     Assert.Equal(buffer.SizeInBytes, AllocationsBatch.Length);
 
                     for (int i = 0; i < DefaultBufferSize; i++)
-                        Assert.Equal(allocation.Memory.Address[i], AllocationsBatch[i]);
+                        Assert.Equal(allocation.Address[i], AllocationsBatch[i]);
                 }
             }
         }
@@ -158,7 +158,7 @@ namespace FastTests.Sparrow
                     Assert.Equal(buffer.SizeInBytes, NoAllocationsBatch.Length);
 
                     for (int i = 0; i < NoAllocationsBatch.Length; i++)
-                        Assert.Equal(allocation.Memory.Address[i], NoAllocationsBatch[i]);
+                        Assert.Equal(allocation.Address[i], NoAllocationsBatch[i]);
 
 
                     byte[] outputBuffer = new byte[NoAllocationsBatch.Length];
@@ -184,7 +184,7 @@ namespace FastTests.Sparrow
                     Assert.Equal(buffer.SizeInBytes, NoAllocationsBatch.Length);
 
                     for (var i = 0; i < NoAllocationsBatch.Length; i++)
-                        Assert.Equal(allocation.Memory.Address[i], NoAllocationsBatch[i]);
+                        Assert.Equal(allocation.Address[i], NoAllocationsBatch[i]);
 
 
                     byte[] outputBuffer = new byte[NoAllocationsBatch.Length];

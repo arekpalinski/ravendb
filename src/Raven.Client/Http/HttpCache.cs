@@ -128,7 +128,7 @@ namespace Raven.Client.Http
             result.BlittableValidation();
 #endif 
             var mem = _unmanagedBuffersPool.Allocate(result.Size);
-            result.CopyTo(mem.Memory.Address);
+            result.CopyTo(mem.Address);
             if (Interlocked.Add(ref _totalSize, result.Size) > _maxSize)
             {
                 if (_isFreeSpaceRunning == false)
@@ -138,7 +138,7 @@ namespace Raven.Client.Http
             var httpCacheItem = new HttpCacheItem
             {
                 ChangeVector = changeVector,
-                Ptr = mem.Memory.Address,
+                Ptr = mem.Address,
                 Size = result.Size,
                 Allocation = mem,
                 Cache = this,

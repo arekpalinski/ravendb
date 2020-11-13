@@ -71,7 +71,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                     case Mode.MultipleValues:
                         if (_buffer == null)
                             return 0; // this can happen if we have _no_ values (group by "constant")
-                        return Hashing.XXHash64.CalculateInline(_buffer.Memory.Address, (ulong)_bufferPos);
+                        return Hashing.XXHash64.CalculateInline(_buffer.Address, (ulong)_bufferPos);
                     default:
                         ThrowUnknownReduceValueMode();
                         return 0;// never hit
@@ -320,13 +320,13 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                 var newBuffer = _buffersPool.Allocate(Bits.PowerOf2(_bufferPos + size));
                 if (_buffer != null)
                 {
-                    Memory.Copy(newBuffer.Memory.Address, _buffer.Memory.Address, _buffer.SizeInBytes);
+                    Memory.Copy(newBuffer.Address, _buffer.Address, _buffer.SizeInBytes);
                     _buffersPool.Return(_buffer);
                 }
                 _buffer = newBuffer;
             }
 
-            Memory.Copy(_buffer.Memory.Address + _bufferPos, value, size);
+            Memory.Copy(_buffer.Address + _bufferPos, value, size);
             _bufferPos += size;
         }
 
@@ -345,7 +345,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce
         {
             return new Buffer
             {
-                Address = _buffer.Memory.Address,
+                Address = _buffer.Address,
                 Size = _bufferPos
             };
         }
