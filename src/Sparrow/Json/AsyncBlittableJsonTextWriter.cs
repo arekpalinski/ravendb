@@ -183,7 +183,13 @@ namespace Sparrow.Json
 
                 case BlittableJsonToken.RawBlob:
                     var blob = (BlittableJsonReaderObject.RawBlob)val;
-                    await WriteRawStringAsync(blob.Memory, blob.Length, token).ConfigureAwait(false);
+                    UnmanagedPointer blobPointer;
+                    unsafe
+                    {
+                        blobPointer = new UnmanagedPointer(blob.Address);
+                    }
+
+                    await WriteRawStringAsync(blobPointer, blob.Length, token).ConfigureAwait(false);
                     break;
 
                 default:
@@ -228,7 +234,12 @@ namespace Sparrow.Json
                 return;
             }
 
-            var strBuffer = str.MemoryBuffer;
+            UnmanagedPointer strBuffer;
+            unsafe
+            {
+                strBuffer = new UnmanagedPointer(str.Buffer);
+            }
+
             var escapeSequencePos = size;
             int numberOfEscapeSequences;
             unsafe
@@ -269,7 +280,7 @@ namespace Sparrow.Json
             }
         }
 
-        private async ValueTask UnlikelyWriteEscapeSequencesAsync(UnmanagedMemory strBuffer, int size, int numberOfEscapeSequences, int escapeSequencePos, CancellationToken token = default)
+        private async ValueTask UnlikelyWriteEscapeSequencesAsync(UnmanagedPointer strBuffer, int size, int numberOfEscapeSequences, int escapeSequencePos, CancellationToken token = default)
         {
             // We ensure our buffer will have enough space to deal with the whole string.
             int bufferSize = 2 * numberOfEscapeSequences + size + 1;
@@ -291,7 +302,7 @@ namespace Sparrow.Json
                 if (bytesToSkip > 0)
                 {
                     await WriteRawStringAsync(strBuffer, bytesToSkip, token).ConfigureAwait(false);
-                    strBuffer = strBuffer.Slice(bytesToSkip);
+                    strBuffer += bytesToSkip;
                     size -= bytesToSkip;
                 }
 
@@ -301,7 +312,7 @@ namespace Sparrow.Json
                     escapeCharacter = *strBuffer.Address;
                 }
 
-                strBuffer = strBuffer.Slice(1);
+                strBuffer += 1;
 
                 await WriteEscapeCharacterAsync(buffer, escapeCharacter, token).ConfigureAwait(false);
 
@@ -315,7 +326,7 @@ namespace Sparrow.Json
                 await WriteRawStringAsync(strBuffer, size, token).ConfigureAwait(false);
         }
 
-        private async ValueTask UnlikelyWriteLargeStringAsync(UnmanagedMemory strBuffer, int size, int numberOfEscapeSequences, int escapeSequencePos, CancellationToken token = default)
+        private async ValueTask UnlikelyWriteLargeStringAsync(UnmanagedPointer strBuffer, int size, int numberOfEscapeSequences, int escapeSequencePos, CancellationToken token = default)
         {
             var ptr = strBuffer;
 
@@ -336,7 +347,7 @@ namespace Sparrow.Json
                 }
 
                 await UnlikelyWriteLargeRawStringAsync(strBuffer, bytesToSkip, token).ConfigureAwait(false);
-                strBuffer = strBuffer.Slice(bytesToSkip);
+                strBuffer += bytesToSkip;
                 size -= bytesToSkip + 1 /*for the escaped char we skip*/;
                 byte b;
                 unsafe
@@ -344,7 +355,7 @@ namespace Sparrow.Json
                     b = *strBuffer.Address;
                 }
 
-                strBuffer = strBuffer.Slice(1);
+                strBuffer += 1;
 
                 await WriteEscapeCharacterAsync(_buffer, b, token).ConfigureAwait(false);
             }
@@ -403,7 +414,7 @@ namespace Sparrow.Json
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public async ValueTask WriteStringAsync(LazyCompressedStringValue str, CancellationToken token = default)
         {
-            var strBuffer = str.DecompressToUnmanagedMemory(out AllocatedMemoryData allocated, _context);
+            var strBuffer = str.DecompressToUnmanagedPointer(out AllocatedMemoryData allocated, _context);
 
             try
             {
@@ -437,7 +448,8 @@ namespace Sparrow.Json
                     }
 
                     await WriteRawStringAsync(strBuffer, bytesToSkip, token).ConfigureAwait(false);
-                    strBuffer = strBuffer.Slice(bytesToSkip);
+
+                    strBuffer += bytesToSkip;
                     size -= bytesToSkip + 1 /*for the escaped char we skip*/;
                     byte b;
                     unsafe
@@ -445,7 +457,7 @@ namespace Sparrow.Json
                         b = *strBuffer.Address;
                     }
 
-                    strBuffer = strBuffer.Slice(1);
+                    strBuffer += 1;
 
                     await WriteEscapeCharacterAsync(_buffer, b, token).ConfigureAwait(false);
                 }
@@ -469,7 +481,7 @@ namespace Sparrow.Json
             }
         }
 
-        private async ValueTask UnlikelyWriteLargeStringAsync(int numberOfEscapeSequences, LazyCompressedStringValue lsv, int escapeSequencePos, UnmanagedMemory strBuffer, int size, CancellationToken token = default)
+        private async ValueTask UnlikelyWriteLargeStringAsync(int numberOfEscapeSequences, LazyCompressedStringValue lsv, int escapeSequencePos, UnmanagedPointer strBuffer, int size, CancellationToken token = default)
         {
             await EnsureBufferAsync(1, token).ConfigureAwait(false);
             unsafe
@@ -488,7 +500,8 @@ namespace Sparrow.Json
                 }
 
                 await WriteRawStringAsync(strBuffer, bytesToSkip, token).ConfigureAwait(false);
-                strBuffer = strBuffer.Slice(bytesToSkip);
+
+                strBuffer += bytesToSkip;
                 size -= bytesToSkip + 1 /*for the escaped char we skip*/;
                 byte b;
                 unsafe
@@ -496,7 +509,7 @@ namespace Sparrow.Json
                     b = *strBuffer.Address;
                 }
 
-                strBuffer = strBuffer.Slice(1);
+                strBuffer += 1;
 
                 await WriteEscapeCharacterAsync(_buffer, b, token).ConfigureAwait(false);
             }
@@ -520,7 +533,14 @@ namespace Sparrow.Json
                 _buffer.Address[_pos++] = Quote;
             }
 
-            await WriteRawStringAsync(buffer, size, token).ConfigureAwait(false);
+            UnmanagedPointer bufferPointer;
+
+            unsafe
+            {
+                bufferPointer = new UnmanagedPointer(buffer.Address);
+            }
+
+            await WriteRawStringAsync(bufferPointer, size, token).ConfigureAwait(false);
             unsafe
             {
                 _buffer.Address[_pos++] = Quote;
@@ -528,7 +548,7 @@ namespace Sparrow.Json
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private async ValueTask WriteRawStringAsync(UnmanagedMemory buffer, int size, CancellationToken token = default)
+        private async ValueTask WriteRawStringAsync(UnmanagedPointer buffer, int size, CancellationToken token = default)
         {
             if (size < JsonOperationContext.MemoryBuffer.DefaultSize)
             {
@@ -546,7 +566,7 @@ namespace Sparrow.Json
             await UnlikelyWriteLargeRawStringAsync(buffer, size, token).ConfigureAwait(false);
         }
 
-        private async ValueTask UnlikelyWriteLargeRawStringAsync(UnmanagedMemory buffer, int size, CancellationToken token = default)
+        private async ValueTask UnlikelyWriteLargeRawStringAsync(UnmanagedPointer buffer, int size, CancellationToken token = default)
         {
             // need to do this in pieces
             var posInStr = 0;
@@ -813,7 +833,13 @@ namespace Sparrow.Json
 
             var lazyStringValue = val.Inner;
             await EnsureBufferAsync(lazyStringValue.Size, token).ConfigureAwait(false);
-            await WriteRawStringAsync(lazyStringValue.MemoryBuffer, lazyStringValue.Size, token).ConfigureAwait(false);
+
+            UnmanagedPointer lsvPointer;
+            unsafe
+            {
+                lsvPointer = new UnmanagedPointer(lazyStringValue.Buffer);
+            }
+            await WriteRawStringAsync(lsvPointer, lazyStringValue.Size, token).ConfigureAwait(false);
         }
 
         public async ValueTask WriteBufferForAsync(byte[] buffer, CancellationToken token = default)
@@ -851,7 +877,13 @@ namespace Sparrow.Json
             using (var lazyStr = _context.GetLazyString(val.ToString(CultureInfo.InvariantCulture)))
             {
                 await EnsureBufferAsync(lazyStr.Size, token).ConfigureAwait(false);
-                await WriteRawStringAsync(lazyStr.MemoryBuffer, lazyStr.Size, token).ConfigureAwait(false);
+
+                UnmanagedPointer lsvPointer;
+                unsafe
+                {
+                    lsvPointer = new UnmanagedPointer(lazyStr.Buffer);
+                }
+                await WriteRawStringAsync(lsvPointer, lazyStr.Size, token).ConfigureAwait(false);
             }
         }
 

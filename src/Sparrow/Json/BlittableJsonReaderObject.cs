@@ -991,9 +991,6 @@ namespace Sparrow.Json
 
             public byte* Address;
             public int Length;
-
-            private UnmanagedMemory _memory;
-            public UnmanagedMemory Memory => _memory ??= new UnmanagedMemory(Address, Length);
         }
 
         private RawBlob ReadRawBlob(int pos)

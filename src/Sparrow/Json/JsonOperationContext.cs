@@ -57,28 +57,16 @@ namespace Sparrow.Json
         private LazyStringValue _empty;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public unsafe LazyStringValue AllocateStringValue(string str, UnmanagedMemory ptr, int size)
-        {
-            return AllocateStringValue(str, ptr, ptr.Address, size);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe LazyStringValue AllocateStringValue(string str, byte* ptr, int size)
-        {
-            return AllocateStringValue(str, null, ptr, size);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private unsafe LazyStringValue AllocateStringValue(string str, UnmanagedMemory memory, byte* ptr, int size)
         {
             if (_numberOfAllocatedStringsValues < _allocateStringValues.Count)
             {
                 var lazyStringValue = _allocateStringValues[_numberOfAllocatedStringsValues++];
-                lazyStringValue.Renew(str, memory, ptr, size, this);
+                lazyStringValue.Renew(str, ptr, size, this);
                 return lazyStringValue;
             }
 
-            var allocateStringValue = new LazyStringValue(str, memory, ptr, size, this);
+            var allocateStringValue = new LazyStringValue(str, ptr, size, this);
             if (_numberOfAllocatedStringsValues < _maxNumberOfAllocatedStringValues)
             {
                 _allocateStringValues.Add(allocateStringValue);

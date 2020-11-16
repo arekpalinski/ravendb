@@ -89,10 +89,10 @@ namespace Sparrow.Json
             return allocatedData.Address;
         }
 
-        public UnmanagedMemory DecompressToUnmanagedMemory(out AllocatedMemoryData allocatedData, JsonOperationContext externalContext = null)
+        public UnmanagedPointer DecompressToUnmanagedPointer(out AllocatedMemoryData allocatedData, JsonOperationContext externalContext = null)
         {
-            allocatedData = DecompressToAllocatedMemoryDataInternal(externalContext, out var size);
-            return new UnmanagedMemory(allocatedData.Address, size);
+            allocatedData = DecompressToAllocatedMemoryDataInternal(externalContext, out _);
+            return new UnmanagedPointer(allocatedData.Address);
         }
 
         public AllocatedMemoryData DecompressToAllocatedMemoryData(JsonOperationContext externalContext = null)

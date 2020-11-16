@@ -70,9 +70,6 @@ namespace Sparrow.Json
         public byte this[int index] => Buffer[index];
         public byte* Buffer => _buffer;
 
-        private UnmanagedMemory _memoryBuffer;
-        public UnmanagedMemory MemoryBuffer => _memoryBuffer ??= new UnmanagedMemory(_buffer, _size);
-
         private int _size;
         public int Size => _size;
 
@@ -112,25 +109,12 @@ namespace Sparrow.Json
         public AllocatedMemoryData AllocatedMemoryData;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public LazyStringValue(string str, UnmanagedMemory buffer, int size, JsonOperationContext context)
-            : this(str, buffer, buffer.Address, size, context)
-        {
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public LazyStringValue(string str, byte* buffer, int size, JsonOperationContext context)
-            : this(str, null, buffer, size, context)
-        {
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public LazyStringValue(string str, UnmanagedMemory memoryBuffer, byte* buffer, int size, JsonOperationContext context)
         {
             Debug.Assert(context != null);
             _context = context;
             _size = size;
             _buffer = buffer;
-            _memoryBuffer = memoryBuffer;
             _string = str;
             _length = -1;
         }
@@ -1061,11 +1045,11 @@ namespace Sparrow.Json
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Reset()
         {
-            Renew(null, null, null, 0, null);
+            Renew(null, null, 0, null);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Renew(string str, UnmanagedMemory memoryBuffer, byte* buffer, int size, JsonOperationContext context)
+        public void Renew(string str, byte* buffer, int size, JsonOperationContext context)
         {
             Debug.Assert(size >= 0);
 
@@ -1073,7 +1057,6 @@ namespace Sparrow.Json
 
             _size = size;
             _buffer = buffer;
-            _memoryBuffer = memoryBuffer;
             _string = str;
             _length = -1;
             EscapePositions = null;
