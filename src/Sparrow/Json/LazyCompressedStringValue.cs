@@ -9,8 +9,6 @@ namespace Sparrow.Json
         private readonly JsonOperationContext _context;
         public readonly byte* Buffer;
 
-        private UnmanagedMemory _memoryBuffer;
-        public UnmanagedMemory MemoryBuffer => _memoryBuffer ??= new UnmanagedMemory(Buffer, UncompressedSize);
         public readonly int UncompressedSize;
         public readonly int CompressedSize;
         public string String;
@@ -51,19 +49,12 @@ namespace Sparrow.Json
             return lazyStringValue;
         }
 
-        public LazyCompressedStringValue(string str, UnmanagedMemory buffer, int uncompressedSize, int compressedSize, JsonOperationContext context)
-            : this(str, buffer.Address, uncompressedSize, compressedSize, context)
-        {
-            _memoryBuffer = buffer;
-        }
-
         public LazyCompressedStringValue(string str, byte* buffer, int uncompressedSize, int compressedSize, JsonOperationContext context)
         {
             String = str;
             UncompressedSize = uncompressedSize;
             CompressedSize = compressedSize;
             _context = context;
-            _memoryBuffer = null;
             Buffer = buffer;
         }
 

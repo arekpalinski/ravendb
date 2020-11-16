@@ -407,14 +407,12 @@ namespace Sparrow.Json
 
             try
             {
-                var strSrcBuffer = str.MemoryBuffer;
-
                 var size = str.UncompressedSize;
                 var escapeSequencePos = str.CompressedSize;
                 int numberOfEscapeSequences;
                 unsafe
                 {
-                    numberOfEscapeSequences = BlittableJsonReaderBase.ReadVariableSizeInt(strSrcBuffer.Address, ref escapeSequencePos);
+                    numberOfEscapeSequences = BlittableJsonReaderBase.ReadVariableSizeInt(str.Buffer, ref escapeSequencePos);
                 }
 
                 // We ensure our buffer will have enough space to deal with the whole string.
@@ -435,7 +433,7 @@ namespace Sparrow.Json
                     int bytesToSkip;
                     unsafe
                     {
-                        bytesToSkip = BlittableJsonReaderBase.ReadVariableSizeInt(strSrcBuffer.Address, ref escapeSequencePos);
+                        bytesToSkip = BlittableJsonReaderBase.ReadVariableSizeInt(str.Buffer, ref escapeSequencePos);
                     }
 
                     await WriteRawStringAsync(strBuffer, bytesToSkip, token).ConfigureAwait(false);
@@ -462,7 +460,7 @@ namespace Sparrow.Json
                 return;
 
             WriteLargeCompressedString:
-                await UnlikelyWriteLargeStringAsync(numberOfEscapeSequences, strSrcBuffer, escapeSequencePos, strBuffer, size, token).ConfigureAwait(false);
+                await UnlikelyWriteLargeStringAsync(numberOfEscapeSequences, str, escapeSequencePos, strBuffer, size, token).ConfigureAwait(false);
             }
             finally
             {
@@ -471,7 +469,7 @@ namespace Sparrow.Json
             }
         }
 
-        private async ValueTask UnlikelyWriteLargeStringAsync(int numberOfEscapeSequences, UnmanagedMemory strSrcBuffer, int escapeSequencePos, UnmanagedMemory strBuffer, int size, CancellationToken token = default)
+        private async ValueTask UnlikelyWriteLargeStringAsync(int numberOfEscapeSequences, LazyCompressedStringValue lsv, int escapeSequencePos, UnmanagedMemory strBuffer, int size, CancellationToken token = default)
         {
             await EnsureBufferAsync(1, token).ConfigureAwait(false);
             unsafe
@@ -486,7 +484,7 @@ namespace Sparrow.Json
                 int bytesToSkip;
                 unsafe
                 {
-                    bytesToSkip = BlittableJsonReaderBase.ReadVariableSizeInt(strSrcBuffer.Address, ref escapeSequencePos);
+                    bytesToSkip = BlittableJsonReaderBase.ReadVariableSizeInt(lsv.Buffer, ref escapeSequencePos);
                 }
 
                 await WriteRawStringAsync(strBuffer, bytesToSkip, token).ConfigureAwait(false);
