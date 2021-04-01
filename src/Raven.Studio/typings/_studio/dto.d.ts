@@ -794,3 +794,11 @@ interface indexHistoryCommandResult {
     Index: string;
     History: Raven.Client.ServerWide.IndexHistoryEntry[];
 }
+
+
+interface databaseAndNodeAwareStats {
+    database: string;
+    nodeTag: string;
+    hideDatabaseName: boolean;
+    even: boolean;
+}
