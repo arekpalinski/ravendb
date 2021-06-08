@@ -573,6 +573,8 @@ namespace Raven.Server.Documents.ETL
                                 toRemove.Remove(processesPerConfig.Key);
                                 myElasticEtl.Remove(existing);
                             }
+
+                            break;
                         }
                     default:
                         throw new InvalidOperationException($"Unknown ETL process type: {process.GetType()}");

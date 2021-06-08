@@ -12,23 +12,21 @@ namespace Raven.Server.Documents.ETL.Providers.Elastic.Handlers
     public class ElasticEtlHandler : DatabaseRequestHandler
     {
         [RavenAction("/databases/*/admin/etl/elastic/test", "POST", AuthorizationStatus.Operator)]
-        public Task PostScriptTest()
+        public async Task PostScriptTest()
         {
             using (Database.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
             {
-                var dbDoc = context.ReadForMemory(RequestBodyStream(), "TestElasticEtlScript");
+                var dbDoc = await context.ReadForMemoryAsync(RequestBodyStream(), "TestElasticEtlScript");
                 var testScript = JsonDeserializationServer.TestElasticEtlScript(dbDoc);
 
                 var result = (ElasticEtlTestScriptResult)ElasticEtl.TestScript(testScript, Database, ServerStore, context);
 
-                using (var writer = new BlittableJsonTextWriter(context, ResponseBodyStream()))
+                await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
                 {
                     var djv = (DynamicJsonValue)TypeConverter.ToBlittableSupportedType(result);
                     writer.WriteObject(context.ReadObject(djv, "et/elastic/test"));
                 }
             }
-
-            return Task.CompletedTask;
         }
     }
 }

@@ -9,6 +9,7 @@ using Raven.Client.Documents.Operations.ETL;
 using Raven.Client.Documents.Operations.ETL.Elasticsearch;
 using Raven.Server.Documents.ETL.Providers.Elastic.Enumerators;
 using Raven.Server.Documents.ETL.Providers.Elastic.Test;
+using Raven.Server.Documents.ETL.Stats;
 using Raven.Server.Documents.Replication.ReplicationItems;
 using Raven.Server.Documents.TimeSeries;
 using Raven.Server.ServerWide;
@@ -16,7 +17,7 @@ using Raven.Server.ServerWide.Context;
 
 namespace Raven.Server.Documents.ETL.Providers.Elastic
 {
-    public class ElasticEtl : EtlProcess<ElasticItem, ElasticIndexWithRecords, ElasticEtlConfiguration, ElasticConnectionString>
+    public class ElasticEtl : EtlProcess<ElasticItem, ElasticIndexWithRecords, ElasticEtlConfiguration, ElasticConnectionString, EtlStatsScope, EtlPerformanceOperation>
     {
         public ElasticEtl(Transformation transformation, ElasticEtlConfiguration configuration, DocumentDatabase database, ServerStore serverStore)
             : base(transformation, configuration, database, serverStore, ElasticEtlTag)
@@ -32,6 +33,11 @@ namespace Raven.Server.Documents.ETL.Providers.Elastic
         public override bool ShouldTrackTimeSeries() => false;
 
         protected override bool ShouldTrackAttachmentTombstones() => false;
+
+        protected override EtlStatsScope CreateScope(EtlRunStats stats)
+        {
+            throw new NotImplementedException();
+        }
 
         protected override bool ShouldFilterOutHiLoDocument() => true;
 
@@ -70,12 +76,12 @@ namespace Raven.Server.Documents.ETL.Providers.Elastic
             throw new NotSupportedException("Time series aren't supported by ELASTIC ETL");
         }
 
-        protected override EtlTransformer<ElasticItem, ElasticIndexWithRecords> GetTransformer(DocumentsOperationContext context)
+        protected override EtlTransformer<ElasticItem, ElasticIndexWithRecords, EtlStatsScope, EtlPerformanceOperation> GetTransformer(DocumentsOperationContext context)
         {
             return new ElasticDocumentTransformer(Transformation, Database, context, Configuration);
         }
 
-        protected override int LoadInternal(IEnumerable<ElasticIndexWithRecords> records, DocumentsOperationContext context)
+        protected override int LoadInternal(IEnumerable<ElasticIndexWithRecords> records, DocumentsOperationContext context, EtlStatsScope scope)
         {
             Uri[] nodes = Configuration.Connection.Nodes.Select(x => new Uri(x)).ToArray();
             var pool = new StaticConnectionPool(nodes);

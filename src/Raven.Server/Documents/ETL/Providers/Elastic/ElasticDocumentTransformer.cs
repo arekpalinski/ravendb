@@ -11,20 +11,15 @@ using Raven.Server.ServerWide.Context;
 
 namespace Raven.Server.Documents.ETL.Providers.Elastic
 {
-    internal class ElasticDocumentTransformer : EtlTransformer<ElasticItem, ElasticIndexWithRecords>
+    internal class ElasticDocumentTransformer : EtlTransformer<ElasticItem, ElasticIndexWithRecords, EtlStatsScope, EtlPerformanceOperation>
     {
-        private readonly Transformation _transformation;
         private readonly ElasticEtlConfiguration _config;
         private readonly Dictionary<string, ElasticIndexWithRecords> _indexes;
-        private Dictionary<string, Queue<Attachment>> _loadedAttachments;
         private readonly List<ElasticIndex> _indexesForScript;
-
-        private EtlStatsScope _stats;
 
         public ElasticDocumentTransformer(Transformation transformation, DocumentDatabase database, DocumentsOperationContext context, ElasticEtlConfiguration config)
             : base(database, context, new PatchRequest(transformation.Script, PatchRequestType.ElasticEtl), null)
         {
-            _transformation = transformation;
             _config = config;
 
             var destinationIndexes = transformation.GetCollectionsFromScript();
