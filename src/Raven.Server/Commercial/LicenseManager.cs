@@ -1375,6 +1375,18 @@ namespace Raven.Server.Commercial
             const string message = "Your current license doesn't include the SQL ETL feature";
             throw GenerateLicenseLimit(LimitType.SqlEtl, message);
         }
+        
+        public void AssertCanAddElasticEtl()
+        {
+            if (IsValid(out var licenseLimit) == false)
+                throw licenseLimit;
+
+            if (LicenseStatus.HasElasticEtl != false)
+                return;
+
+            const string message = "Your current license doesn't include the ELASTIC ETL feature";
+            throw GenerateLicenseLimit(LimitType.ElasticEtl, message);
+        }
 
         public void AssertCanAddOlapEtl()
         {

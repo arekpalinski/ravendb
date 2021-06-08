@@ -1903,6 +1903,17 @@ namespace Raven.Server.ServerWide
                         command = new AddOlapEtlCommand(olapEtl, databaseName, raftRequestId);
                         break;
 
+                    case EtlType.Elastic:
+                        var elasticEtl = JsonDeserializationCluster.ElasticEtlConfiguration(etlConfiguration);
+                        elasticEtl.Validate(out var elasticEtlErr, validateName: false, validateConnection: false);
+                        if (ValidateConnectionString(rawRecord, elasticEtl.ConnectionStringName, elasticEtl.EtlType) == false)
+                            elasticEtlErr.Add($"Could not find connection string named '{elasticEtl.ConnectionStringName}'. Please supply an existing connection string.");
+
+                        ThrowInvalidConfigurationIfNecessary(etlConfiguration, elasticEtlErr);
+
+                        command = new AddElasticEtlCommand(elasticEtl, databaseName, raftRequestId);
+                        break;
+
                     default:
                         throw new NotSupportedException($"Unknown ETL configuration type. Configuration: {etlConfiguration}");
                 }
@@ -1947,9 +1958,12 @@ namespace Raven.Server.ServerWide
                 case EtlType.Olap:
                     var olapConnectionString = databaseRecord.OlapConnectionString;
                     return olapConnectionString != null && olapConnectionString.TryGetValue(connectionStringName, out _);
+                case EtlType.Elastic:
+                    var elasticConnectionString = databaseRecord.ElasticConnectionStrings;
+                    return elasticConnectionString != null && elasticConnectionString.TryGetValue(connectionStringName, out _);
+                default:
+                    throw new NotSupportedException($"Unknown ETL type. Type: {etlType}");
             }
-
-            return false;
         }
 
         public async Task<(long, object)> UpdateEtl(TransactionOperationContext context, string databaseName, long id, BlittableJsonReaderObject etlConfiguration, string raftRequestId)
@@ -2049,6 +2063,10 @@ namespace Raven.Server.ServerWide
                 case ConnectionStringType.Olap:
                     command = new PutOlapConnectionStringCommand(JsonDeserializationCluster.OlapConnectionString(connectionString), databaseName, raftRequestId);
                     break;
+                case ConnectionStringType.Elastic:
+                    command = new PutElasticConnectionStringCommand(JsonDeserializationCluster.ElasticConnectionString(connectionString), databaseName, raftRequestId);
+                    break;
+
                 default:
                     throw new NotSupportedException($"Unknown connection string type: {connectionStringType}");
             }
@@ -2138,7 +2156,27 @@ namespace Raven.Server.ServerWide
 
                         command = new RemoveOlapConnectionStringCommand(connectionStringName, databaseName, raftRequestId);
                         break;
-                    
+
+                    case ConnectionStringType.Elastic:
+
+                        // Don't delete the connection string if used by tasks types: Elastic Etl
+
+                        /*var elasticEtls = rawRecord.RavenEtls;
+                        if (elasticEtls != null)
+                        {
+                            foreach (var elasticETlTask in elasticEtls)
+                            {
+                                if (elasticETlTask.ConnectionStringName == connectionStringName)
+                                {
+                                    throw new InvalidOperationException(
+                                        $"Can't delete connection string: {connectionStringName}. It is used by task: {elasticETlTask.Name}");
+                                }
+                            }
+                        }*/
+
+                        command = new RemoveElasticConnectionStringCommand(connectionStringName, databaseName, raftRequestId);
+                        break;
+
                     default:
                         throw new NotSupportedException($"Unknown connection string type: {connectionStringType}");
                 }
@@ -2428,7 +2466,7 @@ namespace Raven.Server.ServerWide
 
             return true;
         }
-        
+
         private static bool DatabaseNeedsToRunIdleOperations(DocumentDatabase database, out DatabaseCleanupMode mode)
         {
             var now = DateTime.UtcNow;

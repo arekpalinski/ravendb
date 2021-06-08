@@ -404,6 +404,7 @@ namespace Raven.Server.ServerWide
                     case nameof(AddRavenEtlCommand):
                     case nameof(AddSqlEtlCommand):
                     case nameof(AddOlapEtlCommand):
+                    case nameof(AddElasticEtlCommand):
                     case nameof(UpdateRavenEtlCommand):
                     case nameof(UpdateSqlEtlCommand):
                     case nameof(UpdateOlapEtlCommand):
@@ -411,9 +412,11 @@ namespace Raven.Server.ServerWide
                     case nameof(PutRavenConnectionStringCommand):
                     case nameof(PutSqlConnectionStringCommand):
                     case nameof(PutOlapConnectionStringCommand):
+                    case nameof(PutElasticConnectionStringCommand):
                     case nameof(RemoveRavenConnectionStringCommand):
                     case nameof(RemoveSqlConnectionStringCommand):
                     case nameof(RemoveOlapConnectionStringCommand): 
+                    case nameof(RemoveElasticConnectionStringCommand):
                     case nameof(UpdatePullReplicationAsHubCommand):
                     case nameof(UpdatePullReplicationAsSinkCommand):
                     case nameof(EditDatabaseClientConfigurationCommand):
@@ -2296,6 +2299,7 @@ namespace Raven.Server.ServerWide
                 case nameof(AddRavenEtlCommand):
                 case nameof(AddSqlEtlCommand):
                 case nameof(AddOlapEtlCommand):
+                case nameof(AddElasticEtlCommand):
                 case nameof(UpdateRavenEtlCommand):
                 case nameof(UpdateSqlEtlCommand):
                 case nameof(UpdateOlapEtlCommand):
@@ -2303,9 +2307,11 @@ namespace Raven.Server.ServerWide
                 case nameof(PutRavenConnectionStringCommand):
                 case nameof(PutSqlConnectionStringCommand):
                 case nameof(PutOlapConnectionStringCommand):
+                case nameof(PutElasticConnectionStringCommand):
                 case nameof(RemoveRavenConnectionStringCommand):
                 case nameof(RemoveSqlConnectionStringCommand):
                 case nameof(RemoveOlapConnectionStringCommand):
+                case nameof(RemoveElasticConnectionStringCommand):
                 case nameof(PutIndexCommand):
                 case nameof(PutAutoIndexCommand):
                 case nameof(DeleteIndexCommand):

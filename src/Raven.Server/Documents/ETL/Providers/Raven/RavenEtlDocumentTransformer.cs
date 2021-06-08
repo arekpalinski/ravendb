@@ -240,6 +240,7 @@ namespace Raven.Server.Documents.ETL.Providers.Raven
             Current = item;
             _currentRun ??= new RavenEtlScriptRun(stats);
 
+            // check this
             if (item.IsDelete == false)
             {
                 switch (item.Type)

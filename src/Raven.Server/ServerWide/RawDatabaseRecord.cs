@@ -6,6 +6,7 @@ using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Indexes.Analysis;
 using Raven.Client.Documents.Operations.Backups;
 using Raven.Client.Documents.Operations.ETL;
+using Raven.Client.Documents.Operations.ETL.Elasticsearch;
 using Raven.Client.Documents.Operations.ETL.OLAP;
 using Raven.Client.Documents.Operations.ETL.SQL;
 using Raven.Client.Documents.Operations.Expiration;
@@ -792,6 +793,38 @@ namespace Raven.Server.ServerWide
                 return _sqlConnectionStrings;
             }
         }
+        
+        private Dictionary<string, ElasticConnectionString> _elasticConnectionStrings;
+
+        public Dictionary<string, ElasticConnectionString> ElasticConnectionStrings
+        {
+            get
+            {
+                if (_materializedRecord != null)
+                    return _materializedRecord.ElasticConnectionStrings;
+
+                if (_elasticConnectionStrings == null)
+                {
+                    _elasticConnectionStrings = new Dictionary<string, ElasticConnectionString>();
+                    if (_record.TryGet(nameof(DatabaseRecord.ElasticConnectionStrings), out BlittableJsonReaderObject obj) && obj != null)
+                    {
+                        var propertyDetails = new BlittableJsonReaderObject.PropertyDetails();
+                        for (var i = 0; i < obj.Count; i++)
+                        {
+                            obj.GetPropertyByIndex(i, ref propertyDetails);
+
+                            if (propertyDetails.Value == null)
+                                continue;
+
+                            if (propertyDetails.Value is BlittableJsonReaderObject bjro)
+                                _elasticConnectionStrings[propertyDetails.Name] = JsonDeserializationCluster.ElasticConnectionString(bjro);
+                        }
+                    }
+                }
+
+                return _elasticConnectionStrings;
+            }
+        }
 
         private Dictionary<string, RavenConnectionString> _ravenConnectionStrings;
 
@@ -804,7 +837,7 @@ namespace Raven.Server.ServerWide
 
                 if (_ravenConnectionStrings == null)
                 {
-                    _ravenConnectionStrings = new Dictionary<string, RavenConnectionString>();   
+                    _ravenConnectionStrings = new Dictionary<string, RavenConnectionString>();
                     if (_record.TryGet(nameof(DatabaseRecord.RavenConnectionStrings), out BlittableJsonReaderObject obj) && obj != null)
                     {
                         var propertyDetails = new BlittableJsonReaderObject.PropertyDetails();
@@ -877,7 +910,7 @@ namespace Raven.Server.ServerWide
                 return _materializedRecord;
             }
         }
-        
+
         public static implicit operator DatabaseRecord(RawDatabaseRecord raw) => raw.MaterializedRecord;
         public static implicit operator RawDatabaseRecord(DatabaseRecord record) => new RawDatabaseRecord(record);
     }
