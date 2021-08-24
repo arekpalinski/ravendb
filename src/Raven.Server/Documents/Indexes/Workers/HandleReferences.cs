@@ -122,6 +122,9 @@ namespace Raven.Server.Documents.Indexes.Workers
             Dictionary<string, long> lastIndexedEtagsByCollection = null;
 
             var totalProcessedCount = 0;
+            var numberOfProcessedDocumentsPerReference = new Dictionary<LazyStringValue, long>(LazyStringValueComparer.Instance);
+
+
             foreach (var collection in _index.Collections)
             {
                 if (TryGetReferencedCollectionsFor(collection, out var referencedCollections) == false)
@@ -236,6 +239,8 @@ namespace Raven.Server.Documents.Indexes.Workers
                                                 totalProcessedCount++;
                                                 collectionStats.RecordMapReferenceAttempt();
                                                 stats.RecordDocumentSize(current.Size);
+
+                                                numberOfProcessedDocumentsPerReference[referencedItem.Key] = totalProcessedCount;
 
                                                 try
                                                 {

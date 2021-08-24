@@ -383,5 +383,13 @@ namespace Raven.Server.Documents.Indexes
             _stats.LuceneMergeDetails.MergedDocumentsCount += mergeStats.TotalDocuments;
             _stats.LuceneMergeDetails.ExecutedMergesCount++;
         }
+
+        public void RecordMapAllocations(long allocations)
+        {
+            if (_stats.MapDetails == null)
+                _stats.MapDetails = new MapRunDetails();
+
+            _stats.MapReferenceAttempts(); = allocations;
+        }
     }
 }

@@ -1,4 +1,6 @@
-﻿namespace Raven.Client.Documents.Indexes
+﻿using System.Security.Cryptography.X509Certificates;
+
+namespace Raven.Client.Documents.Indexes
 {
     public class ReduceRunDetails
     {
@@ -37,5 +39,12 @@
         public long CurrentlyAllocated { get; set; }
 
         public long AllocationBudget { get; set; }
+    }
+
+    public class ReferencesRunDetails
+    {
+        public long ReferenceCount { get; set; }
+
+        public long ReferencingDocuments { get; set; }
     }
 }
