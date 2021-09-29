@@ -44,6 +44,8 @@ namespace Raven.Server.Utils
             }
         }
 
+        public string IndexName { get; set; }
+
         public TimeSpan? ThrottlingInterval => _throttlingInterval;
 
         public void Set(bool ignoreThrottling = false)
@@ -109,26 +111,40 @@ namespace Raven.Server.Utils
 
             if (oldThrottlingInterval == null)
             {
+                Console.WriteLine("A");
+
                 if (_throttlingInterval == null)
                     return;
 
+                Console.WriteLine("B");
                 if (_throttlingStarted || _throttlingBehavior == ThrottlingBehavior.Automatic)
                 {
+                    Console.WriteLine("C");
                     StopThrottling();
                     StartThrottling();
                 }
+
+                Console.WriteLine("D");
             }
             else
             {
+                Console.WriteLine("E");
+
                 if (throttlingInterval == null)
                 {
+                    Console.WriteLine("F");
                     if (_throttlingStarted)
+                    {
+                        Console.WriteLine("G");
                         StopThrottling();
+                    }
                 }
                 else if (throttlingInterval != oldThrottlingInterval)
                 {
+                    Console.WriteLine("H");
                     if (_throttlingStarted)
                     {
+                        Console.WriteLine("I");
                         StopThrottling();
                         StartThrottling();
                     }
@@ -159,13 +175,22 @@ namespace Raven.Server.Utils
                         {
                             await TimeoutManager.WaitFor(_throttlingInterval.Value, cts.Token);
 
-                            if (_setCalled.Lower()) 
+                            Console.WriteLine($"Timer of {IndexName}");
+
+                            if (_setCalled.Lower())
+                            {
+                                Console.WriteLine($"{IndexName} - set was called");
                                 _mre.Set();
+                            }
                         }
+
+                        Console.WriteLine($"Stopping timer of {IndexName} - {cts.IsCancellationRequested}");
                     }
-                    catch (OperationCanceledException)
+                    catch (OperationCanceledException e)
                     {
                         // ignore
+                        Console.WriteLine($"Stopping timer of {IndexName} - {e}");
+
                     }
                 }
             });

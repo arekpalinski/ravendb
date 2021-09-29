@@ -744,6 +744,7 @@ namespace Raven.Server.Documents.Indexes
                 PerformanceHintsConfig = performanceHints;
 
                 _mre = new ThrottledManualResetEventSlim(Configuration.ThrottlingTimeInterval?.AsTimeSpan, throttlingBehavior: ThrottledManualResetEventSlim.ThrottlingBehavior.ManualManagement);
+                _mre.IndexName = Name;
                 _logger = LoggingSource.Instance.GetLogger<Index>(documentDatabase.Name);
                 _environment = environment;
                 var safeName = IndexDefinitionBase.GetIndexNameSafeForFileSystem(Name);
@@ -1112,8 +1113,15 @@ namespace Raven.Server.Documents.Indexes
                 Definition = definition;
                 Configuration = configuration;
 
+                Console.WriteLine("--------------");
+
                 if (Configuration.ThrottlingTimeInterval?.AsTimeSpan != _mre.ThrottlingInterval)
+                {
+                    Console.WriteLine($"Update throttling interval of {Name} index (old {_mre.ThrottlingInterval}), new {Configuration.ThrottlingTimeInterval?.AsTimeSpan}");
                     _mre.Update(Configuration.ThrottlingTimeInterval?.AsTimeSpan);
+                }
+
+                Console.WriteLine("---------------");
 
                 OnInitialization();
 
