@@ -229,22 +229,22 @@ namespace Sparrow.Server
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int Lock(byte* addr, UIntPtr len)
         {
-            var r = sodium_mlock(addr, len);
-            if (r != 0)
-                return r;
+            //var r = sodium_mlock(addr, len);
+            //if (r != 0)
+            //    return r;
 
-            Interlocked.Add(ref _lockedBytes, (long)len);
+            //Interlocked.Add(ref _lockedBytes, (long)len);
             return 0;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int Unlock(byte* addr, UIntPtr len)
         {
-            var r = sodium_munlock(addr, len);
-            if (r != 0)
-                return r;
+            //var r = sodium_munlock(addr, len);
+            //if (r != 0)
+            //    return r;
 
-            Interlocked.Add(ref _lockedBytes, -(long)len);
+            //Interlocked.Add(ref _lockedBytes, -(long)len);
             return 0;
         }
     }

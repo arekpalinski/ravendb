@@ -1,14 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
-using FastTests.Blittable;
-using FastTests.Client;
-using SlowTests.Issues;
-using SlowTests.MailingList;
-using SlowTests.Rolling;
-using SlowTests.Server.Documents.ETL.Raven;
-using StressTests.Issues;
-using Tests.Infrastructure;
+using Sparrow.LowMemory;
 
 namespace Tryouts
 {
@@ -16,30 +11,63 @@ namespace Tryouts
     {
         static Program()
         {
-            XunitLogging.RedirectStreams = false;
         }
 
-        public static async Task Main(string[] args)
+        public static unsafe void Main(string[] args)
         {
-            Console.WriteLine(Process.GetCurrentProcess().Id);
-            for (int i = 0; i < 10_000; i++)
+            const int size = 8192;
+
+            var src = new byte[size];
+            var dst = new byte[size];
+
+            new System.Random().NextBytes(src);
+
+            var lastPrintMemoryUsage = DateTime.UtcNow;
+
+            TimeSpan interval = TimeSpan.FromSeconds(5);
+
+            while (true)
             {
-                 Console.WriteLine($"Starting to run {i}");
-                try
+                fixed (byte* pSrc = src)
+                fixed (byte* pDst = dst)
                 {
-                    using (var testOutputHelper = new ConsoleTestOutputHelper())
-                    using (var test = new RollingIndexesClusterTests(testOutputHelper))
-                    {
-                         await test.RemoveNodeFromDatabaseGroupWhileRollingDeployment();
-                    }
+                    Sparrow.Memory.Copy(pDst, pSrc, size);
                 }
-                catch (Exception e)
+
+                if (dst[size - 1] != src[size - 1])
+                    throw new InvalidOperationException("Error");
+
+                if (DateTime.UtcNow - lastPrintMemoryUsage > interval)
                 {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine(e);
-                    Console.ForegroundColor = ConsoleColor.White;
+                    var memoryInfo = MemoryInformation.GetMemoryInfo();
+
+                    Console.WriteLine(memoryInfo.AvailableMemoryForProcessing);
+
+                    lastPrintMemoryUsage = DateTime.UtcNow;
+
+                    new System.Random().NextBytes(src);
                 }
             }
+
+
+            //using (var store = new DocumentStore()
+            //{
+            //    Urls = new[] { "https://a.17308-dev.arek-t3st.cloudtest.ravendb.org/" },
+            //    Database = "test3",
+            //    Certificate = new X509Certificate2(@"C:\Users\arek\Desktop\ravendb.cloud.test.master.2021-08-19.pfx", "track-captain-BIRDS-shirt66")
+
+            //}.Initialize())
+            //{
+            //    while (true)
+            //    {
+            //        using (var session = store.OpenSession())
+            //        {
+            //            List<dynamic> objects = session.Advanced.RawQuery<dynamic>("from index UnitServiceSearchIndex where OutletId > 900").NoCaching().ToList();
+
+            //            Console.WriteLine("Got " + objects.Count + " results");
+            //        }
+            //    }
+            //}
         }
     }
 }

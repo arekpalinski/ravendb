@@ -127,6 +127,8 @@ namespace Voron
         {
             try
             {
+                Console.WriteLine("Starting " + options.ToString() + ". Encrypted: " + options.Encryption.IsEnabled);
+
                 SelfReference.Owner = this;
                 _log = LoggingSource.Instance.GetLogger<StorageEnvironment>(options.BasePath.FullPath);
                 _options = options;

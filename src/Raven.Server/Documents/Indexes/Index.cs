@@ -679,7 +679,7 @@ namespace Raven.Server.Documents.Indexes
             options.EnablePrefetching = documentDatabase.Configuration.Storage.EnablePrefetching;
             options.DiscardVirtualMemory = documentDatabase.Configuration.Storage.DiscardVirtualMemory;
             options.TimeToSyncAfterFlushInSec = (int)documentDatabase.Configuration.Storage.TimeToSyncAfterFlush.AsTimeSpan.TotalSeconds;
-            options.Encryption.MasterKey = documentDatabase.MasterKey?.ToArray(); //clone
+            //options.Encryption.MasterKey = documentDatabase.MasterKey?.ToArray(); //clone
             options.Encryption.RegisterForJournalCompressionHandler();
             options.DoNotConsiderMemoryLockFailureAsCatastrophicError = documentDatabase.Configuration.Security.DoNotConsiderMemoryLockFailureAsCatastrophicError;
             if (documentDatabase.Configuration.Storage.MaxScratchBufferSize.HasValue)

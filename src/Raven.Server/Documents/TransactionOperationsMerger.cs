@@ -326,13 +326,13 @@ namespace Raven.Server.Documents
                         {
                             if (_parent.IsEncrypted)
                             {
-                                using (_parent.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext ctx))
-                                {
-                                    using (ctx.OpenWriteTransaction())
-                                    {
-                                        ctx.Environment.Options.Encryption.JournalCompressionBufferHandler.ZeroCompressionBuffer(ctx.Transaction.InnerTransaction.LowLevelTransaction);
-                                    }
-                                }
+                                //using (_parent.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext ctx))
+                                //{
+                                //    using (ctx.OpenWriteTransaction())
+                                //    {
+                                //        ctx.Environment.Options.Encryption.JournalCompressionBufferHandler.ZeroCompressionBuffer(ctx.Transaction.InnerTransaction.LowLevelTransaction);
+                                //    }
+                                //}
                             }
 
                             using (var generalMeter = GeneralWaitPerformanceMetrics.MeterPerformanceRate())

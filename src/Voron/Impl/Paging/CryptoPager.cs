@@ -172,53 +172,86 @@ namespace Voron.Impl.Paging
 
         public override byte* AcquirePagePointerForNewPage(IPagerLevelTransactionState tx, long pageNumber, int numberOfPages, PagerState pagerState = null)
         {
-            var state = GetTransactionState(tx);
-            var size = numberOfPages * Constants.Storage.PageSize;
-
-            if (state.TryGetValue(pageNumber, out var buffer))
+            if (tx.IsWriteTransaction)
             {
-                if (size == buffer.Size)
-                {
-                    Sodium.sodium_memzero(buffer.Pointer, (UIntPtr)size);
+                var state = GetTransactionState(tx);
+                var size = numberOfPages * Constants.Storage.PageSize;
 
-                    buffer.SkipOnTxCommit = false;
-                    return buffer.Pointer;
+                if (state.TryGetValue(pageNumber, out var buffer))
+                {
+                    if (size == buffer.Size)
+                    {
+                        Sodium.sodium_memzero(buffer.Pointer, (UIntPtr)size);
+
+                        buffer.SkipOnTxCommit = false;
+                        return buffer.Pointer;
+                    }
+
+                    ReturnBuffer(buffer);
                 }
 
-                ReturnBuffer(buffer);
+                // allocate new buffer
+                buffer = GetBufferAndAddToTxState(pageNumber, state, numberOfPages);
+                buffer.Modified = true;
+
+                return buffer.Pointer;
             }
-
-            // allocate new buffer
-            buffer = GetBufferAndAddToTxState(pageNumber, state, numberOfPages);
-            buffer.Modified = true;
-
-            return buffer.Pointer;
+            else
+            {
+                throw new InvalidOperationException("Cannot allocate new page in read tx");
+            }
+            
         }
 
         public override byte* AcquirePagePointer(IPagerLevelTransactionState tx, long pageNumber, PagerState pagerState = null)
         {
-            var state = GetTransactionState(tx);
+            if (tx.IsWriteTransaction)
+            {
+                var state = GetTransactionState(tx);
 
-            if (state.TryGetValue(pageNumber, out var buffer))
+                if (state.TryGetValue(pageNumber, out var buffer))
+                    return buffer.Pointer;
+
+                var pagePointer = Inner.AcquirePagePointerWithOverflowHandling(tx, pageNumber, pagerState);
+
+                var pageHeader = (PageHeader*)pagePointer;
+
+                int numberOfPages = VirtualPagerLegacyExtensions.GetNumberOfPages(pageHeader);
+
+                buffer = GetBufferAndAddToTxState(pageNumber, state, numberOfPages);
+
+                var toCopy = numberOfPages * Constants.Storage.PageSize;
+
+                AssertCopyWontExceedPagerFile(toCopy, pageNumber);
+
+                Memory.Copy(buffer.Pointer, pagePointer, toCopy);
+
+                //DecryptPage((PageHeader*)buffer.Pointer);
+
                 return buffer.Pointer;
+            }
+            else
+            {
+                var state = GetTransactionState(tx);
 
-            var pagePointer = Inner.AcquirePagePointerWithOverflowHandling(tx, pageNumber, pagerState);
+                var pagePointer = Inner.AcquirePagePointerWithOverflowHandling(tx, pageNumber, pagerState);
 
-            var pageHeader = (PageHeader*)pagePointer;
+                var pageHeader = (PageHeader*)pagePointer;
 
-            int numberOfPages = VirtualPagerLegacyExtensions.GetNumberOfPages(pageHeader);
+                int numberOfPages = VirtualPagerLegacyExtensions.GetNumberOfPages(pageHeader);
 
-            buffer = GetBufferAndAddToTxState(pageNumber, state, numberOfPages);
+                if (state.TryGetValue(pageNumber, out var buffer) == false)
+                {
+                    buffer = GetBufferAndAddToTxState(pageNumber, state, numberOfPages);
 
-            var toCopy = numberOfPages * Constants.Storage.PageSize;
+                    var toCopy = numberOfPages * Constants.Storage.PageSize;
 
-            AssertCopyWontExceedPagerFile(toCopy, pageNumber);
+                    Memory.Copy(buffer.Pointer, pagePointer, toCopy);
+                }
+               
 
-            Memory.Copy(buffer.Pointer, pagePointer, toCopy);
-
-            DecryptPage((PageHeader*)buffer.Pointer);
-
-            return buffer.Pointer;
+                return Inner.AcquirePagePointer(tx, pageNumber, pagerState);
+            }
         }
 
         [Conditional("DEBUG")]
@@ -238,40 +271,49 @@ namespace Voron.Impl.Paging
             if (tx == null)
                 throw new NotSupportedException("Cannot use crypto pager without a transaction");
 
-            var state = GetTransactionState(tx);
-
-            if (state.TryGetValue(valuePositionInScratchBuffer, out var encBuffer) == false)
-                throw new InvalidOperationException("Tried to break buffer that wasn't allocated in this tx");
-
-            for (int i = 1; i < encBuffer.Size / Constants.Storage.PageSize; i++)
+            if (tx.IsWriteTransaction)
             {
-                var buffer = new EncryptionBuffer(_encryptionBuffersPool)
+
+
+                var state = GetTransactionState(tx);
+
+                if (state.TryGetValue(valuePositionInScratchBuffer, out var encBuffer) == false)
+                    throw new InvalidOperationException("Tried to break buffer that wasn't allocated in this tx");
+
+                for (int i = 1; i < encBuffer.Size / Constants.Storage.PageSize; i++)
                 {
-                    Pointer = encBuffer.Pointer + i * Constants.Storage.PageSize,
-                    Size = Constants.Storage.PageSize,
-                    OriginalSize = 0,
-                    AllocatingThread = encBuffer.AllocatingThread
-                };
+                    var buffer = new EncryptionBuffer(_encryptionBuffersPool)
+                    {
+                        Pointer = encBuffer.Pointer + i * Constants.Storage.PageSize,
+                        Size = Constants.Storage.PageSize,
+                        OriginalSize = 0,
+                        AllocatingThread = encBuffer.AllocatingThread
+                    };
 
-                if (i < actualNumberOfAllocatedScratchPages)
-                {
-                    // when we commit the tx, the pager will realize that we need to write this page
+                    if (i < actualNumberOfAllocatedScratchPages)
+                    {
+                        // when we commit the tx, the pager will realize that we need to write this page
 
-                    // we do this only for the encryption buffers are are going to be in use - we might allocate more under the covers because we're adjusting the size to the power of 2
-                    // we must not encrypt such extra allocated memory because we might have garbage there resulting in segmentation fault on attempt to encrypt that
+                        // we do this only for the encryption buffers are are going to be in use - we might allocate more under the covers because we're adjusting the size to the power of 2
+                        // we must not encrypt such extra allocated memory because we might have garbage there resulting in segmentation fault on attempt to encrypt that
 
-                    buffer.Modified = true;
+                        buffer.Modified = true;
+                    }
+
+                    state[valuePositionInScratchBuffer + i] = buffer;
                 }
 
-                state[valuePositionInScratchBuffer + i] = buffer;
+                encBuffer.OriginalSize = encBuffer.Size;
+                encBuffer.Size = Constants.Storage.PageSize;
+
+                // here we _intentionally_ don't modify the hash of the page, even though its size was
+                // changed, because we need the pager to recognize that it was modified on tx commit
+                // encBuffer.Hash = remains the same
             }
-
-            encBuffer.OriginalSize = encBuffer.Size;
-            encBuffer.Size = Constants.Storage.PageSize;
-
-            // here we _intentionally_ don't modify the hash of the page, even though its size was
-            // changed, because we need the pager to recognize that it was modified on tx commit
-            // encBuffer.Hash = remains the same
+            else
+            {
+                throw new InvalidOperationException("Cannot break large allocation in read tx");
+            }
         }
 
         private EncryptionBuffer GetBufferAndAddToTxState(long pageNumber, CryptoTransactionState state, int numberOfPages)
@@ -338,15 +380,15 @@ namespace Voron.Impl.Paging
 
                 // Encrypt the local buffer, then copy the encrypted value to the pager
                 var pageHeader = (PageHeader*)buffer.Value.Pointer;
-                var dataSize = EncryptPage(pageHeader);
-                var numPages = VirtualPagerLegacyExtensions.GetNumberOfOverflowPages(dataSize);
+                //var dataSize = EncryptPage(pageHeader);
+                var numPages = VirtualPagerLegacyExtensions.GetNumberOfPages(pageHeader);
 
                 Inner.EnsureContinuous(buffer.Key, numPages);
                 Inner.EnsureMapped(tx, buffer.Key, numPages);
 
                 var pagePointer = Inner.AcquirePagePointer(tx, buffer.Key);
 
-                Memory.Copy(pagePointer, buffer.Value.Pointer, dataSize);
+                Memory.Copy(pagePointer, buffer.Value.Pointer, numPages * Constants.Storage.PageSize);
             }
         }
 
