@@ -35,6 +35,8 @@ namespace Sparrow.Utils
 
         public class ThreadStats
         {
+            public Dictionary<long, object> References = new Dictionary<long, object>();
+
             public int InternalId;
             public ulong UnmanagedThreadId;
             public long Allocations;

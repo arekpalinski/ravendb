@@ -63,6 +63,18 @@ namespace Sparrow.Server.Platform
                 Interlocked.Add(ref Sparrow.Utils.NativeMemory._totalAllocatedMemory, -size);
 
                 var p = new IntPtr(ptr);
+
+
+                if (stats != null && stats.References != null)
+                {
+                    if (stats.References.TryGetValue(p.ToInt64(), out var reference))
+                    {
+                        GC.SuppressFinalize(reference);
+
+                        stats.References.Remove(p.ToInt64());
+                    }
+                }
+
                 if (PlatformDetails.RunningOnPosix)
                 {
                     Syscall.free(p);

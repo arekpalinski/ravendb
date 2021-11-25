@@ -75,6 +75,16 @@ namespace Voron.Impl
                 _cleanupTimer = new Timer(Cleanup, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         }
 
+        public class Leaker
+        {
+            public string CallStack = Environment.StackTrace;
+
+            ~Leaker()
+            {
+                Console.WriteLine("Leak from  " + CallStack);    
+            }
+        }
+
         public byte* Get(int numberOfPages, out long size, out NativeMemory.ThreadStats thread)
         {
             var numberOfPagesPowerOfTwo = Bits.PowerOf2(numberOfPages);
@@ -87,7 +97,11 @@ namespace Voron.Impl
                 size = numberOfPages * Constants.Storage.PageSize;
                 Interlocked.Add(ref _currentlyInUseBytes, size);
 
-                return PlatformSpecific.NativeMemory.Allocate4KbAlignedMemory(size, out thread);
+                var b =  PlatformSpecific.NativeMemory.Allocate4KbAlignedMemory(size, out thread);
+
+                thread.References[new IntPtr(b).ToInt64()] = new Leaker();
+
+                return b;
             }
 
             Interlocked.Add(ref _currentlyInUseBytes, size);
