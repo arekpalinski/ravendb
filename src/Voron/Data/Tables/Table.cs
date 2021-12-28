@@ -705,9 +705,6 @@ namespace Voron.Data.Tables
                 if (_compressionDictionaries.TryGetValue(id, out var current))
                     return current;
 
-                if (_compressionDictionaries.TryGetValue(id, out current))
-                    return current;
-
                 current = CreateCompressionDictionary(tx, id);
 
                 var result = _compressionDictionaries.GetOrAdd(id, current);
