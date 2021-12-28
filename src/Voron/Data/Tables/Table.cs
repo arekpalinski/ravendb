@@ -752,6 +752,11 @@ namespace Voron.Data.Tables
 
                 }
             }
+
+            public void Remove(int id)
+            {
+                _compressionDictionaries.TryRemove(id, out _);
+            }
         }
 
 
