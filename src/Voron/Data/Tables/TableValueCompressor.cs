@@ -231,9 +231,9 @@ namespace Voron.Data.Tables
                         }
 
                         tx.LowLevelTransaction.OnDispose += RecreateRecoveryDictionaries;
-                        tx.LowLevelTransaction.OnDispose += state =>
+                        tx.LowLevelTransaction.OnRollBack += state =>
                         {
-                            if (state is not LowLevelTransaction llt || llt.Committed)
+                            if (state is not LowLevelTransaction llt)
                                 return;
                             // ***************************************
                             // RavenDB-17758  - This is *important* - if we aren't committing the transaction, we *have*
@@ -241,7 +241,7 @@ namespace Voron.Data.Tables
                             // keep it, we can compress data with a dictionary that we rolled back, and end up with data
                             // corruption!!!
                             // ****************************************
-                            tx.LowLevelTransaction.Environment.CompressionDictionariesHolder.Remove(newId);
+                            llt.Environment.CompressionDictionariesHolder.Remove(newId);
                         };
                     }
                 }
