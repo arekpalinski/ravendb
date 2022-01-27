@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using Sparrow.Binary;
 using Sparrow.Platform;
 using Voron.Data;
 using Voron.Data.BTrees;
+using Voron.Data.Compression;
 using Voron.Data.Fixed;
 using Voron.Global;
 using Voron.Impl;
@@ -195,7 +197,7 @@ namespace Voron.Debugging
                 {
                     StartInfo =
                     {
-                        FileName = @"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                        FileName = @"C:\Program Files\Google\Chrome\Application\chrome.exe",
                         Arguments = output,
                         UseShellExecute = false,
                         CreateNoWindow = true,
@@ -255,14 +257,14 @@ namespace Voron.Debugging
         }
 
         [Conditional("DEBUG")]
-        public static void RenderAndShow(Tree tree)
+        public static void RenderAndShow(Tree tree, bool decompress = false)
         {
             var headerData = string.Format("<p>{0}</p>", tree.State);
-            RenderAndShowTree(tree, tree.State.RootPageNumber, headerData);
+            RenderAndShowTree(tree, tree.State.RootPageNumber, headerData, decompress);
         }
 
         [Conditional("DEBUG")]
-        public static void RenderAndShowTree(Tree tree, long startPageNumber, string headerData = null)
+        public static void RenderAndShowTree(Tree tree, long startPageNumber, string headerData = null, bool decompress =false)
         {
             RenderHtmlTreeView(writer =>
             {
@@ -270,7 +272,7 @@ namespace Voron.Debugging
                     writer.WriteLine(headerData);
                 writer.WriteLine("<div class='css-treeview'><ul>");
 
-                RenderPage(tree, tree.GetReadOnlyTreePage(startPageNumber), writer, "Root", true);
+                RenderPage(tree, tree.GetReadOnlyTreePage(startPageNumber), writer, "Root", true, decompress);
 
                 writer.WriteLine("</ul></div>");
             });
@@ -286,7 +288,7 @@ namespace Voron.Debugging
                 writer.WriteLine(headerData);
                 writer.WriteLine("<div class='css-treeview'><ul>");
 
-                RenderPage(tree, tree.GetReadOnlyTreePage(tree.State.RootPageNumber), writer, "Root", true);
+                RenderPage(tree, tree.GetReadOnlyTreePage(tree.State.RootPageNumber), writer, "Root", true, false);
 
                 writer.WriteLine("</ul></div>");
             });
@@ -316,22 +318,43 @@ namespace Voron.Debugging
             sw.Flush();
         }
 
-        private static unsafe void RenderPage(Tree tree, TreePage page, TextWriter sw, string text, bool open)
+        private static unsafe void RenderPage(Tree tree, TreePage page, TextWriter sw, string text, bool open, bool decompress)
         {
             sw.WriteLine(
                "<ul><li><input type='checkbox' id='page-{0}' {3} /><label for='page-{0}'>{4}: Page {0:#,#;;0} - {1} - {2:#,#;;0} entries {5}</label><ul>",
                page.PageNumber, page.IsLeaf ? "Leaf" : "Branch", page.NumberOfEntries, open ? "checked" : "", text, 
                page.IsCompressed? $"(Compressed ({page.CompressionHeader->NumberOfCompressedEntries} entries [uncompressed/compressed: {page.CompressionHeader->UncompressedSize}/{page.CompressionHeader->CompressedSize}])" : string.Empty);
 
+            if (page.IsCompressed && decompress)
+            {
+                if (page.PageNumber == 13271)
+                {
+
+                }
+
+                page = (DecompressedLeafPage)tree.DecompressPage(page, DecompressionUsage.Read, skipCache: true);
+            }
+
             for (int i = 0; i < page.NumberOfEntries; i++)
             {
                 var nodeHeader = page.GetNode(i);
+
+                
                 
                 string key;
                 Slice keySlice;
                 using (TreeNodeHeader.ToSlicePtr(tree.Llt.Allocator, nodeHeader, out keySlice))
                 {
-                    key = keySlice.ToString();
+                    if (keySlice.Size == sizeof(long))
+                    {
+                        var idPtr = (long*)keySlice.Content.Ptr;
+
+                        var id = Bits.SwapBytes(*idPtr);
+
+                        key = id.ToString();
+                    }
+                    else
+                        key = keySlice.ToString();
                 }
 
                 if (page.IsLeaf)
@@ -345,7 +368,7 @@ namespace Voron.Debugging
                     if (i == 0)
                         key = "[smallest]";
 
-                    RenderPage(tree, tree.GetReadOnlyTreePage(pageNum), sw, key, false);
+                    RenderPage(tree, tree.GetReadOnlyTreePage(pageNum), sw, key, false, decompress);
                 }
             }
             sw.WriteLine("</ul></li></ul>");

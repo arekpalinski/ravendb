@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using Sparrow;
+using Sparrow.Binary;
 using Voron.Data.Compression;
 using Voron.Data.Fixed;
 using Voron.Data.Tables;
@@ -318,6 +319,19 @@ namespace Voron.Data.BTrees
                 ThreadCannotAddInReadTx();
             }
 
+            if (key.Size == sizeof(long))
+            {
+                var idPtr = (long*)key.Content.Ptr;
+
+                var id = Bits.SwapBytes(*idPtr);
+
+                if (id == 6564595)
+                {
+
+                }
+            }
+
+
             if (AbstractPager.IsKeySizeValid(key.Size) == false)
                 ThrowInvalidKeySize(key);
 
@@ -559,6 +573,8 @@ namespace Voron.Data.BTrees
             var root = GetReadOnlyTreePage(rootPageNumber);
             stack.Push(root);
             pages.Add(rootPageNumber);
+            var leafsKeys = new HashSet<long>();
+
             while (stack.Count > 0)
             {
                 var p = stack.Pop();
@@ -573,7 +589,29 @@ namespace Voron.Data.BTrees
                     }
                     p.DebugValidate(this, rootPageNumber);
                     if (p.IsBranch == false)
-                        continue;
+                    {
+                        for (int i = 0; i < p.NumberOfEntries; i++)
+                        {
+                            Slice keySlice;
+                            using (TreeNodeHeader.ToSlicePtr(this.Llt.Allocator, p.GetNode(i), out keySlice))
+                            {
+                                var idPtr = (long*)keySlice.Content.Ptr;
+
+                                var id = Bits.SwapBytes(*idPtr);
+
+                                if (leafsKeys.Add(id) == false)
+                                {
+
+
+                                    DebugStuff.RenderAndShowTree(this, rootPageNumber);
+                                    throw new InvalidOperationException("The key " + id + " already appeared in the tree");
+                                }
+                            }
+                                
+                        }
+
+                            continue;
+                    }
 
                     if (p.NumberOfEntries < 2)
                     {

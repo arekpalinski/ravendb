@@ -6,6 +6,8 @@ using Sparrow.Json;
 using Sparrow.Server;
 using Voron;
 using Voron.Data.BTrees;
+using Voron.Debugging;
+using Voron.Global;
 using Voron.Impl;
 using Voron.Util;
 
@@ -94,6 +96,9 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             {
                 case MapResultsStorageType.Tree:
                     Slice entrySlice;
+
+                    Debugging();
+
                     using (Slice.External(_indexContext.Allocator, (byte*) &id, sizeof(long), out entrySlice))
                         Tree.Delete(entrySlice);
                     break;
@@ -119,6 +124,8 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                     
                     using (Slice.External(_indexContext.Allocator, (byte*) &id, sizeof(long), out entrySlice))
                     {
+                        Debugging();
+
                         using (Tree.DirectAdd(entrySlice, result.Size, out byte* ptr))
                             result.CopyTo(ptr);
                     }
@@ -143,6 +150,33 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             }
         }
 
+        private void Debugging()
+        {
+            if (Tree.Name.ToString() == "__raven/map-reduce/#reduce-tree-7258129073431256551")
+            {
+                Page p_12272 = Tree.GetReadOnlyPage(12272);
+                var treePage_12272 = new TreePage(p_12272.Pointer, Constants.Storage.PageSize);
+
+
+                Page p_13271 = Tree.GetReadOnlyPage(13271);
+                var treePage_13271 = new TreePage(p_12272.Pointer, Constants.Storage.PageSize);
+
+                Tree.ValidateTree_Forced(Tree.State.RootPageNumber);
+                Tree.DebugValidateBranchReferences();
+
+                DebugStuff.RenderAndShow(Tree);
+                DebugStuff.RenderAndShow(Tree, decompress: true);
+
+                var problematicId = 6564595;
+
+                Slice.External(_indexContext.Allocator, (byte*)&problematicId, sizeof(long), out var problematicIdSlice);
+
+                TreePage findPageFor = Tree.FindPageFor(problematicIdSlice, out var node);
+
+                //DebugStuff.RenderAndShow(Tree);
+            }
+        }
+
         public ReadMapEntryScope Get(long id)
         {
             id = Bits.SwapBytes(id);
@@ -150,6 +184,9 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             switch (Type)
             {
                 case MapResultsStorageType.Tree:
+
+                    Debugging();
+
                     Slice entrySlice;
                     using (Slice.External(_indexContext.Allocator, (byte*)&id, sizeof(long), out entrySlice))
                     {
