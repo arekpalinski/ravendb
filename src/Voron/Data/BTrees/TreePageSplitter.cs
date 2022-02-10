@@ -73,7 +73,12 @@ namespace Voron.Data.BTrees
 
                 if (_page.IsCompressed)
                 {
-                    _pageDecompressed = _tree.DecompressPage(_page);
+                    if (_page.PageNumber == 5728)
+                    {
+
+                    }
+
+                    _pageDecompressed = _tree.DecompressPage(_page, usage: DecompressionUsage.Write);
                     _pageDecompressed.Search(_tx, _newKey);
 
                     if (_pageDecompressed.LastMatch == 0)
@@ -143,7 +148,7 @@ namespace Voron.Data.BTrees
             if (_pageDecompressed == null)
                 return;
             _pageDecompressed.CopyToOriginal(_tx, defragRequired: false, wasModified: wasModified, _tree);
-            _tree.DecompressionsCache.Invalidate(_pageDecompressed.PageNumber, DecompressionUsage.Read);
+            _tree.DecompressionsCache.Invalidate(_pageDecompressed.PageNumber, DecompressionUsage.Write);
             _page = _pageDecompressed.Original;
         }
 

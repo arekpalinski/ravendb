@@ -159,6 +159,26 @@ namespace Raven.Server.Documents.Indexes.Workers
                                 throw new NotSupportedException();
                         }
 
+                        //Console.WriteLine($"Last reference etag {lastReferenceEtag} {collection} {referencedCollection} {actionType}");
+
+                        //if (lastReferenceEtag > 200000000)
+                        //{
+                        //    lastReferenceEtag = 0;
+                        //}
+
+                        //if (lastReferenceEtag == 235673608 || lastReferenceEtag == 236029307 || lastReferenceEtag == 235971508)
+                        //{
+                        //    lastReferenceEtag = 0;
+                        //    Console.WriteLine("Forced references reindexing " + actionType);
+                        //}
+
+                        var reset = false;
+
+                        //if (reset)
+                        //{
+                        //    lastReferenceEtag = 0;
+                        //}
+
                         var lastEtag = lastReferenceEtag;
                         var resultsCount = 0;
 
@@ -287,21 +307,21 @@ namespace Raven.Server.Documents.Indexes.Workers
 
                             bool CanContinueReferenceBatch()
                             {
-                                var parameters = new CanContinueBatchParameters(stats, IndexingWorkType.References, queryContext, indexContext, writeOperation,
-                                    lastEtag, lastCollectionEtag, totalProcessedCount, sw);
+                                //var parameters = new CanContinueBatchParameters(stats, IndexingWorkType.References, queryContext, indexContext, writeOperation,
+                                //    lastEtag, lastCollectionEtag, totalProcessedCount, sw);
 
-                                batchContinuationResult = _index.CanContinueBatch(in parameters, ref maxTimeForDocumentTransactionToRemainOpen);
-                                if (batchContinuationResult != Index.CanContinueBatchResult.True)
-                                {
-                                    keepRunning = batchContinuationResult == Index.CanContinueBatchResult.RenewTransaction;
-                                    return false;
-                                }
+                                //batchContinuationResult = _index.CanContinueBatch(in parameters, ref maxTimeForDocumentTransactionToRemainOpen);
+                                //if (batchContinuationResult != Index.CanContinueBatchResult.True)
+                                //{
+                                //    keepRunning = batchContinuationResult == Index.CanContinueBatchResult.RenewTransaction;
+                                //    return false;
+                                //}
 
-                                if (totalProcessedCount >= pageSize)
-                                {
-                                    keepRunning = false;
-                                    return false;
-                                }
+                                //if (totalProcessedCount >= pageSize)
+                                //{
+                                //    keepRunning = false;
+                                //    return false;
+                                //}
 
                                 return true;
                             }

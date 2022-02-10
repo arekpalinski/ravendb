@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using Sparrow;
+using Sparrow.Binary;
 using Voron.Data.Compression;
 using Voron.Data.Fixed;
 using Voron.Data.Tables;
@@ -334,6 +335,18 @@ namespace Voron.Data.BTrees
             var foundPage = FindPageFor(key, node: out TreeNodeHeader* node, cursor: out TreeCursorConstructor cursorConstructor, allowCompressed: true);
             var page = ModifyPage(foundPage);
 
+            if (foundPage.PageNumber == 5728)
+            {
+                if (key.Size == sizeof(long))
+                {
+                    var idPtr = (long*)key.Content.Ptr;
+                    var id = Bits.SwapBytes(*idPtr);
+
+                    Console.WriteLine($"Adding {id}, size {len}");
+                }
+
+            }
+
             bool? shouldGoToOverflowPage = null;
             if (page.LastMatch == 0) // this is an update operation
             {
@@ -497,6 +510,11 @@ namespace Voron.Data.BTrees
 
         public TreePage ModifyPage(TreePage page)
         {
+            if (page.PageNumber == 5728)
+            {
+
+            }
+
             if (page.Dirty)
                 return page;
 
@@ -509,6 +527,11 @@ namespace Voron.Data.BTrees
 
         public TreePage ModifyPage(long pageNumber)
         {
+            if (pageNumber == 5728)
+            {
+
+            }
+
             var newPage = GetWriteableTreePage(pageNumber);
             newPage.Dirty = true;
             _recentlyFoundPages.Reset(pageNumber);
@@ -569,21 +592,59 @@ namespace Voron.Data.BTrees
             var root = GetReadOnlyTreePage(rootPageNumber);
             stack.Push(root);
             pages.Add(rootPageNumber);
+
+            var leafsKeys = new HashSet<long>();
+
             while (stack.Count > 0)
             {
                 var p = stack.Pop();
+
+                var isCompressed = p.IsCompressed;
 
                 using (p.IsCompressed ? (DecompressedLeafPage)(p = DecompressPage(p, skipCache: true)) : null)
                 {
                     if (p.NumberOfEntries == 0 && p != root)
                     {
-                        DebugStuff.RenderAndShowTree(this, rootPageNumber);
-                        throw new InvalidOperationException("The page " + p.PageNumber + " is empty");
-
+                        if (isCompressed == false)
+                        {
+                            DebugStuff.RenderAndShowTree(this, rootPageNumber);
+                            throw new InvalidOperationException("The page " + p.PageNumber + " is empty");
+                        }
                     }
+
                     p.DebugValidate(this, rootPageNumber);
                     if (p.IsBranch == false)
+                    {
+                        for (int i = 0; i < p.NumberOfEntries; i++)
+                        {
+                            Slice keySlice;
+                            using (TreeNodeHeader.ToSlicePtr(this.Llt.Allocator, p.GetNode(i), out keySlice))
+                            {
+                                var idPtr = (long*)keySlice.Content.Ptr;
+
+                                if (keySlice.Size != sizeof(long))
+                                    break;
+
+                                var id = Bits.SwapBytes(*idPtr);
+
+                                if (leafsKeys.Add(id) == false)
+                                {
+                                    Console.WriteLine("The key " + id + " already appeared in the tree");
+
+                                    Environment.Exit(1);
+
+                                    Debugger.Launch();
+                                    Debugger.Break();
+
+                                    DebugStuff.RenderAndShowTree(this, rootPageNumber);
+                                    throw new InvalidOperationException("The key " + id + " already appeared in the tree");
+                                }
+                            }
+
+                        }
+
                         continue;
+                    }
 
                     if (p.NumberOfEntries < 2)
                     {
@@ -646,10 +707,22 @@ namespace Voron.Data.BTrees
                 if (allowCompressed == false && p.IsCompressed)
                     ThrowOnCompressedPage(p);
 
+                if (p.PageNumber == 5728)
+                {
+
+                }
+
                 return p;
             }
 
-            return SearchForPage(key, allowCompressed, out cursor, out node);
+            TreePage searchForPage = SearchForPage(key, allowCompressed, out cursor, out node);
+
+            if (searchForPage.PageNumber == 5728)
+            {
+
+            }
+
+            return searchForPage;
         }
         [ThreadStatic]
         private FastList<long> _cursorPathBuffer;
@@ -1010,6 +1083,33 @@ namespace Voron.Data.BTrees
             TreeCursorConstructor cursorConstructor;
             var page = FindPageFor(key, node: out node, cursor: out cursorConstructor, allowCompressed: true);
 
+            if (page.PageNumber == 5728)
+            {
+                if (key.Size == sizeof(long))
+                {
+                    var idPtr = (long*)key.Content.Ptr;
+                    var id = Bits.SwapBytes(*idPtr);
+
+                    Console.WriteLine($"Deleting {id}");
+
+                    //if (id == 5037765)
+                    //{
+                    //    using (var file = File.Create(@"C:\temp\RavenDB-17660-page-5728-compressed"))
+                    //    {
+                    //        byte[] data = new byte[page.PageSize];
+
+                    //        fixed(byte* p = data)
+                    //            Memory.Copy(p, page.Base, page.PageSize);
+
+                    //        file.Write(data, 0, data.Length);
+
+                    //        file.Flush(true);
+                    //    }
+                    //}
+                }
+
+            }
+
             if (page.IsCompressed)
             {
                 DeleteOnCompressedPage(page, key, ref cursorConstructor);
@@ -1120,6 +1220,11 @@ namespace Voron.Data.BTrees
                 {
                     if (page.PageNumber != p.PageNumber)
                     {
+                        Console.WriteLine($"Got different leaf page when looking for a parent of {page} using the key '{key}' from that page. Page {p} was found, last match: {p.LastMatch}.");
+
+                        Debugger.Launch();
+                        Debugger.Break();
+
                         VoronUnrecoverableErrorException.Raise(_tx.LowLevelTransaction,
                             $"Got different leaf page when looking for a parent of {page} using the key '{key}' from that page. Page {p} was found, last match: {p.LastMatch}.");
                     }

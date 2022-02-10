@@ -50,6 +50,14 @@ namespace Raven.Server.Documents.Indexes.Workers
                 {
                     var lastMappedEtag = _indexStorage.ReadLastIndexedEtag(indexContext.Transaction, collection);
 
+                    //if (lastMappedEtag == 235971509)
+                    //{
+                    //    Console.WriteLine("Forced reindexing");
+                    //    lastMappedEtag = 0;
+                    //}
+
+                    //Console.WriteLine("Last mapped etag: " + lastMappedEtag + " (collection: " + collection + ")");
+
                     if (_logger.IsInfoEnabled)
                         _logger.Info($"Executing map for '{_index.Name}'. Collection: {collection} LastMappedEtag: {lastMappedEtag:#,#;;0}.");
 

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using Sparrow;
 using Voron.Global;
 using Voron.Impl;
@@ -167,7 +168,14 @@ namespace Voron.Data.BTrees
                     }
 
                     if (decompressedPage.HasSpaceFor(_llt, TreeSizeOf.NodeEntry(uncompressedNode)) == false)
+                    {
+                        Console.WriteLine("Could not add uncompressed node to decompressed page");
+                        Environment.Exit(12);
+                        Debugger.Launch();
+                        Debugger.Break();
+
                         throw new InvalidOperationException("Could not add uncompressed node to decompressed page");
+                    }
 
                     int index;
 

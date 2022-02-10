@@ -162,6 +162,11 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                                     MapReduceWorkContext.DocumentMapEntries.Add(mapEntryId, val);
                             }
 
+                            if (mapEntryId == 5037865)
+                            {
+
+                            }
+
                             GetResultsStore(reduceKeyHash, indexContext, create: true).Add(mapEntryId, mapResult.Data);
                         }
                     }

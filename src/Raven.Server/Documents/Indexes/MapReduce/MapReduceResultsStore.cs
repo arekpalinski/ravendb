@@ -94,8 +94,12 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             {
                 case MapResultsStorageType.Tree:
                     Slice entrySlice;
+                    ValidatingAndDebuggingTree();
+
                     using (Slice.External(_indexContext.Allocator, (byte*) &id, sizeof(long), out entrySlice))
                         Tree.Delete(entrySlice);
+
+                    ValidatingAndDebuggingTree();
                     break;
                 case MapResultsStorageType.Nested:
                     var section = GetNestedResultsSection();
@@ -116,12 +120,16 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             {
                 case MapResultsStorageType.Tree:
                     Slice entrySlice;
-                    
+
+                    ValidatingAndDebuggingTree();
+
                     using (Slice.External(_indexContext.Allocator, (byte*) &id, sizeof(long), out entrySlice))
                     {
                         using (Tree.DirectAdd(entrySlice, result.Size, out byte* ptr))
                             result.CopyTo(ptr);
                     }
+
+                    ValidatingAndDebuggingTree();
 
                     break;
                 case MapResultsStorageType.Nested:
@@ -203,6 +211,40 @@ namespace Raven.Server.Documents.Indexes.MapReduce
         {
             _nestedValueKeyScope.Dispose();
             Tree?.Dispose();
+        }
+
+        public void ValidatingAndDebuggingTree()
+        {
+            //return;
+            Tree.ValidateTree_Forced(Tree.State.RootPageNumber);
+            //Tree.DebugValidateBranchReferences();
+
+
+            //return;
+
+            //if (Tree.Name.ToString() == "__raven/map-reduce/#reduce-tree-7258129073431256551")
+            //{
+            //Page p_12272 = Tree.GetReadOnlyPage(12272);
+            //var treePage_12272 = new TreePage(p_12272.Pointer, Constants.Storage.PageSize);
+
+
+            //Page p_13271 = Tree.GetReadOnlyPage(13271);
+            //var treePage_13271 = new TreePage(p_12272.Pointer, Constants.Storage.PageSize);
+
+            //Tree.ValidateTree_Forced(Tree.State.RootPageNumber);
+            //Tree.DebugValidateBranchReferences();
+
+            //DebugStuff.RenderAndShow(Tree);
+            //DebugStuff.RenderAndShow(Tree, decompress: true);
+
+            //var problematicId = 6564595;
+
+            //Slice.External(_indexContext.Allocator, (byte*)&problematicId, sizeof(long), out var problematicIdSlice);
+
+            //TreePage findPageFor = Tree.FindPageFor(problematicIdSlice, out var node);
+
+            //DebugStuff.RenderAndShow(Tree);
+            //}
         }
     }
 }

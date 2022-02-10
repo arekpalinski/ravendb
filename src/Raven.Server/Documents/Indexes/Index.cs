@@ -472,15 +472,15 @@ namespace Raven.Server.Documents.Indexes
                         e);
                 }
 
-                if (documentDatabase.Configuration.Indexing.SkipDatabaseIdValidationOnIndexOpening == false && generateNewDatabaseId == false)
-                {
-                    var databaseId = IndexStorage.ReadDatabaseId(name, environment);
-                    if (databaseId != null) // backward compatibility
-                    {
-                        if (databaseId != documentDatabase.DbBase64Id)
-                            throw new IndexOpenException($"Could not open index because stored database ID ('{databaseId}') is different than current database ID ('{documentDatabase.DbBase64Id}'). A common reason for this is that the index was copied from another database.");
-                    }
-                }
+                //if (documentDatabase.Configuration.Indexing.SkipDatabaseIdValidationOnIndexOpening == false && generateNewDatabaseId == false)
+                //{
+                //    var databaseId = IndexStorage.ReadDatabaseId(name, environment);
+                //    if (databaseId != null) // backward compatibility
+                //    {
+                //        if (databaseId != documentDatabase.DbBase64Id)
+                //            throw new IndexOpenException($"Could not open index because stored database ID ('{databaseId}') is different than current database ID ('{documentDatabase.DbBase64Id}'). A common reason for this is that the index was copied from another database.");
+                //    }
+                //}
 
                 switch (sourceType)
                 {
@@ -4214,6 +4214,18 @@ namespace Raven.Server.Documents.Indexes
 
         public CanContinueBatchResult CanContinueBatch(in CanContinueBatchParameters parameters, ref TimeSpan maxTimeForDocumentTransactionToRemainOpen)
         {
+            if (parameters.Count % 256 == 0)
+            {
+                parameters.Stats.RecordBatchCompletedReason(parameters.WorkType, $"Forced by arek");
+
+                return CanContinueBatchResult.False;
+            }
+            else
+            {
+                return CanContinueBatchResult.True;
+            }
+
+
             if (Configuration.MapBatchSize.HasValue && parameters.Count >= Configuration.MapBatchSize.Value)
             {
                 parameters.Stats.RecordBatchCompletedReason(parameters.WorkType, $"Reached maximum configured map batch size ({Configuration.MapBatchSize.Value:#,#;;0}).");

@@ -54,6 +54,14 @@ namespace Voron.Data.Compression
         {
             decompressed.Cached = true;
 
+            if (decompressed.PageNumber == 5728)
+            {
+                if (decompressed.Usage == DecompressionUsage.Write)
+                {
+
+                }
+            }
+
             var itemsLeft = Size;
             var position = _current + Size;
 
