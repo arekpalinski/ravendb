@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using FastTests.Blittable;
 using FastTests.Client;
 using SlowTests.Client.TimeSeries.Replication;
+using SlowTests.Graph;
 using SlowTests.Issues;
 using SlowTests.MailingList;
 using SlowTests.Rolling;
@@ -20,19 +21,54 @@ namespace Tryouts
             XunitLogging.RedirectStreams = false;
         }
 
-        public static async Task Main(string[] args)
+        public static void Main(string[] args)
         {
             Console.WriteLine(Process.GetCurrentProcess().Id);
             for (int i = 0; i < 10_000; i++)
             {
-                 Console.WriteLine($"Starting to run {i}");
+                Console.WriteLine($"Starting to run {i}");
                 try
                 {
                     using (var testOutputHelper = new ConsoleTestOutputHelper())
-                    using (var test = new TimeSeriesReplicationTests(testOutputHelper))
                     {
-                         await test.PreferDeletedValues3();
+                        using (var test = new GraphPermissionTests(testOutputHelper))
+                        {
+                            test.MultiplePathsWillAllow("users/2944", "Sunny");
+                        }
                     }
+
+                    Console.WriteLine("a");
+
+                    using (var testOutputHelper = new ConsoleTestOutputHelper())
+                    {
+                        using (var test = new GraphPermissionTests(testOutputHelper))
+                        {
+                            test.MultiplePathsWillAllow("users/84", "Max");
+                        }
+                    }
+
+                    Console.WriteLine("b");
+
+                    using (var testOutputHelper = new ConsoleTestOutputHelper())
+                    {
+                        using (var test = new GraphPermissionTests(testOutputHelper))
+                        {
+                            test.MultiplePathsWillAllow("users/12", "Arava");
+                        }
+                    }
+
+                    Console.WriteLine("c");
+
+                    using (var testOutputHelper = new ConsoleTestOutputHelper())
+                    {
+                        using (var test = new GraphPermissionTests(testOutputHelper))
+                        {
+                            test.MultiplePathsWillAllow("users/23", "Pheobe");
+                        }
+                    }
+
+                    Console.WriteLine("d");
+
                 }
                 catch (Exception e)
                 {
@@ -41,6 +77,7 @@ namespace Tryouts
                     Console.ForegroundColor = ConsoleColor.White;
                 }
             }
+
         }
     }
 }
