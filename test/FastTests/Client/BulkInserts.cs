@@ -25,9 +25,9 @@ namespace FastTests.Client
         {
         }
 
-        [RavenTheory(RavenTestCategory.BulkInsert)]
-        [InlineData(false)]
-        public async Task Simple_Bulk_Insert(bool useSsl)
+        [Theory]
+        [RavenData(false, DatabaseMode = RavenDatabaseMode.All)]
+        public async Task Simple_Bulk_Insert(Options options, bool useSsl)
         {
             string dbName = GetDatabaseName();
             X509Certificate2 clientCertificate = null;
@@ -42,12 +42,11 @@ namespace FastTests.Client
                 });
             }
 
-            using (var store = GetDocumentStore(new Options
-            {
-                AdminCertificate = adminCertificate,
-                ClientCertificate = clientCertificate,
-                ModifyDatabaseName = s => dbName
-            }))
+            options.AdminCertificate = adminCertificate;
+            options.ClientCertificate = clientCertificate;
+            options.ModifyDatabaseName = s => dbName;
+
+            using (var store = GetDocumentStore(options))
             {
                 using (var bulkInsert = store.BulkInsert())
                 {

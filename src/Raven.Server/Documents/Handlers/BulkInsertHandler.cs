@@ -51,7 +51,7 @@ namespace Raven.Server.Documents.Handlers
                     using (context.GetMemoryBuffer(out var buffer))
                     {
                         currentCtxReset = ContextPool.AllocateOperationContext(out JsonOperationContext docsCtx);
-                        var requestBodyStream = RequestBodyStream();
+                        var requestBodyStream = RequestBodyStream(); 
 
                         using (var parser = new BatchRequestParser.ReadMany(context, requestBodyStream, buffer, token))
                         {

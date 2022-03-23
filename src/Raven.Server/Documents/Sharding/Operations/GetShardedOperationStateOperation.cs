@@ -19,6 +19,7 @@ namespace Raven.Server.Documents.Sharding.Operations
 
         public OperationState Combine(Memory<OperationState> results)
         {
+            // TODO arek
             var combined = new OperationState
             {
                 Result = new SmugglerResult()
