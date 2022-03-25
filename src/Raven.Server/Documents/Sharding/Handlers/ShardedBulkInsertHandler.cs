@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
@@ -8,6 +9,7 @@ using Raven.Client.Documents.BulkInsert;
 using Raven.Client.Documents.Commands.Batches;
 using Raven.Client.Documents.Operations;
 using Raven.Server.Documents.Handlers;
+using Raven.Server.Documents.Sharding.Handlers.BulkInsert;
 using Raven.Server.Documents.Sharding.Operations.BulkInsert;
 using Raven.Server.Documents.Sharding.Streaming;
 using Raven.Server.Routing;
@@ -27,7 +29,19 @@ public class ShardedBulkInsertHandler : ShardedRequestHandler
         var skipOverwriteIfUnchanged = GetBoolValueQueryString("skipOverwriteIfUnchanged", required: false) ?? false;
     }
 
-    /*private async Task<IOperationResult> DoBulkInsert(Action<IOperationProgress> onProgress, long id, bool skipOverwriteIfUnchanged, CancellationToken token)
+    public unsafe class StreamableMemoryBuffer : JsonOperationContext.MemoryBuffer
+    {
+        public StreamableMemoryBuffer(byte* address, int size, int generation, JsonOperationContext context) : base(address, size, generation, context)
+        {
+            Stream = new UnmanagedMemoryStream(address, size);
+
+            Stream.Position = 0;
+        }
+
+        public UnmanagedMemoryStream Stream { get; set; }
+    }
+
+    private async Task<IOperationResult> DoBulkInsert(Action<IOperationProgress> onProgress, long id, bool skipOverwriteIfUnchanged, CancellationToken token)
     {
         var progress = new BulkInsertProgress();
         try
@@ -41,6 +55,7 @@ public class ShardedBulkInsertHandler : ShardedRequestHandler
 
                 using (ContextPool.AllocateOperationContext(out TransactionOperationContext context))
                 using (context.GetMemoryBuffer(out var buffer))
+                using (context.GetMemoryBuffer(out var parsedCommandBuffer))
                 await using (var operation = new ShardedBulkInsertOperation(id, skipOverwriteIfUnchanged, ShardedContext))
                 {
                     var requestBodyStream = RequestBodyStream();
@@ -53,10 +68,10 @@ public class ShardedBulkInsertHandler : ShardedRequestHandler
 
                     currentCtxReset = ContextPool.AllocateOperationContext(out JsonOperationContext docsCtx);
 
-
-                    using (var parser = new BatchRequestParser.ReadMany(context, requestBodyStream, buffer, token))
+                    using (var batchRequestParser = new CommandBufferingBatchRequestParser(context))
+                    using (var builder = new ShardedBulkInsertCommandsBuilder(context, requestBodyStream, buffer, new BatchRequestParser(), token))
                     {
-                        await parser.Init();
+                        await builder.Init();
 
                         var array = new BatchRequestParser.CommandData[8];
                         var numberOfCommands = 0;
@@ -67,7 +82,7 @@ public class ShardedBulkInsertHandler : ShardedRequestHandler
                         {
                             using (var modifier = new BlittableMetadataModifier(docsCtx))
                             {
-                                var task = parser.MoveNext(docsCtx, modifier);
+                                var task = builder.MoveNext(docsCtx, modifier);
                                 if (task == null)
                                     break;
 
@@ -123,7 +138,7 @@ public class ShardedBulkInsertHandler : ShardedRequestHandler
 
                                 if (commandData.Type == CommandType.AttachmentPUT)
                                 {
-                                    commandData.AttachmentStream = await WriteAttachment(commandData.ContentLength, parser.GetBlob(commandData.ContentLength));
+                                    commandData.AttachmentStream = await WriteAttachment(commandData.ContentLength, builder.GetBlob(commandData.ContentLength));
                                 }
 
                                 (long size, int opsCount) = GetSizeAndOperationsCount(commandData);
@@ -156,11 +171,11 @@ public class ShardedBulkInsertHandler : ShardedRequestHandler
 
                         if (numberOfCommands > 0)
                         {
-                            await Database.TxMerger.Enqueue(new BulkInsertHandler.MergedInsertBulkCommand
+                            await MetricCacher.Keys.Database.TxMerger.Enqueue(new BulkInsertHandler.MergedInsertBulkCommand
                             {
                                 Commands = array,
                                 NumberOfCommands = numberOfCommands,
-                                Database = Database,
+                                Database = MetricCacher.Keys.Database,
                                 Logger = logger,
                                 TotalSize = totalSize,
                                 SkipOverwriteIfUnchanged = skipOverwriteIfUnchanged
@@ -224,5 +239,5 @@ public class ShardedBulkInsertHandler : ShardedRequestHandler
             }
         }
         return disposable;
-    }*/
+    }
 }

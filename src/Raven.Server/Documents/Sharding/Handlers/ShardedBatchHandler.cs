@@ -250,6 +250,8 @@ namespace Raven.Server.Documents.Sharding.Handlers
 
         public ShardedBatchCommandBuilder(ShardedDatabaseRequestHandler handler) :
             base(handler, handler.DatabaseContext.DatabaseName, handler.DatabaseContext.IdentityPartsSeparator)
+        public ShardedBatchCommandBuilder(ShardedRequestHandler handler) :
+            base(handler, handler.ShardedContext.DatabaseName, handler.ShardedContext.IdentitySeparator, BatchRequestParser.Instance)
         {
             _databaseContext = handler.DatabaseContext;
             _encrypted = handler.DatabaseContext.Encrypted;
