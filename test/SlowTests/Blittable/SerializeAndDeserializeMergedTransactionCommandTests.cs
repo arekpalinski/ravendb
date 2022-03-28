@@ -12,8 +12,9 @@ using Raven.Client.Documents.Conventions;
 using Raven.Client.Json.Serialization.NewtonsoftJson.Internal;
 using Raven.Server.Documents;
 using Raven.Server.Documents.Handlers;
-using Raven.Server.Documents.Handlers.Batching;
-using Raven.Server.Documents.Handlers.Batching.Commands;
+using Raven.Server.Documents.Handlers.Batches;
+using Raven.Server.Documents.Handlers.Batches.Commands;
+using Raven.Server.Documents.Handlers.BulkInsert;
 using Raven.Server.Documents.Patch;
 using Raven.Server.Documents.Replication;
 using Raven.Server.Documents.TransactionCommands;
@@ -323,7 +324,7 @@ namespace SlowTests.Blittable
                         Patch = new PatchRequest("Some Script", PatchRequestType.None)
                     }
                 };
-                var expected = new BatchHandler.MergedBatchCommand(null)
+                var expected = new MergedBatchCommand(null)
                 {
                     ParsedCommands = commands
                 };
@@ -341,7 +342,7 @@ namespace SlowTests.Blittable
                 }
                 var fromStream = await SerializeTestHelper.SimulateSavingToFileAndLoadingAsync(context, blitCommand);
 
-                BatchHandler.MergedBatchCommand actual;
+                MergedBatchCommand actual;
                 using (var reader = new BlittableJsonReader(context))
                 {
                     reader.Initialize(fromStream);
@@ -351,7 +352,7 @@ namespace SlowTests.Blittable
                 }
 
                 //Assert
-                Assert.Equal(expected, actual, new CustomComparer<BatchHandler.MergedBatchCommand>(context));
+                Assert.Equal(expected, actual, new CustomComparer<MergedBatchCommand>(context));
             }
         }
 

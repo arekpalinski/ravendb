@@ -18,7 +18,6 @@ using Raven.Client.Documents.Session.TimeSeries;
 using Raven.Client.Documents.TimeSeries;
 using Raven.Client.Exceptions;
 using Raven.Client.Exceptions.Documents.BulkInsert;
-using Raven.Client.Extensions;
 using Raven.Client.Http;
 using Raven.Client.Json;
 using Raven.Client.Json.Serialization;
@@ -29,7 +28,7 @@ using Sparrow.Threading;
 
 namespace Raven.Client.Documents.BulkInsert
 {
-    public class BulkInsertOperation : BulkInsertOperationBase, IDisposable, IAsyncDisposable
+    public class BulkInsertOperation : BulkInsertOperationBase<object>, IDisposable, IAsyncDisposable
     {
         private readonly BulkInsertOptions _options;
         private readonly CancellationToken _token;
@@ -241,7 +240,12 @@ namespace Raven.Client.Documents.BulkInsert
             return id;
         }
 
-        public async Task StoreAsync(object entity, string id, IMetadataDictionary metadata = null)
+        public override Task StoreAsync(object entity, string id)
+        {
+            return StoreAsync(entity, id, null);
+        }
+
+        public async Task StoreAsync(object entity, string id, IMetadataDictionary metadata)
         {
             using (ConcurrencyCheck())
             {
@@ -331,7 +335,7 @@ namespace Raven.Client.Documents.BulkInsert
         {
             await _currentWriter.FlushAsync().ConfigureAwait(false);
 
-            if (_currentWriter.BaseStream.Position > _maxSizeInBuffer ||
+            if (_currentWriter.BaseStream.Position > MaxSizeInBuffer ||
                 _asyncWrite.IsCompleted)
             {
                 await _asyncWrite.ConfigureAwait(false);
@@ -418,7 +422,6 @@ namespace Raven.Client.Documents.BulkInsert
         private StreamWriter _currentWriter;
         private StreamWriter _backgroundWriter;
         private Task _asyncWrite = Task.CompletedTask;
-        private int _maxSizeInBuffer = 1024 * 1024;
 
         protected override async Task EnsureStream()
         {

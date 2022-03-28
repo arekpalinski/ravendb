@@ -1,14 +1,11 @@
 ﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Net.Http.Headers;
 using Newtonsoft.Json;
 using Raven.Client.Documents.Attachments;
 using Raven.Client.Documents.Commands.Batches;
@@ -16,26 +13,18 @@ using Raven.Client.Documents.Operations.Attachments;
 using Raven.Client.Documents.Operations.Counters;
 using Raven.Client.Documents.Operations.TimeSeries;
 using Raven.Client.Documents.Session;
-using Raven.Client.Documents.Smuggler;
-using Raven.Client.Util;
-using Raven.Server.Documents.Handlers.Batching;
-using Raven.Server.Documents.Handlers.Batching.Commands;
+using Raven.Server.Documents.Handlers.Batches.Commands;
 using Raven.Server.Documents.Patch;
-using Raven.Server.Documents.Sharding.Handlers;
 using Raven.Server.Documents.Sharding.Handlers.Batches;
 using Raven.Server.Documents.TransactionCommands;
 using Raven.Server.Exceptions;
-using Raven.Server.ServerWide;
-using Raven.Server.ServerWide.Context;
-using Raven.Server.Smuggler;
-using Raven.Server.Web;
 using Sparrow;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 using Sparrow.Utils;
 using PatchRequest = Raven.Server.Documents.Patch.PatchRequest;
 
-namespace Raven.Server.Documents.Handlers
+namespace Raven.Server.Documents.Handlers.Batches
 {
     public class BatchRequestParser
     {
@@ -169,85 +158,7 @@ namespace Raven.Server.Documents.Handlers
             return *(long*)state.StringBuffer;
         }
 
-        public class ReadMany : IDisposable
-        {
-            private readonly Stream _stream;
-            private readonly UnmanagedJsonParser _parser;
-            private readonly JsonOperationContext.MemoryBuffer _buffer;
-            private readonly BatchRequestParser _batchRequestParser;
-            private readonly JsonParserState _state;
-            private readonly CancellationToken _token;
-
-            public ReadMany(JsonOperationContext ctx, Stream stream, JsonOperationContext.MemoryBuffer buffer, BatchRequestParser batchRequestParser, CancellationToken token)
-            {
-                _stream = stream;
-                _buffer = buffer;
-                _batchRequestParser = batchRequestParser;
-                _token = token;
-
-                _state = new JsonParserState();
-                _parser = new UnmanagedJsonParser(ctx, _state, "bulk_docs");
-            }
-
-            public async Task Init()
-            {
-                while (_parser.Read() == false)
-                    await _batchRequestParser.RefillParserBuffer(_stream, _buffer, _parser, _token);
-                if (_state.CurrentTokenType != JsonParserToken.StartArray)
-                {
-                    ThrowUnexpectedToken(JsonParserToken.StartArray, _state);
-                }
-            }
-
-            public void Dispose()
-            {
-                _parser.Dispose();
-            }
-
-            public Task<CommandData> MoveNext(JsonOperationContext ctx, BlittableMetadataModifier modifier)
-            {
-                if (_parser.Read())
-                {
-                    if (_state.CurrentTokenType == JsonParserToken.EndArray)
-                        return null;
-                    return _batchRequestParser.ReadSingleCommand(ctx, _stream, _state, _parser, _buffer, modifier, _token);
-                }
-
-                return MoveNextUnlikely(ctx, modifier);
-            }
-
-            private async Task<CommandData> MoveNextUnlikely(JsonOperationContext ctx, BlittableMetadataModifier modifier)
-            {
-                do
-                {
-                    await _batchRequestParser.RefillParserBuffer(_stream, _buffer, _parser, _token);
-                } while (_parser.Read() == false);
-                if (_state.CurrentTokenType == JsonParserToken.EndArray)
-                    return new CommandData { Type = CommandType.None };
-
-                return await _batchRequestParser.ReadSingleCommand(ctx, _stream, _state, _parser, _buffer, modifier, _token);
-            }
-
-            public Stream GetBlob(long blobSize)
-            {
-                var bufferSize = _parser.BufferSize - _parser.BufferOffset;
-                var copy = ArrayPool<byte>.Shared.Rent(bufferSize);
-                var copySpan = new Span<byte>(copy);
-
-                _buffer.Memory.Memory.Span.Slice(_parser.BufferOffset, bufferSize).CopyTo(copySpan);
-
-                _parser.Skip(blobSize < bufferSize ? (int)blobSize : bufferSize);
-
-                return new LimitedStream(new ConcatStream(new ConcatStream.RentedBuffer
-                {
-                    Buffer = copy,
-                    Count = bufferSize,
-                    Offset = 0
-                }, _stream), blobSize, 0, 0);
-            }
-        }
-
-        public static async Task<CommandData> ReadAndCopySingleCommand(JsonOperationContext ctx,
+        public async Task<CommandData> ReadAndCopySingleCommand(JsonOperationContext ctx,
             Stream stream,
             JsonParserState state,
             UnmanagedJsonParser parser,
@@ -274,7 +185,7 @@ namespace Raven.Server.Documents.Handlers
                 {
                     parser.CopyParsedChunk(commandCopy, position);
                     position = 0;
-                    await Instance.RefillParserBuffer(stream, buffer, parser, token);
+                    await RefillParserBuffer(stream, buffer, parser, token);
                 }
 
                 if (state.CurrentTokenType == JsonParserToken.StartObject)
@@ -304,7 +215,7 @@ namespace Raven.Server.Documents.Handlers
                         {
                             parser.CopyParsedChunk(commandCopy, position);
                             position = 0;
-                            await Instance.RefillParserBuffer(stream, buffer, parser, token);
+                            await RefillParserBuffer(stream, buffer, parser, token);
                         }
                         if (state.CurrentTokenType != JsonParserToken.String)
                         {
@@ -318,7 +229,7 @@ namespace Raven.Server.Documents.Handlers
                         {
                             parser.CopyParsedChunk(commandCopy, position);
                             position = 0;
-                            await Instance.RefillParserBuffer(stream, buffer, parser, token);
+                            await RefillParserBuffer(stream, buffer, parser, token);
                         }
 
                         switch (state.CurrentTokenType)
@@ -340,7 +251,7 @@ namespace Raven.Server.Documents.Handlers
                     case CommandPropertyName.Ids:
                         bufferedCommand.IsBatchPatch = true;
                         bufferedCommand.IdsStartPosition = checked((int)(commandCopy.Position + parser.BufferOffset - position));
-                        commandData.Ids = await Instance.ReadJsonArray(ctx, stream, parser, state, buffer, token);
+                        commandData.Ids = await ReadJsonArray(ctx, stream, parser, state, buffer, token);
                         bufferedCommand.IdsEndPosition = checked((int)(commandCopy.Position + parser.BufferOffset - position));
                         break;
 
@@ -349,7 +260,7 @@ namespace Raven.Server.Documents.Handlers
                         {
                             parser.CopyParsedChunk(commandCopy, position);
                             position = 0;
-                            await Instance.RefillParserBuffer(stream, buffer, parser, token);
+                            await RefillParserBuffer(stream, buffer, parser, token);
                         }
 
                         if (state.CurrentTokenType == JsonParserToken.Null)
@@ -363,7 +274,7 @@ namespace Raven.Server.Documents.Handlers
                         {
                             parser.CopyParsedChunk(commandCopy, position);
                             position = 0;
-                            await Instance.RefillParserBuffer(stream, buffer, parser, token);
+                            await RefillParserBuffer(stream, buffer, parser, token);
                         }
 
                         if (state.CurrentTokenType == JsonParserToken.Null)
@@ -385,10 +296,10 @@ namespace Raven.Server.Documents.Handlers
                         {
                             parser.CopyParsedChunk(commandCopy, position);
                             position = 0;
-                            await Instance.RefillParserBuffer(stream, buffer, parser, token);
+                            await RefillParserBuffer(stream, buffer, parser, token);
                         }
 
-                        commandData.Document = await Instance.ReadJsonObject(ctx, stream, commandData.Id, parser, state, buffer, modifier, token);
+                        commandData.Document = await ReadJsonObject(ctx, stream, commandData.Id, parser, state, buffer, modifier, token);
                         commandData.SeenAttachments = modifier.SeenAttachments;
                         commandData.SeenCounters = modifier.SeenCounters;
                         commandData.SeenTimeSeries = modifier.SeenTimeSeries;
@@ -398,7 +309,7 @@ namespace Raven.Server.Documents.Handlers
                         {
                             parser.CopyParsedChunk(commandCopy, position);
                             position = 0;
-                            await Instance.RefillParserBuffer(stream, buffer, parser, token);
+                            await RefillParserBuffer(stream, buffer, parser, token);
                         }
                         if (state.CurrentTokenType != JsonParserToken.Integer)
                         {
@@ -433,13 +344,18 @@ namespace Raven.Server.Documents.Handlers
                 ThrowUnexpectedToken(JsonParserToken.StartObject, state);
             }
 
+            CommandParsingObserver?.OnCommandStart(parser);
+
             while (true)
             {
                 while (parser.Read() == false)
                     await RefillParserBuffer(stream, buffer, parser, token);
 
                 if (state.CurrentTokenType == JsonParserToken.EndObject)
+                {
+                    CommandParsingObserver?.OnCommandEnd(parser);
                     break;
+                }
 
                 if (state.CurrentTokenType != JsonParserToken.String)
                 {
@@ -1295,8 +1211,13 @@ namespace Raven.Server.Documents.Handlers
             throw new InvalidOperationException("Expected " + jsonParserToken + " , but got " + state.CurrentTokenType);
         }
 
+
+        public AbstractBatchCommandParsingObserver CommandParsingObserver { get; set; }
+
         public async Task RefillParserBuffer(Stream stream, JsonOperationContext.MemoryBuffer buffer, UnmanagedJsonParser parser, CancellationToken token = default)
         {
+            CommandParsingObserver?.OnParserBufferRefill(parser);
+
             // Although we using here WithCancellation and passing the token,
             // the stream will stay open even after the cancellation until the entire server will be disposed.
             var read = await stream.ReadAsync(buffer.Memory.Memory, token);

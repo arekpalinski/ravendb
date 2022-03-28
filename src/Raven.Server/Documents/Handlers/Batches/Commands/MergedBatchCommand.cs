@@ -13,7 +13,7 @@ using Raven.Server.ServerWide.Context;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 
-namespace Raven.Server.Documents.Handlers.Batching.Commands;
+namespace Raven.Server.Documents.Handlers.Batches.Commands;
 
 public class MergedBatchCommand : TransactionMergedCommand
 {

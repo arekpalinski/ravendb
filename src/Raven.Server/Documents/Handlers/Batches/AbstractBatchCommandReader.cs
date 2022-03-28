@@ -9,7 +9,7 @@ using Microsoft.Net.Http.Headers;
 using Raven.Client.Documents.Commands.Batches;
 using Raven.Client.Documents.Smuggler;
 using Raven.Client.Util;
-using Raven.Server.Documents.Handlers.Batching.Commands;
+using Raven.Server.Documents.Handlers.Batches.Commands;
 using Raven.Server.Documents.Patch;
 using Raven.Server.Documents.TransactionCommands;
 using Raven.Server.ServerWide;
@@ -18,7 +18,7 @@ using Raven.Server.Web;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 
-namespace Raven.Server.Documents.Handlers.Batching;
+namespace Raven.Server.Documents.Handlers.Batches;
 
 public abstract class AbstractBatchCommandsReader<TBatchCommand, TOperationContext>
     where TBatchCommand : IBatchCommand
@@ -36,10 +36,10 @@ public abstract class AbstractBatchCommandsReader<TBatchCommand, TOperationConte
     private BatchRequestParser.CommandData[] _commands = Empty;
     public ArraySegment<BatchRequestParser.CommandData> Commands => new ArraySegment<BatchRequestParser.CommandData>(_commands, 0, _index + 1);
 
-    protected List<string> _identities;
-    protected List<int> _identityPositions;
+    protected List<string> Identities;
+    protected List<int> IdentityPositions;
 
-    public bool HasIdentities => _identities != null;
+    public bool HasIdentities => Identities != null;
     public bool IsClusterTransactionRequest;
 
     protected AbstractBatchCommandsReader(RequestHandler handler, string database, char identityPartsSeparator, BatchRequestParser batchRequestParser)
@@ -52,11 +52,11 @@ public abstract class AbstractBatchCommandsReader<TBatchCommand, TOperationConte
 
     private void AddIdentity(JsonOperationContext ctx, ref BatchRequestParser.CommandData command, int index)
     {
-        _identities ??= new List<string>();
-        _identityPositions ??= new List<int>();
+        Identities ??= new List<string>();
+        IdentityPositions ??= new List<int>();
 
-        _identities.Add(command.Id);
-        _identityPositions.Add(index);
+        Identities.Add(command.Id);
+        IdentityPositions.Add(index);
 
         command.ChangeVector ??= ctx.GetLazyString("");
     }
@@ -66,12 +66,12 @@ public abstract class AbstractBatchCommandsReader<TBatchCommand, TOperationConte
         if (HasIdentities == false)
             return;
 
-        var newIds = await ServerStore.GenerateClusterIdentitiesBatchAsync(_database, _identities, RaftIdGenerator.NewId());
-        Debug.Assert(newIds.Count == _identities.Count);
+        var newIds = await ServerStore.GenerateClusterIdentitiesBatchAsync(_database, Identities, RaftIdGenerator.NewId());
+        Debug.Assert(newIds.Count == Identities.Count);
 
-        for (var index = 0; index < _identityPositions.Count; index++)
+        for (var index = 0; index < IdentityPositions.Count; index++)
         {
-            var value = _identityPositions[index];
+            var value = IdentityPositions[index];
             var cmd = _commands[value];
 
             cmd.Id = cmd.Id.Substring(0, cmd.Id.Length - 1) + _identityPartsSeparator + newIds[index];

@@ -10,8 +10,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Raven.Client.Documents.Commands.Batches;
 using Raven.Client.Documents.Operations;
-using Raven.Server.Documents.Handlers.Batching;
-using Raven.Server.Documents.Handlers.Batching.Commands;
+using Raven.Server.Documents.Handlers.Batches;
+using Raven.Server.Documents.Handlers.Batches.Commands;
 using Raven.Server.Routing;
 using Raven.Server.ServerWide.Context;
 using Raven.Server.Smuggler.Documents;
@@ -21,7 +21,7 @@ using Sparrow.Logging;
 using Voron.Exceptions;
 using Size = Sparrow.Size;
 
-namespace Raven.Server.Documents.Handlers
+namespace Raven.Server.Documents.Handlers.BulkInsert
 {
     public class BulkInsertHandler : DatabaseRequestHandler
     {
@@ -55,9 +55,9 @@ namespace Raven.Server.Documents.Handlers
                         currentCtxReset = ContextPool.AllocateOperationContext(out JsonOperationContext docsCtx);
                         var requestBodyStream = RequestBodyStream(); 
 
-                        using (var parser = new BatchRequestParser.ReadMany(context, requestBodyStream, buffer, BatchRequestParser.Instance,  token))
+                        using (var reader = new BulkInsertBatchCommandsReader(context, requestBodyStream, buffer,  token))
                         {
-                            await parser.Init();
+                            await reader.Init();
 
                             var array = new BatchRequestParser.CommandData[8];
                             var numberOfCommands = 0;
@@ -68,7 +68,7 @@ namespace Raven.Server.Documents.Handlers
                             {
                                 using (var modifier = new BlittableMetadataModifier(docsCtx))
                                 {
-                                    var task = parser.MoveNext(docsCtx, modifier);
+                                    var task = reader.GetCommandAsync(docsCtx, modifier);
                                     if (task == null)
                                         break;
 
@@ -115,7 +115,7 @@ namespace Raven.Server.Documents.Handlers
 
                                     if (commandData.Type == CommandType.AttachmentPUT)
                                     {
-                                        commandData.AttachmentStream = await WriteAttachment(commandData.ContentLength, parser.GetBlob(commandData.ContentLength));
+                                        commandData.AttachmentStream = await WriteAttachment(commandData.ContentLength, reader.GetBlob(commandData.ContentLength));
                                     }
 
                                     (long size, int opsCount) = GetSizeAndOperationsCount(commandData);

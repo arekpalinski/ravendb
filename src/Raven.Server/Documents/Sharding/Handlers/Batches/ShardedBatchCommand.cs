@@ -4,7 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using Raven.Client.Documents.Commands.Batches;
 using Raven.Server.Documents.Handlers;
-using Raven.Server.Documents.Handlers.Batching.Commands;
+using Raven.Server.Documents.Handlers.Batches;
+using Raven.Server.Documents.Handlers.Batches.Commands;
 using Raven.Server.ServerWide.Context;
 using Sparrow.Json;
 

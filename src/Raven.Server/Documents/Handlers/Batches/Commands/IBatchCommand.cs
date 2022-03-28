@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace Raven.Server.Documents.Handlers.Batching.Commands;
+namespace Raven.Server.Documents.Handlers.Batches.Commands;
 
 public interface IBatchCommand : IDisposable
 {

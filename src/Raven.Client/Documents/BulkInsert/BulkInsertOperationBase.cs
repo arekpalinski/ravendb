@@ -5,12 +5,16 @@ using Raven.Client.Exceptions.Documents.BulkInsert;
 
 namespace Raven.Client.Documents.BulkInsert;
 
-public abstract class BulkInsertOperationBase
+public abstract class BulkInsertOperationBase<T>
 {
     protected Task BulkInsertExecuteTask;
     protected long OperationId = -1;
 
+    protected int MaxSizeInBuffer = 1024 * 1024;
+
     protected abstract bool HasStream { get; }
+
+    public abstract Task StoreAsync(T entity, string id);
 
     protected async Task ExecuteBeforeStore()
     {

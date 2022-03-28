@@ -2,7 +2,7 @@
 using Raven.Server.ServerWide.Commands;
 using Raven.Server.ServerWide.Context;
 
-namespace Raven.Server.Documents.Handlers.Batching.Commands;
+namespace Raven.Server.Documents.Handlers.Batches.Commands;
 
 public class ClusterTransactionMergedCommandDto : TransactionOperationsMerger.IReplayableCommandDto<ClusterTransactionMergedCommand>
 {

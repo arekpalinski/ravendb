@@ -4,7 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Raven.Server.Documents.Handlers;
-using Raven.Server.Documents.Handlers.Batching;
+using Raven.Server.Documents.Handlers.Batches;
 using Raven.Server.ServerWide.Context;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
@@ -55,7 +55,7 @@ public class ShardedBatchCommandsReader : AbstractBatchCommandsReader<ShardedBat
         try
         {
             var bufferedCommand = new BufferedCommand { CommandStream = ms };
-            var result = await BatchRequestParser.ReadAndCopySingleCommand(ctx, stream, state, parser, buffer, bufferedCommand, modifier, token);
+            var result = await BatchRequestParser.Instance.ReadAndCopySingleCommand(ctx, stream, state, parser, buffer, bufferedCommand, modifier, token);
             bufferedCommand.IsIdentity = IsIdentityCommand(ref result);
             BufferedCommands.Add(bufferedCommand);
             return result;

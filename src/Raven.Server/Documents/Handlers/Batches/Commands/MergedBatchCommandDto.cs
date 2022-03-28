@@ -3,7 +3,7 @@ using Raven.Client.Documents.Commands.Batches;
 using Raven.Server.Documents.Patch;
 using Raven.Server.ServerWide.Context;
 
-namespace Raven.Server.Documents.Handlers.Batching.Commands;
+namespace Raven.Server.Documents.Handlers.Batches.Commands;
 
 public class MergedBatchCommandDto : TransactionOperationsMerger.IReplayableCommandDto<MergedBatchCommand>
 {

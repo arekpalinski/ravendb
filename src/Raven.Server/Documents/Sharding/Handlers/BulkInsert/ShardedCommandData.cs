@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using Raven.Server.Documents.Handlers;
+using Raven.Server.Documents.Handlers.Batches;
 using Sparrow.Json;
 
 namespace Raven.Server.Documents.Sharding.Handlers.BulkInsert;

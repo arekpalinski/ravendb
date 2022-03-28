@@ -23,8 +23,8 @@ using Raven.Server.Config;
 using Raven.Server.Documents.ETL;
 using Raven.Server.Documents.Expiration;
 using Raven.Server.Documents.Handlers;
-using Raven.Server.Documents.Handlers.Batching;
-using Raven.Server.Documents.Handlers.Batching.Commands;
+using Raven.Server.Documents.Handlers.Batches;
+using Raven.Server.Documents.Handlers.Batches.Commands;
 using Raven.Server.Documents.Handlers.Processors.Batches;
 using Raven.Server.Documents.Indexes;
 using Raven.Server.Documents.Patch;
@@ -543,7 +543,7 @@ namespace Raven.Server.Documents
                 return;
 
             var batch = batchCollector.GetData();
-            var mergedCommands = new BatchHandler.ClusterTransactionMergedCommand(this, batch);
+            var mergedCommands = new ClusterTransactionMergedCommand(this, batch);
             try
             {
                 //If we get a database shutdown while we process a cluster tx command this

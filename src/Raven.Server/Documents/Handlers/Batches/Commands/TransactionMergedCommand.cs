@@ -4,7 +4,7 @@ using Raven.Client.Documents.Commands.Batches;
 using Raven.Server.ServerWide.Context;
 using Sparrow.Json.Parsing;
 
-namespace Raven.Server.Documents.Handlers.Batching.Commands;
+namespace Raven.Server.Documents.Handlers.Batches.Commands;
 
 public abstract class TransactionMergedCommand : TransactionOperationsMerger.MergedTransactionCommand, IBatchCommand
 {

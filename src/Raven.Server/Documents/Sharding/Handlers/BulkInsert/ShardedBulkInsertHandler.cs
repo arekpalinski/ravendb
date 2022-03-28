@@ -1,24 +1,20 @@
 ﻿using System;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using Raven.Client.Documents.BulkInsert;
 using Raven.Client.Documents.Commands.Batches;
 using Raven.Client.Documents.Operations;
-using Raven.Server.Documents.Handlers;
-using Raven.Server.Documents.Sharding.Handlers.BulkInsert;
+using Raven.Server.Documents.Handlers.Batches;
+using Raven.Server.Documents.Handlers.BulkInsert;
 using Raven.Server.Documents.Sharding.Operations.BulkInsert;
-using Raven.Server.Documents.Sharding.Streaming;
 using Raven.Server.Routing;
 using Raven.Server.ServerWide.Context;
-using Raven.Server.Utils;
 using Sparrow.Json;
 using Sparrow.Logging;
 
-namespace Raven.Server.Documents.Sharding.Handlers;
+namespace Raven.Server.Documents.Sharding.Handlers.BulkInsert;
 
 public class ShardedBulkInsertHandler : ShardedDatabaseRequestHandler
 {
@@ -27,18 +23,11 @@ public class ShardedBulkInsertHandler : ShardedDatabaseRequestHandler
     {
         var id = GetLongQueryString("id");
         var skipOverwriteIfUnchanged = GetBoolValueQueryString("skipOverwriteIfUnchanged", required: false) ?? false;
-    }
 
-    public unsafe class StreamableMemoryBuffer : JsonOperationContext.MemoryBuffer
-    {
-        public StreamableMemoryBuffer(byte* address, int size, int generation, JsonOperationContext context) : base(address, size, generation, context)
+        await DoBulkInsert(x =>
         {
-            Stream = new UnmanagedMemoryStream(address, size);
 
-            Stream.Position = 0;
-        }
-
-        public UnmanagedMemoryStream Stream { get; set; }
+        }, id, skipOverwriteIfUnchanged, CancellationToken.None);
     }
 
     private async Task<IOperationResult> DoBulkInsert(Action<IOperationProgress> onProgress, long id, bool skipOverwriteIfUnchanged, CancellationToken token)
@@ -54,24 +43,22 @@ public class ShardedBulkInsertHandler : ShardedDatabaseRequestHandler
             {
                 using (ContextPool.AllocateOperationContext(out TransactionOperationContext context))
                 using (context.GetMemoryBuffer(out var buffer))
-                await using (var operation = new ShardedBulkInsertOperation(id, skipOverwriteIfUnchanged, DatabaseContext))
+                await using (var operation = new ShardedBulkInsertOperation(id, skipOverwriteIfUnchanged, DatabaseContext, context))
                 {
                     var requestBodyStream = RequestBodyStream();
 
-                    // ClientAcceptsGzipResponse() == false ? CompressionLevel.NoCompression : CompressionLevel.Optimal // TODO arek
-                    if (requestBodyStream is GZipStream)
+                    if (ClientSentGzipRequest())
                     {
-                        operation.CompressionLevel = CompressionLevel.Optimal; // TODO arek
+                        operation.CompressionLevel = CompressionLevel.Optimal;
                     }
 
                     currentCtxReset = ContextPool.AllocateOperationContext(out JsonOperationContext docsCtx);
 
-                    using (var batchRequestParser = new CommandBufferingBatchRequestParser(context))
-                    using (var builder = new ShardedBulkInsertCommandsBuilder(context, requestBodyStream, buffer, new BatchRequestParser(), token))
+                    using (var reader = new ShardedBulkInsertCommandsReader(context, requestBodyStream, buffer, token))
                     {
-                        await builder.Init();
+                        await reader.Init();
 
-                        var array = new BatchRequestParser.CommandData[8];
+                        var array = new ShardedCommandData[8];
                         var numberOfCommands = 0;
                         long totalSize = 0;
                         int operationsCount = 0;
@@ -80,7 +67,7 @@ public class ShardedBulkInsertHandler : ShardedDatabaseRequestHandler
                         {
                             using (var modifier = new BlittableMetadataModifier(docsCtx))
                             {
-                                var task = builder.MoveNext(docsCtx, modifier);
+                                var task = reader.GetCommandAsync(docsCtx, modifier);
                                 if (task == null)
                                     break;
 
@@ -91,14 +78,17 @@ public class ShardedBulkInsertHandler : ShardedDatabaseRequestHandler
                                     // but don't batch too much anyway
                                     totalSize > 16 * Voron.Global.Constants.Size.Megabyte || operationsCount >= 8192)
                                 {
-                                    using (ReplaceContextIfCurrentlyInUse(task, numberOfCommands, array))
+                                    //using (ReplaceContextIfCurrentlyInUse(task, numberOfCommands, array))
                                     {
-                                        foreach (BatchRequestParser.CommandData data in array)
+                                        foreach (var readCommand in array)
                                         {
-                                            int shardNumber = DatabaseContext.GetShardNumber(context, data.Id);
+                                            if (readCommand is null)
+                                                break;
 
-                                            operation.StoreAsync()
-
+                                            using (readCommand)
+                                            {
+                                                await operation.StoreAsync(readCommand.Stream, readCommand.Data.Id);
+                                            }
                                         }
 
                                         // TODO arek
@@ -113,11 +103,11 @@ public class ShardedBulkInsertHandler : ShardedDatabaseRequestHandler
                                         //});
                                     }
 
-                                    ClearStreamsTempFiles();
+                                    //ClearStreamsTempFiles();
 
                                     progress.BatchCount++;
                                     progress.Total += numberOfCommands;
-                                    progress.LastProcessedId = array[numberOfCommands - 1].Id;
+                                    progress.LastProcessedId = array[numberOfCommands - 1].Data.Id;
 
                                     onProgress(progress);
 
@@ -130,23 +120,25 @@ public class ShardedBulkInsertHandler : ShardedDatabaseRequestHandler
                                     operationsCount = 0;
                                 }
 
-                                var commandData = await task;
-                                if (commandData.Type == CommandType.None)
+                                var command = await task;
+
+                                if (command.Data.Type == CommandType.None)
                                     break;
 
-                                if (commandData.Type == CommandType.AttachmentPUT)
+                                if (command.Data.Type == CommandType.AttachmentPUT)
                                 {
-                                    commandData.AttachmentStream = await WriteAttachment(commandData.ContentLength, builder.GetBlob(commandData.ContentLength));
+                                    throw new NotImplementedException("TODO arek");
+                                    //command.Data.AttachmentStream = await WriteAttachment(command.ContentLength, reader.GetBlob(command.ContentLength));
                                 }
 
-                                (long size, int opsCount) = GetSizeAndOperationsCount(commandData);
+                                (long size, int opsCount) = GetSizeAndOperationsCount(command.Data);
                                 operationsCount += opsCount;
                                 totalSize += size;
                                 if (numberOfCommands >= array.Length)
                                     Array.Resize(ref array, array.Length + Math.Min(1024, array.Length));
-                                array[numberOfCommands++] = commandData;
+                                array[numberOfCommands++] = command;
 
-                                switch (commandData.Type)
+                                switch (command.Data.Type)
                                 {
                                     case CommandType.PUT:
                                         progress.DocumentsProcessed++;
@@ -169,19 +161,30 @@ public class ShardedBulkInsertHandler : ShardedDatabaseRequestHandler
 
                         if (numberOfCommands > 0)
                         {
-                            await MetricCacher.Keys.Database.TxMerger.Enqueue(new BulkInsertHandler.MergedInsertBulkCommand
+                            //await MetricCacher.Keys.Database.TxMerger.Enqueue(new BulkInsertHandler.MergedInsertBulkCommand
+                            //{
+                            //    Commands = array,
+                            //    NumberOfCommands = numberOfCommands,
+                            //    Database = MetricCacher.Keys.Database,
+                            //    Logger = logger,
+                            //    TotalSize = totalSize,
+                            //    SkipOverwriteIfUnchanged = skipOverwriteIfUnchanged
+                            //});
+
+                            foreach (var command in array)
                             {
-                                Commands = array,
-                                NumberOfCommands = numberOfCommands,
-                                Database = MetricCacher.Keys.Database,
-                                Logger = logger,
-                                TotalSize = totalSize,
-                                SkipOverwriteIfUnchanged = skipOverwriteIfUnchanged
-                            });
+                                if (command is null)
+                                    break;
+
+                                using (command)
+                                {
+                                    await operation.StoreAsync(command.Stream, command.Data.Id);
+                                }
+                            }
 
                             progress.BatchCount++;
                             progress.Total += numberOfCommands;
-                            progress.LastProcessedId = array[numberOfCommands - 1].Id;
+                            progress.LastProcessedId = array[numberOfCommands - 1].Data.Id;
 #pragma warning disable CS0618 // Type or member is obsolete
                             progress.Processed = progress.DocumentsProcessed;
 #pragma warning restore CS0618 // Type or member is obsolete
@@ -195,7 +198,7 @@ public class ShardedBulkInsertHandler : ShardedDatabaseRequestHandler
             {
                 currentCtxReset?.Dispose();
                 previousCtxReset?.Dispose();
-                ClearStreamsTempFiles();
+                //ClearStreamsTempFiles();
             }
 
             HttpContext.Response.StatusCode = (int)HttpStatusCode.Created;
@@ -217,25 +220,85 @@ public class ShardedBulkInsertHandler : ShardedDatabaseRequestHandler
         }
     }
 
-    private IDisposable ReplaceContextIfCurrentlyInUse(Task<BatchRequestParser.CommandData> task, int numberOfCommands, BatchRequestParser.CommandData[] array)
+    private (long, int) GetSizeAndOperationsCount(BatchRequestParser.CommandData commandData)
     {
-        if (task.IsCompleted)
-            return null;
-
-        var disposable = ContextPool.AllocateOperationContext(out JsonOperationContext tempCtx);
-        // the docsCtx is currently in use, so we
-        // cannot pass it to the tx merger, we'll just
-        // copy the documents to a temporary ctx and
-        // use that ctx instead. Copying the documents
-        // is safe, because they are immutables
-
-        for (int i = 0; i < numberOfCommands; i++)
+        long size = 0;
+        switch (commandData.Type)
         {
-            if (array[i].Document != null)
-            {
-                array[i].Document = array[i].Document.Clone(tempCtx);
-            }
+            case CommandType.PUT:
+                return (commandData.Document.Size, 1);
+
+            case CommandType.Counters:
+                foreach (var operation in commandData.Counters.Operations)
+                {
+                    size += operation.CounterName.Length
+                            + sizeof(long) // etag
+                            + sizeof(long) // counter value
+                            + GetChangeVectorSizeInternal() // estimated change vector size
+                            + 10; // estimated collection name size
+                }
+
+                return (size, commandData.Counters.Operations.Count);
+
+            case CommandType.AttachmentPUT:
+                return (commandData.ContentLength, 1);
+
+            case CommandType.TimeSeries:
+            case CommandType.TimeSeriesBulkInsert:
+                // we don't know the size of the change so we are just estimating
+                foreach (var append in commandData.TimeSeries.Appends)
+                {
+                    size += sizeof(long); // DateTime
+                    if (string.IsNullOrWhiteSpace(append.Tag) == false)
+                        size += append.Tag.Length;
+
+                    size += append.Values.Length * sizeof(double);
+                }
+
+                return (size, commandData.TimeSeries.Appends.Count);
+
+            default:
+                throw new ArgumentOutOfRangeException($"'{commandData.Type}' isn't supported");
         }
-        return disposable;
+
+        int GetChangeVectorSizeInternal()
+        {
+            return 4; // TODO arek
+            //if (_changeVectorSize.HasValue)
+            //    return _changeVectorSize.Value;
+
+            //using (Database.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext ctx))
+            //using (ctx.OpenReadTransaction())
+            //{
+            //    var databaseChangeVector = DocumentsStorage.GetDatabaseChangeVector(ctx);
+            //    _changeVectorSize = Encoding.UTF8.GetBytes(databaseChangeVector).Length;
+            //    return _changeVectorSize.Value;
+            //}
+        }
     }
+
+    private int? _changeVectorSize;
+
+
+    //private IDisposable ReplaceContextIfCurrentlyInUse(Task<BatchRequestParser.CommandData> task, int numberOfCommands, BatchRequestParser.CommandData[] array)
+    //{
+    //    if (task.IsCompleted)
+    //        return null;
+
+    //    var disposable = ContextPool.AllocateOperationContext(out JsonOperationContext tempCtx);
+    //    // the docsCtx is currently in use, so we
+    //    // cannot pass it to the tx merger, we'll just
+    //    // copy the documents to a temporary ctx and
+    //    // use that ctx instead. Copying the documents
+    //    // is safe, because they are immutables
+
+    //    for (int i = 0; i < numberOfCommands; i++)
+    //    {
+    //        if (array[i].Document != null)
+    //        {
+    //            array[i].Document = array[i].Document.Clone(tempCtx);
+    //        }
+    //    }
+    //    return disposable;
+    //}
 }

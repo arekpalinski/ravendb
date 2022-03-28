@@ -10,7 +10,7 @@ using Sparrow.Json;
 using Sparrow.Json.Parsing;
 using Voron;
 
-namespace Raven.Server.Documents.Handlers.Batching.Commands;
+namespace Raven.Server.Documents.Handlers.Batches.Commands;
 
 public class ClusterTransactionMergedCommand : TransactionMergedCommand
 {

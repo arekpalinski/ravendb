@@ -1,12 +1,12 @@
 ﻿using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using Raven.Server.Documents.Handlers.Batching.Commands;
+using Raven.Server.Documents.Handlers.Batches.Commands;
 using Raven.Server.ServerWide.Context;
 using Raven.Server.Web;
 using Sparrow.Json;
 
-namespace Raven.Server.Documents.Handlers.Batching;
+namespace Raven.Server.Documents.Handlers.Batches;
 
 public class DatabaseBatchCommandsReader : AbstractBatchCommandsReader<MergedBatchCommand, DocumentsOperationContext>
 {

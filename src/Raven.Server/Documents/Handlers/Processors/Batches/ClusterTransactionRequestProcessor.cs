@@ -1,7 +1,8 @@
 ﻿using System;
 using JetBrains.Annotations;
 using Raven.Client.ServerWide;
-using Raven.Server.Documents.Handlers.Batching.Commands;
+using Raven.Server.Documents.Handlers.Batches;
+using Raven.Server.Documents.Handlers.Batches.Commands;
 using Raven.Server.ServerWide.Commands;
 
 namespace Raven.Server.Documents.Handlers.Processors.Batches

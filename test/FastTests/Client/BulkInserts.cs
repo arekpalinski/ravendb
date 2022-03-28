@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Raven.Client.Documents.BulkInsert;
 using Raven.Client.Documents.Commands;
 using Raven.Client.Documents.Indexes;
 using Raven.Client.Http;
@@ -25,9 +27,10 @@ namespace FastTests.Client
         {
         }
 
-        [Theory]
-        [RavenData(false, DatabaseMode = RavenDatabaseMode.All)]
-        public async Task Simple_Bulk_Insert(Options options, bool useSsl)
+        [RavenTheory(RavenTestCategory.BulkInsert)]
+        [RavenData(false, CompressionLevel.NoCompression, DatabaseMode = RavenDatabaseMode.All)]
+        [RavenData(false, CompressionLevel.Optimal, DatabaseMode = RavenDatabaseMode.All)]
+        public async Task Simple_Bulk_Insert(Options options, bool useSsl, CompressionLevel compressionLevel)
         {
             string dbName = GetDatabaseName();
             X509Certificate2 clientCertificate = null;
@@ -48,7 +51,10 @@ namespace FastTests.Client
 
             using (var store = GetDocumentStore(options))
             {
-                using (var bulkInsert = store.BulkInsert())
+                using (var bulkInsert = store.BulkInsert(new BulkInsertOptions()
+                       {
+                           CompressionLevel = compressionLevel
+                       }))
                 {
                     for (int i = 0; i < 1000; i++)
                     {
