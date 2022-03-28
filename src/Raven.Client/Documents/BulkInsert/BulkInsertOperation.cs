@@ -151,17 +151,17 @@ namespace Raven.Client.Documents.BulkInsert
 
                     _streamExposerContent.Done();
 
-                    if (_operationId == -1)
+                    if (OperationId == -1)
                     {
                         // closing without calling a single store.
                         return;
                     }
 
-                    if (_bulkInsertExecuteTask != null)
+                    if (BulkInsertExecuteTask != null)
                     {
                         try
                         {
-                            await _bulkInsertExecuteTask.ConfigureAwait(false);
+                            await BulkInsertExecuteTask.ConfigureAwait(false);
                         }
                         catch (Exception e)
                         {
@@ -212,12 +212,12 @@ namespace Raven.Client.Documents.BulkInsert
 
         protected override async Task WaitForId()
         {
-            if (_operationId != -1)
+            if (OperationId != -1)
                 return;
 
             var bulkInsertGetIdRequest = new GetNextOperationIdCommand();
             await ExecuteAsync(bulkInsertGetIdRequest, token: _token).ConfigureAwait(false);
-            _operationId = bulkInsertGetIdRequest.Result;
+            OperationId = bulkInsertGetIdRequest.Result;
             _nodeTag = bulkInsertGetIdRequest.NodeTag;
         }
 
@@ -405,7 +405,7 @@ namespace Raven.Client.Documents.BulkInsert
 
         protected override async Task<BulkInsertAbortedException> GetExceptionFromOperation()
         {
-            var stateRequest = new GetOperationStateOperation.GetOperationStateCommand(_operationId, _nodeTag);
+            var stateRequest = new GetOperationStateOperation.GetOperationStateCommand(OperationId, _nodeTag);
             await ExecuteAsync(stateRequest, token: _token).ConfigureAwait(false);
 
             if (!(stateRequest.Result?.Result is OperationExceptionResult error))
@@ -426,12 +426,12 @@ namespace Raven.Client.Documents.BulkInsert
                 _streamExposerContent.Headers.ContentEncoding.Add("gzip");
 
             var bulkCommand = new BulkInsertCommand(
-                _operationId,
+                OperationId,
                 _streamExposerContent,
                 _nodeTag,
                 _options.SkipOverwriteIfUnchanged);
 
-            _bulkInsertExecuteTask = ExecuteAsync(bulkCommand);
+            BulkInsertExecuteTask = ExecuteAsync(bulkCommand);
 
             _stream = await _streamExposerContent.OutputStream.ConfigureAwait(false);
 
@@ -473,17 +473,17 @@ namespace Raven.Client.Documents.BulkInsert
         {
             _streamExposerContent.ErrorOnProcessingRequest(
                 new BulkInsertAbortedException($"Write to stream failed at document with id {id}.", innerEx));
-            await _bulkInsertExecuteTask.ConfigureAwait(false);
+            await BulkInsertExecuteTask.ConfigureAwait(false);
         }
 
         public async Task AbortAsync()
         {
-            if (_operationId == -1)
+            if (OperationId == -1)
                 return; // nothing was done, nothing to kill
             await WaitForId().ConfigureAwait(false);
             try
             {
-                await ExecuteAsync(new KillOperationCommand(_operationId, _nodeTag), token: _token).ConfigureAwait(false);
+                await ExecuteAsync(new KillOperationCommand(OperationId, _nodeTag), token: _token).ConfigureAwait(false);
             }
             catch (RavenException)
             {

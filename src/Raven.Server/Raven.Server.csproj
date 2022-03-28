@@ -195,7 +195,6 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include="Dashboard\Server\" />
-    <Folder Include="Documents\Handlers\Batching\" />
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Validate'">
     <Optimize>true</Optimize>

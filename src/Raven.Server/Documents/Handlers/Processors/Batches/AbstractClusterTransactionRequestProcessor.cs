@@ -8,6 +8,7 @@ using JetBrains.Annotations;
 using Raven.Client.Documents.Commands.Batches;
 using Raven.Client.Documents.Operations.CompareExchange;
 using Raven.Client.Exceptions;
+using Raven.Server.Documents.Handlers.Batching.Commands;
 using Raven.Server.Rachis;
 using Raven.Server.Routing;
 using Raven.Server.ServerWide;
@@ -20,7 +21,7 @@ namespace Raven.Server.Documents.Handlers.Processors.Batches;
 
 public abstract class AbstractClusterTransactionRequestProcessor<TRequestHandler, TBatchCommand>
     where TRequestHandler : RequestHandler
-    where TBatchCommand : BatchHandler.IBatchCommand
+    where TBatchCommand : IBatchCommand
 {
     protected readonly TRequestHandler RequestHandler;
 

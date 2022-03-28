@@ -2,8 +2,9 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
-using Raven.Server.Documents.Handlers;
+using Raven.Server.Documents.Handlers.Batching;
 using Raven.Server.Documents.Handlers.Processors.Batches;
+using Raven.Server.Documents.Sharding.Handlers.Batches;
 using Raven.Server.ServerWide.Context;
 using Sparrow.Json.Parsing;
 
@@ -61,7 +62,7 @@ internal class ShardedBatchHandlerProcessorForBulkDocs : AbstractBatchHandlerPro
 
     protected override char GetIdentityPartsSeparator() => RequestHandler.DatabaseContext.IdentityPartsSeparator;
 
-    protected override BatchRequestParser.AbstractBatchCommandBuilder<ShardedBatchCommand, TransactionOperationContext> GetCommandBuilder() => new ShardedBatchCommandBuilder(RequestHandler);
+    protected override AbstractBatchCommandsReader<ShardedBatchCommand, TransactionOperationContext> GetCommandsReader() => new ShardedBatchCommandsReader(RequestHandler);
 
     protected override AbstractClusterTransactionRequestProcessor<ShardedDatabaseRequestHandler, ShardedBatchCommand> GetClusterTransactionRequestProcessor() => new ShardedClusterTransactionRequestProcessor(RequestHandler);
 }

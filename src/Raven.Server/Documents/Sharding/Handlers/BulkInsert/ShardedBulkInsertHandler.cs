@@ -20,7 +20,7 @@ using Sparrow.Logging;
 
 namespace Raven.Server.Documents.Sharding.Handlers;
 
-public class ShardedBulkInsertHandler : ShardedRequestHandler
+public class ShardedBulkInsertHandler : ShardedDatabaseRequestHandler
 {
     [RavenShardedAction("/databases/*/bulk_insert", "POST")]
     public async Task BulkInsert()
@@ -46,17 +46,15 @@ public class ShardedBulkInsertHandler : ShardedRequestHandler
         var progress = new BulkInsertProgress();
         try
         {
-            var logger = LoggingSource.Instance.GetLogger<BulkInsertHandler.MergedInsertBulkCommand>(ShardedContext.DatabaseName);
+            var logger = LoggingSource.Instance.GetLogger<BulkInsertHandler.MergedInsertBulkCommand>(DatabaseContext.DatabaseName);
+
             IDisposable currentCtxReset = null, previousCtxReset = null;
 
             try
             {
-
-
                 using (ContextPool.AllocateOperationContext(out TransactionOperationContext context))
                 using (context.GetMemoryBuffer(out var buffer))
-                using (context.GetMemoryBuffer(out var parsedCommandBuffer))
-                await using (var operation = new ShardedBulkInsertOperation(id, skipOverwriteIfUnchanged, ShardedContext))
+                await using (var operation = new ShardedBulkInsertOperation(id, skipOverwriteIfUnchanged, DatabaseContext))
                 {
                     var requestBodyStream = RequestBodyStream();
 
@@ -97,7 +95,7 @@ public class ShardedBulkInsertHandler : ShardedRequestHandler
                                     {
                                         foreach (BatchRequestParser.CommandData data in array)
                                         {
-                                            int shardNumber = ShardedContext.GetShardNumber(context, data.Id);
+                                            int shardNumber = DatabaseContext.GetShardNumber(context, data.Id);
 
                                             operation.StoreAsync()
 

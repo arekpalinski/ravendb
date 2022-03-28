@@ -14,7 +14,7 @@ public class CommandBufferingBatchRequestParser : BatchRequestParser, IDisposabl
     public CommandBufferingBatchRequestParser(JsonOperationContext ctx)
     {
         _ctx = ctx;
-        _commandStream = ctx.CheckoutMemoryStream();
+        _commandStream = ctx.CheckoutMemoryStream(); // TODO arek - let's use memory stream for now, then use context.GetMemoryBuffer(out var buffer)
     }
 
     public Task CopyLastCommandStreamToAsync(MemoryStream stream)

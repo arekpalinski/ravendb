@@ -18,8 +18,11 @@ using Raven.Client.Documents.Operations.TimeSeries;
 using Raven.Client.Documents.Session;
 using Raven.Client.Documents.Smuggler;
 using Raven.Client.Util;
+using Raven.Server.Documents.Handlers.Batching;
+using Raven.Server.Documents.Handlers.Batching.Commands;
 using Raven.Server.Documents.Patch;
 using Raven.Server.Documents.Sharding.Handlers;
+using Raven.Server.Documents.Sharding.Handlers.Batches;
 using Raven.Server.Documents.TransactionCommands;
 using Raven.Server.Exceptions;
 using Raven.Server.ServerWide;
@@ -77,7 +80,7 @@ namespace Raven.Server.Documents.Handlers
             public string DestinationName;
             public string ContentType;
             public AttachmentType AttachmentType;
-            public BatchHandler.MergedBatchCommand.AttachmentStream AttachmentStream; // used for bulk insert only
+            public MergedBatchCommand.AttachmentStream AttachmentStream; // used for bulk insert only
 
             #endregion Attachment
 
@@ -161,7 +164,7 @@ namespace Raven.Server.Documents.Handlers
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static unsafe long GetLongFromStringBuffer(JsonParserState state)
+        public static unsafe long GetLongFromStringBuffer(JsonParserState state)
         {
             return *(long*)state.StringBuffer;
         }
@@ -249,7 +252,7 @@ namespace Raven.Server.Documents.Handlers
             JsonParserState state,
             UnmanagedJsonParser parser,
             JsonOperationContext.MemoryBuffer buffer,
-            ShardedBatchCommandBuilder.BufferedCommand bufferedCommand,
+            BufferedCommand bufferedCommand,
             BlittableMetadataModifier modifier,
             CancellationToken token)
         {
@@ -385,7 +388,7 @@ namespace Raven.Server.Documents.Handlers
                             await Instance.RefillParserBuffer(stream, buffer, parser, token);
                         }
 
-                        commandData.Document = await ReadJsonObject(ctx, stream, commandData.Id, parser, state, buffer, modifier, token);
+                        commandData.Document = await Instance.ReadJsonObject(ctx, stream, commandData.Id, parser, state, buffer, modifier, token);
                         commandData.SeenAttachments = modifier.SeenAttachments;
                         commandData.SeenCounters = modifier.SeenCounters;
                         commandData.SeenTimeSeries = modifier.SeenTimeSeries;
@@ -415,7 +418,7 @@ namespace Raven.Server.Documents.Handlers
             return commandData;
         }
 
-        private async Task<CommandData> ReadSingleCommand(
+        public async Task<CommandData> ReadSingleCommand(
             JsonOperationContext ctx,
             Stream stream,
             JsonParserState state,
@@ -807,7 +810,7 @@ namespace Raven.Server.Documents.Handlers
             return commandData;
         }
 
-        private static CommandData[] IncreaseSizeOfCommandsBuffer(int index, CommandData[] cmds)
+        public static CommandData[] IncreaseSizeOfCommandsBuffer(int index, CommandData[] cmds)
         {
             if (cmds.Length > MaxSizeOfCommandsInBatchToCache)
             {

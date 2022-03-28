@@ -1,18 +1,20 @@
 ﻿using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Raven.Server.Documents.Handlers.Batching.Commands;
+using Raven.Server.ServerWide.Context;
 using Raven.Server.Web;
 using Sparrow.Json;
 
 namespace Raven.Server.Documents.Handlers.Batching;
 
-public class DatabaseBatchCommandBuilder : BatchCommandsReader
+public class DatabaseBatchCommandsReader : AbstractBatchCommandsReader<MergedBatchCommand, DocumentsOperationContext>
 {
     private readonly DocumentDatabase _database;
-    public List<BatchHandler.MergedBatchCommand.AttachmentStream> AttachmentStreams;
+    public List<MergedBatchCommand.AttachmentStream> AttachmentStreams;
     public StreamsTempFile AttachmentStreamsTempFile;
 
-    public DatabaseBatchCommandBuilder(RequestHandler handler, DocumentDatabase database) : base(handler, database.Name, database.IdentityPartsSeparator, BatchRequestParser.Instance)
+    public DatabaseBatchCommandsReader(RequestHandler handler, DocumentDatabase database) : base(handler, database.Name, database.IdentityPartsSeparator, BatchRequestParser.Instance)
     {
         _database = database;
     }
@@ -21,11 +23,11 @@ public class DatabaseBatchCommandBuilder : BatchCommandsReader
     {
         if (AttachmentStreams == null)
         {
-            AttachmentStreams = new List<BatchHandler.MergedBatchCommand.AttachmentStream>();
+            AttachmentStreams = new List<MergedBatchCommand.AttachmentStream>();
             AttachmentStreamsTempFile = _database.DocumentsStorage.AttachmentsStorage.GetTempFile("batch");
         }
 
-        var attachmentStream = new BatchHandler.MergedBatchCommand.AttachmentStream
+        var attachmentStream = new MergedBatchCommand.AttachmentStream
         {
             Stream = AttachmentStreamsTempFile.StartNewStream()
         };
@@ -34,10 +36,11 @@ public class DatabaseBatchCommandBuilder : BatchCommandsReader
         AttachmentStreams.Add(attachmentStream);
     }
 
-    public async Task<BatchHandler.MergedBatchCommand> GetCommand(JsonOperationContext ctx)
+    public override async ValueTask<MergedBatchCommand> GetCommandAsync(DocumentsOperationContext context)
     {
-        await ExecuteGetIdentities();
-        return new BatchHandler.MergedBatchCommand(_database)
+        await ExecuteGetIdentitiesAsync();
+
+        return new MergedBatchCommand(_database)
         {
             ParsedCommands = Commands,
             AttachmentStreams = AttachmentStreams,

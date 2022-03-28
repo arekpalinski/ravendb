@@ -4,25 +4,27 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Raven.Server.Documents.Handlers;
+using Raven.Server.Documents.Handlers.Batching;
+using Raven.Server.Documents.Sharding.Handlers.Batches;
 using Raven.Server.ServerWide.Context;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 
 namespace Raven.Server.Documents.Sharding.Handlers.BulkInsert;
 
-public class ShardedBatchCommandBuilder2 : BatchRequestParser.BatchCommandBuilder
+public class ShardedBulkInsertBatchCommandsReader : AbstractBatchCommandsReader<ShardedBatchCommand, TransactionOperationContext>
 {
     private readonly CommandBufferingBatchRequestParser _batchRequestParser;
     public List<Stream> Streams;
 
     private readonly bool _encrypted;
-    private readonly ShardedContext _shardedContext;
+    private readonly ShardedDatabaseContext _databaseContext;
 
-    public ShardedBatchCommandBuilder2(ShardedRequestHandler handler, CommandBufferingBatchRequestParser batchRequestParser) :
+    public ShardedBulkInsertBatchCommandsReader(ShardedRequestHandler handler, CommandBufferingBatchRequestParser batchRequestParser) :
         base(handler, handler.ShardedContext.DatabaseName, handler.ShardedContext.IdentitySeparator, batchRequestParser)
     {
         _batchRequestParser = batchRequestParser;
-        _shardedContext = handler.ShardedContext;
+        _databaseContext = handler.ShardedContext;
         _encrypted = handler.ShardedContext.Encrypted;
     }
 
@@ -50,6 +52,11 @@ public class ShardedBatchCommandBuilder2 : BatchRequestParser.BatchCommandBuilde
         await input.CopyToAsync(attachment, Handler.AbortRequestToken);
         await attachment.FlushAsync(Handler.AbortRequestToken);
         Streams.Add(attachment);
+    }
+
+    public override ValueTask<ShardedBatchCommand> GetCommandAsync(TransactionOperationContext context)
+    {
+        throw new NotImplementedException();
     }
 
     public StreamsTempFile GetServerTempFile(string prefix)

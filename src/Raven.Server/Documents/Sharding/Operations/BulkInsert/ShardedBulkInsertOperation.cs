@@ -14,12 +14,12 @@ namespace Raven.Server.Documents.Sharding.Operations.BulkInsert;
 internal class ShardedBulkInsertOperation : BulkInsertOperationBase, IShardedOperation<HttpResponseMessage>, IAsyncDisposable
 {
     private readonly bool _skipOverwriteIfUnchanged;
-    private readonly ShardedContext _shardedContext;
+    private readonly ShardedDatabaseContext _shardedContext;
     private readonly BulkInsertOperation.BulkInsertStreamExposerContent[] _streamExposerPerShard;
 
-    public ShardedBulkInsertOperation(long id, bool skipOverwriteIfUnchanged, ShardedContext shardedContext)
+    public ShardedBulkInsertOperation(long id, bool skipOverwriteIfUnchanged, ShardedDatabaseContext shardedContext)
     {
-        _operationId = id;
+        OperationId = id;
         _skipOverwriteIfUnchanged = skipOverwriteIfUnchanged;
         _shardedContext = shardedContext;
 
@@ -39,7 +39,7 @@ internal class ShardedBulkInsertOperation : BulkInsertOperationBase, IShardedOpe
 
     public RavenCommand<HttpResponseMessage> CreateCommandForShard(int shardNumber)
     {
-        return new BulkInsertOperation.BulkInsertCommand(_operationId, _streamExposerPerShard[shardNumber], null, _skipOverwriteIfUnchanged);
+        return new BulkInsertOperation.BulkInsertCommand(OperationId, _streamExposerPerShard[shardNumber], null, _skipOverwriteIfUnchanged);
     }
 
     protected override bool HasStream => RequestBodyStreamPerShard != null;
@@ -78,7 +78,7 @@ internal class ShardedBulkInsertOperation : BulkInsertOperationBase, IShardedOpe
 
         _currentWriter.Write('[');*/
 
-        _bulkInsertExecuteTask = _shardedContext.ShardExecutor.ExecuteParallelForAllAsync(this);
+        BulkInsertExecuteTask = _shardedContext.ShardExecutor.ExecuteParallelForAllAsync(this);
 
         await Task.WhenAll(_streamExposerPerShard.Select(x => x.OutputStream));
 
@@ -100,7 +100,7 @@ internal class ShardedBulkInsertOperation : BulkInsertOperationBase, IShardedOpe
     protected override async Task<BulkInsertAbortedException> GetExceptionFromOperation()
     {
         // TODO arek
-        var getStateOperation = new GetShardedOperationStateOperation(_operationId);
+        var getStateOperation = new GetShardedOperationStateOperation(OperationId);
         var result = await _shardedContext.ShardExecutor.ExecuteParallelForAllAsync(getStateOperation);
 
         if (!(result?.Result is OperationExceptionResult error))

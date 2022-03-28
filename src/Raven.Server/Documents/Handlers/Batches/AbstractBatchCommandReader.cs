@@ -9,7 +9,9 @@ using Microsoft.Net.Http.Headers;
 using Raven.Client.Documents.Commands.Batches;
 using Raven.Client.Documents.Smuggler;
 using Raven.Client.Util;
+using Raven.Server.Documents.Handlers.Batching.Commands;
 using Raven.Server.Documents.Patch;
+using Raven.Server.Documents.TransactionCommands;
 using Raven.Server.ServerWide;
 using Raven.Server.Smuggler;
 using Raven.Server.Web;
@@ -18,9 +20,11 @@ using Sparrow.Json.Parsing;
 
 namespace Raven.Server.Documents.Handlers.Batching;
 
-public abstract class BatchCommandsReader
+public abstract class AbstractBatchCommandsReader<TBatchCommand, TOperationContext>
+    where TBatchCommand : IBatchCommand
+    where TOperationContext : JsonOperationContext
 {
-    private static readonly BatchRequestParser.CommandData[] Empty = new BatchRequestParser.CommandData[0];
+    private static readonly BatchRequestParser.CommandData[] Empty = Array.Empty<BatchRequestParser.CommandData>();
 
     private readonly char _identityPartsSeparator;
     private readonly BatchRequestParser _batchRequestParser;
@@ -38,7 +42,7 @@ public abstract class BatchCommandsReader
     public bool HasIdentities => _identities != null;
     public bool IsClusterTransactionRequest;
 
-    protected BatchCommandsReader(RequestHandler handler, string database, char identityPartsSeparator, BatchRequestParser batchRequestParser)
+    protected AbstractBatchCommandsReader(RequestHandler handler, string database, char identityPartsSeparator, BatchRequestParser batchRequestParser)
     {
         Handler = handler;
         _database = database;
@@ -57,7 +61,7 @@ public abstract class BatchCommandsReader
         command.ChangeVector ??= ctx.GetLazyString("");
     }
 
-    protected async Task ExecuteGetIdentities()
+    protected async ValueTask ExecuteGetIdentitiesAsync()
     {
         if (HasIdentities == false)
             return;
@@ -115,7 +119,7 @@ public abstract class BatchCommandsReader
             if (state.CurrentTokenType != JsonParserToken.String)
                 BatchRequestParser.ThrowUnexpectedToken(JsonParserToken.String, state);
 
-            if (GetLongFromStringBuffer(state) != 8314892176759549763) // Commands
+            if (BatchRequestParser.GetLongFromStringBuffer(state) != 8314892176759549763) // Commands
                 BatchRequestParser.ThrowUnexpectedToken(JsonParserToken.String, state);
 
             while (parser.Read() == false)
@@ -135,7 +139,7 @@ public abstract class BatchCommandsReader
                 _index++;
                 if (_index >= _commands.Length)
                 {
-                    _commands = IncreaseSizeOfCommandsBuffer(_index, _commands);
+                    _commands = BatchRequestParser.IncreaseSizeOfCommandsBuffer(_index, _commands);
                 }
 
                 var commandData = await ReadCommand(context, stream, state, parser, buffer, modifier, Handler.AbortRequestToken);
@@ -227,6 +231,8 @@ public abstract class BatchCommandsReader
             await SaveStream(context, bodyStream);
         }
     }
+
+    public abstract ValueTask<TBatchCommand> GetCommandAsync(TOperationContext context);
 
     private static void ThrowInvalidUsageOfChangeVectorWithIdentities(BatchRequestParser.CommandData commandData)
     {

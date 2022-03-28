@@ -10,6 +10,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Raven.Client.Documents.Commands.Batches;
 using Raven.Client.Documents.Operations;
+using Raven.Server.Documents.Handlers.Batching;
+using Raven.Server.Documents.Handlers.Batching.Commands;
 using Raven.Server.Routing;
 using Raven.Server.ServerWide.Context;
 using Raven.Server.Smuggler.Documents;
@@ -209,9 +211,9 @@ namespace Raven.Server.Documents.Handlers
 
         private List<StreamsTempFile> _streamsTempFiles;
 
-        private async Task<BatchHandler.MergedBatchCommand.AttachmentStream> WriteAttachment(long size, Stream stream)
+        private async Task<MergedBatchCommand.AttachmentStream> WriteAttachment(long size, Stream stream)
         {
-            var attachmentStream = new BatchHandler.MergedBatchCommand.AttachmentStream();
+            var attachmentStream = new MergedBatchCommand.AttachmentStream();
 
             if (size <= 32 * 1024)
             {

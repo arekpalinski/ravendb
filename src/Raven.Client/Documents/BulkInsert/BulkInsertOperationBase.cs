@@ -7,10 +7,8 @@ namespace Raven.Client.Documents.BulkInsert;
 
 public abstract class BulkInsertOperationBase
 {
-    // TODO arek - rename
-
-    protected Task _bulkInsertExecuteTask;
-    protected long _operationId = -1;
+    protected Task BulkInsertExecuteTask;
+    protected long OperationId = -1;
 
     protected abstract bool HasStream { get; }
 
@@ -22,11 +20,11 @@ public abstract class BulkInsertOperationBase
             await EnsureStream().ConfigureAwait(false);
         }
 
-        if (_bulkInsertExecuteTask.IsFaulted)
+        if (BulkInsertExecuteTask.IsFaulted)
         {
             try
             {
-                await _bulkInsertExecuteTask.ConfigureAwait(false);
+                await BulkInsertExecuteTask.ConfigureAwait(false);
             }
             catch (Exception e)
             {
