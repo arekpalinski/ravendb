@@ -3,18 +3,20 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using Sparrow.Platform;
-using Voron.Exceptions;
 
 namespace Sparrow.Utils
 {
 #if NETCOREAPP3_1_OR_GREATER
     public static unsafe class ZstdLib
     {
+        internal static Func<string, Exception> CreateDictionaryException;
+
         private const string LIBZSTD = @"libzstd";
 
         static ZstdLib()
         {
             DynamicNativeLibraryResolver.Register(typeof(ZstdLib).Assembly, LIBZSTD);
+            CreateDictionaryException = message => new InvalidOperationException(message);
         }
 
         [DllImport(LIBZSTD, CallingConvention = CallingConvention.Cdecl)]
@@ -135,10 +137,10 @@ namespace Sparrow.Utils
             string ptrToStringAnsi = Marshal.PtrToStringAnsi(ZSTD_getErrorName(v));
             if (dictionary != null)
             {
-                throw new VoronErrorException(ptrToStringAnsi + " on " + dictionary);
+                throw CreateDictionaryException(ptrToStringAnsi + " on " + dictionary);
             }
 
-            throw new VoronErrorException(ptrToStringAnsi);
+            throw CreateDictionaryException(ptrToStringAnsi);
         }
 
         public class CompressContext : IDisposable
