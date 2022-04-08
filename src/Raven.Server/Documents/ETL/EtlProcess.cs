@@ -433,6 +433,12 @@ namespace Raven.Server.Documents.ETL
 
                         Statistics.RecordLoadError(e.ToString(), documentId: null, count: stats.NumberOfExtractedItems.Sum(x => x.Value));
                     }
+                    else
+                    {
+                        if (Logger.IsOperationsEnabled)
+                            Logger.Operations($"DEBUG: We didn't load transformed data for '{Name}' because the operation was cancelled", e);
+
+                    }
 
                     return false;
                 }
@@ -680,6 +686,11 @@ namespace Raven.Server.Documents.ETL
 
                     var loadLastProcessedEtag = state.GetLastProcessedEtag(Database.DbBase64Id, _serverStore.NodeTag);
 
+                    if (Logger.IsOperationsEnabled)
+                    {
+                        Logger.Operations($"DEBUG: Starting ETL batch of '{Name}' process from etag: {loadLastProcessedEtag}");
+                    }
+
                     using (Statistics.NewBatch())
                     using (Database.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                     {
@@ -714,6 +725,11 @@ namespace Raven.Server.Documents.ETL
 
                                     var lastProcessed = Math.Max(stats.LastLoadedEtag, stats.LastFilteredOutEtags.Values.Max());
 
+                                    if (Logger.IsOperationsEnabled)
+                                    {
+                                        Logger.Operations($"DEBUG: Loaded ETL batch of '{Name}' process. Last processed etag is {lastProcessed}. Last etag in stats is: {Statistics.LastProcessedEtag}. No failures: {noFailures}. (last loaded: {stats.LastLoadedEtag}, last filtered: {stats.LastFilteredOutEtags.Values.Max()})");
+                                    }
+
                                     if (lastProcessed > Statistics.LastProcessedEtag && noFailures)
                                     {
                                         didWork = true;
@@ -723,14 +739,25 @@ namespace Raven.Server.Documents.ETL
 
                                         UpdateMetrics(startTime, stats);
 
+                                        if (Logger.IsOperationsEnabled)
+                                        {
+                                            Logger.Operations($"DEBUG: Loaded ETL batch of '{Name}' process succesfully. Last processed etag is {lastProcessed}");
+                                        }
+
                                         if (Logger.IsInfoEnabled)
                                             LogSuccessfulBatchInfo(stats);
                                     }
                                 }
                             }
-                            catch (OperationCanceledException)
+                            catch (OperationCanceledException oce)
                             {
-                                return;
+                                if (CancellationToken.IsCancellationRequested)
+                                    return;
+
+                                if (Logger.IsOperationsEnabled)
+                                {
+                                    Logger.Operations($"DEBUG: Operation cancelled was thrown for ETL '{Name}' process", oce);
+                                }
                             }
                             catch (Exception e)
                             {
@@ -750,9 +777,26 @@ namespace Raven.Server.Documents.ETL
                         {
                             UpdateEtlProcessState(state);
                         }
-                        catch (OperationCanceledException)
+                        catch (OperationCanceledException oce)
                         {
-                            return;
+                            if (CancellationToken.IsCancellationRequested)
+                                return;
+
+                            if (Logger.IsOperationsEnabled)
+                            {
+                                Logger.Operations($"DEBUG: Update of ETL stats for '{Name}' process was cancelled. Retrying batch", oce);
+                            }
+
+                            continue;
+                        }
+                        catch (Exception e)
+                        {
+                            if (Logger.IsOperationsEnabled)
+                            {
+                                Logger.Operations($"DEBUG: Update of ETL stats for '{Name}' failed. Retrying batch", e);
+                            }
+
+                            continue;
                         }
 
                         if (CancellationToken.IsCancellationRequested == false)
@@ -1228,11 +1272,11 @@ namespace Raven.Server.Documents.ETL
                 }
             }
 
-            result.Completed = (result.NumberOfDocumentsToProcess > 0
-                                && result.NumberOfDocumentTombstonesToProcess > 0
-                                && result.NumberOfCounterGroupsToProcess > 0
-                                && result.NumberOfTimeSeriesSegmentsToProcess > 0
-                                && result.NumberOfTimeSeriesDeletedRangesToProcess > 0) == false;
+            result.Completed = result.NumberOfDocumentsToProcess == 0
+                               && result.NumberOfDocumentTombstonesToProcess == 0
+                               && result.NumberOfCounterGroupsToProcess == 0
+                               && result.NumberOfTimeSeriesSegmentsToProcess == 0
+                               && result.NumberOfTimeSeriesDeletedRangesToProcess == 0;
 
             var performance = _lastStats?.ToPerformanceLiveStats();
 
@@ -1258,11 +1302,11 @@ namespace Raven.Server.Documents.ETL
                 if (result.NumberOfTimeSeriesDeletedRangesToProcess > 0)
                     result.NumberOfTimeSeriesDeletedRangesToProcess -= performance.NumberOfTransformedTombstones[EtlItemType.TimeSeries];
 
-                result.Completed = (result.NumberOfDocumentsToProcess > 0
-                                   && result.NumberOfDocumentTombstonesToProcess > 0
-                                   && result.NumberOfCounterGroupsToProcess > 0
-                                   && result.NumberOfTimeSeriesSegmentsToProcess > 0
-                                   && result.NumberOfTimeSeriesDeletedRangesToProcess > 0) == false;
+                result.Completed = result.NumberOfDocumentsToProcess == 0
+                                   && result.NumberOfDocumentTombstonesToProcess == 0
+                                   && result.NumberOfCounterGroupsToProcess == 0
+                                   && result.NumberOfTimeSeriesSegmentsToProcess == 0
+                                   && result.NumberOfTimeSeriesDeletedRangesToProcess == 0;
 
                 if (result.Completed && performance.Completed == null)
                 {
