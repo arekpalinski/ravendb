@@ -723,25 +723,25 @@ namespace Raven.Server.Documents.ETL
 
                                     var noFailures = Load(transformations, context, stats);
 
-                                    var lastProcessed = Math.Max(stats.LastLoadedEtag, stats.LastFilteredOutEtags.Values.Max());
+                                    var lastProcessedInCurrentBatch = Math.Max(stats.LastLoadedEtag, stats.LastFilteredOutEtags.Values.Max());
 
                                     if (Logger.IsOperationsEnabled)
                                     {
-                                        Logger.Operations($"DEBUG: Loaded ETL batch of '{Name}' process. Last processed etag is {lastProcessed}. Last etag in stats is: {Statistics.LastProcessedEtag}. No failures: {noFailures}. (last loaded: {stats.LastLoadedEtag}, last filtered: {stats.LastFilteredOutEtags.Values.Max()})");
+                                        Logger.Operations($"DEBUG: Loaded ETL batch of '{Name}' process. Last processed etag is {lastProcessedInCurrentBatch}. Last etag in stats is: {Statistics.LastProcessedEtag}. No failures: {noFailures}. (last loaded: {stats.LastLoadedEtag}, last filtered: {stats.LastFilteredOutEtags.Values.Max()})");
                                     }
 
-                                    if (lastProcessed > Statistics.LastProcessedEtag && noFailures)
+                                    if (lastProcessedInCurrentBatch > loadLastProcessedEtag && noFailures)
                                     {
                                         didWork = true;
 
-                                        Statistics.LastProcessedEtag = lastProcessed;
+                                        Statistics.LastProcessedEtag = lastProcessedInCurrentBatch;
                                         Statistics.LastChangeVector = stats.ChangeVector;
 
                                         UpdateMetrics(startTime, stats);
 
                                         if (Logger.IsOperationsEnabled)
                                         {
-                                            Logger.Operations($"DEBUG: Loaded ETL batch of '{Name}' process succesfully. Last processed etag is {lastProcessed}");
+                                            Logger.Operations($"DEBUG: Loaded ETL batch of '{Name}' process succesfully. Last processed etag is {lastProcessedInCurrentBatch}");
                                         }
 
                                         if (Logger.IsInfoEnabled)
