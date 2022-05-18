@@ -91,23 +91,50 @@
                     <input type="text" class="form-control" placeholder="Filter" accesskey="/" title="Filter databases (Alt+/)" data-bind="textInput: filters.searchText">
                 </div>
                 <div class="btn-group">
-                    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" title="Filter visible databases">
-                        <span data-bind="visible: !filters.localOnly()">Show all</span>
-                        <span data-bind="visible: filters.localOnly">Show local (Node <span data-bind="text: clusterManager.localNodeTag"></span>)</span>
-                        &nbsp;&nbsp;
+                    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown"
+                            data-bind="css: { 'active': filters.requestedState() !== 'all' }" title="Filter visible databases">
+                        <span data-bind="visible: filters.requestedState() === 'all'">Show all</span>
+                        <span data-bind="visible: filters.requestedState() === 'local'">Local (Node <span data-bind="text: clusterManager.localNodeTag"></span>)</span>
+                        <span data-bind="visible: filters.requestedState() === 'online'">Online</span>
+                        <span data-bind="visible: filters.requestedState() === 'offline'">Offline</span>
+                        <span data-bind="visible: filters.requestedState() === 'disabled'">Disabled</span>
+                        <span data-bind="visible: filters.requestedState() === 'errored'">Errored</span>
+                        <span data-bind="visible: filters.requestedState() === 'remote'">Remote</span>
                         <span class="caret"></span>
                         <span class="sr-only">Toggle Dropdown</span>
                     </button>
                     <ul class="dropdown-menu">
-                        <li data-bind="click: _.partial(filters.localOnly, false)">
-                            <a href="#" title="Show all databases available in cluster">
-                                <span>Show all</span>
-                            </a>
+                        <li class="flex-horizontal" data-bind="click: _.partial(filters.requestedState, 'all')">
+                            <a class="flex-grow" href="#" title="Show all databases available in cluster"><span>Show all</span></a>
+                            <span class="badge margin-right-sm margin-left-lg" data-bind="text: $root.databases().sortedDatabases().length"></span>
                         </li>
-                        <li data-bind="click: _.partial(filters.localOnly, true)">
-                            <a href="#" title="Show only databases which are relevant for current node">
-                                <span>Show local (Node <span data-bind="text: clusterManager.localNodeTag"></span>)</span>
+                        <li class="divider"></li>
+                        <li class="flex-horizontal" data-bind="click: _.partial(filters.requestedState, 'online')">
+                            <a class="flex-grow" href="#" title="Show only online databases"><span>Online</span></a>
+                            <span class="badge margin-right-sm margin-left-lg" data-bind="text: $root.databasesByState().online"></span>
+                        </li>
+                        <li class="flex-horizontal" data-bind="click: _.partial(filters.requestedState, 'offline')">
+                            <a class="flex-grow" href="#" title="Show only offline databases"><span>Offline</span></a>
+                            <span class="badge margin-right-sm margin-left-lg" data-bind="text: $root.databasesByState().offline"></span>
+                        </li>
+                        <li class="flex-horizontal" data-bind="click: _.partial(filters.requestedState, 'disabled')">
+                            <a class="flex-grow" href="#" title="Show only disabled databases"><span>Disabled</span></a>
+                            <span class="badge margin-right-sm margin-left-lg" data-bind="text: $root.databasesByState().disabled"></span>
+                        </li>
+                        <li class="flex-horizontal" data-bind="click: _.partial(filters.requestedState, 'errored')">
+                            <a class="flex-grow" href="#" title="Show only errored databases"><span>Errored</span></a>
+                            <span class="badge margin-right-sm margin-left-lg" data-bind="text: $root.databasesByState().errored"></span>
+                        </li>
+                        <li class="divider"></li>
+                        <li class="flex-horizontal" data-bind="click: _.partial(filters.requestedState, 'local')">
+                            <a class="flex-grow" href="#" title="Show only databases which are relevant for current node">
+                                <span>Local (Node <span data-bind="text: clusterManager.localNodeTag"></span>)</span>
                             </a>
+                            <span class="badge margin-right-sm margin-left-lg" data-bind="text: $root.databases().sortedDatabases().length - $root.databasesByState().remote"></span>
+                        </li>
+                        <li class="flex-horizontal" data-bind="click: _.partial(filters.requestedState, 'remote')">
+                            <a class="flex-grow" href="#" title="Show only remote databases"><span>Remote</span></a>
+                            <span class="badge margin-right-sm margin-left-lg" data-bind="text: $root.databasesByState().remote"></span>
                         </li>
                     </ul>
                 </div>
@@ -205,13 +232,14 @@
                             </span>
                             <div class="actions">
                                 <a class="btn btn-default" href="#" title="Manage the Database Group"
-                                   data-bind="css: { 'disabled': !canNavigateToDatabase() || isBeingDeleted() }, 
+                                   data-bind="css: { 'disabled': isBeingDeleted() }, visible: canNavigateToDatabase(),
                                               attr: { href: $root.createManageDbGroupUrlObsevable($data), target: $root.createIsLocalDatabaseObservable(name)() ? undefined : '_blank' }">
                                     <i class="icon-manage-dbgroup"></i>
                                     <span>Manage group</span>
                                 </a>
                                 <div class="btn-group">
-                                    <button class="btn btn-default" data-bind="click: $root.toggleDatabase, visible: $root.accessManager.canDisableEnableDatabase,
+                                    <button class="btn btn-default" data-bind="click: $root.toggleDatabase,
+                                                                    visible: $root.accessManager.canDisableEnableDatabase && canNavigateToDatabase(),
                                                                     css: { 'btn-spinner': inProgressAction },
                                                                     disable: isBeingDeleted() || inProgressAction()">
                                         <span data-bind="visible: inProgressAction(), text: inProgressAction()"></span>
@@ -262,14 +290,17 @@
                                     <i class="icon-refresh-stats"></i>
                                 </button>
                                 <div class="btn-group" data-bind="visible: $root.accessManager.canDelete">
-                                    <button class="btn" data-bind="click: $root.deleteDatabase, disable: isBeingDeleted() || lockMode() !== 'Unlock',
+                                    <button class="btn" data-bind="click: $root.deleteDatabase,
+                                                                   visible: canNavigateToDatabase,
+                                                                   disable: isBeingDeleted() || lockMode() !== 'Unlock',
                                                                    css: { 'btn-danger': lockMode() === 'Unlock', 'btn-default': lockMode() !== 'Unlock', 'btn-spinner': isBeingDeleted() || _.includes($root.spinners.localLockChanges(), name) },
                                                                    attr: { title: lockMode() === 'Unlock' ? 'Remove database' : 'Database cannot be deleted because of the set lock mode' }">
                                         <i class="icon-trash" data-bind="visible: lockMode() === 'Unlock'"></i>
                                         <i class="icon-trash-cutout icon-addon-cancel" data-bind="visible: lockMode() === 'PreventDeletesIgnore'"></i>
                                         <i class="icon-trash-cutout icon-addon-exclamation" data-bind="visible: lockMode() === 'PreventDeletesError'"></i>
                                     </button>
-                                    <button type="button" class="btn dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" data-bind="css: { 'btn-danger': lockMode() === 'Unlock', 'btn-default': lockMode() !== 'Unlock' }">
+                                    <button type="button" class="btn dropdown-toggle" data-toggle="dropdown" aria-haspopup="true"
+                                            data-bind="css: { 'btn-danger': lockMode() === 'Unlock', 'btn-default': lockMode() !== 'Unlock' }, visible: canNavigateToDatabase">
                                         <span class="caret"></span>
                                         <span class="sr-only">Toggle Dropdown</span>
                                     </button>

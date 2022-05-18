@@ -21,7 +21,7 @@ namespace StressTests.Issues
         {
         }
 
-        [Fact64Bit]
+        [MultiplatformFact(RavenArchitecture.AllX64)]
         public void IndexingWhenTransactionSizeLimitExceeded()
         {
             using (var store = GetDocumentStore(new Options()
@@ -36,7 +36,7 @@ namespace StressTests.Issues
             }
         }
 
-        [Fact64Bit]
+        [MultiplatformFact(RavenArchitecture.AllX64)]
         public void IndexingWhenScratchSpaceLimitExceeded()
         {
             using (var store = GetDocumentStore(new Options()
@@ -53,7 +53,7 @@ namespace StressTests.Issues
             }
         }
 
-        [Fact64Bit]
+        [MultiplatformFact(RavenArchitecture.AllX64)]
         public void IndexingWhenGlobalScratchSpaceLimitExceeded()
         {
             UseNewLocalServer(new Dictionary<string, string>
@@ -71,7 +71,7 @@ namespace StressTests.Issues
             }
         }
 
-        [Fact32Bit]
+        [MultiplatformFact(RavenArchitecture.AllX86)]
         public void IndexingWhenTransactionSizeLimitExceeded32()
         {
             using (var store = GetDocumentStore(new Options()
@@ -86,7 +86,7 @@ namespace StressTests.Issues
             }
         }
 
-        [Fact32Bit]
+        [MultiplatformFact(RavenArchitecture.AllX86)]
         public void IndexingWhenScratchSpaceLimitExceeded32()
         {
             using (var store = GetDocumentStore(new Options()
@@ -103,7 +103,7 @@ namespace StressTests.Issues
             }
         }
 
-        [Fact32Bit]
+        [MultiplatformFact(RavenArchitecture.AllX86)]
         public void IndexingWhenGlobalScratchSpaceLimitExceeded32()
         {
             UseNewLocalServer(new Dictionary<string, string>
@@ -124,7 +124,7 @@ namespace StressTests.Issues
         [Fact]
         public void IndexingWhenEncryptedTransactionSizeLimitLimitExceeded()
         {
-            string dbName = SetupEncryptedDatabase(out var certificates, out var _);
+            string dbName = Encryption.SetupEncryptedDatabase(out var certificates, out var _);
 
             using (var store = GetDocumentStore(new Options()
             {
@@ -199,13 +199,13 @@ namespace StressTests.Issues
 
                 try
                 {
-                    WaitForIndexing(store);
+                    Indexes.WaitForIndexing(store);
                 }
                 catch
                 {
                 }
 
-                var errors = WaitForIndexingErrors(store, errorsShouldExists: false);
+                var errors = Indexes.WaitForIndexingErrors(store, errorsShouldExists: false);
                 if (errors != null)
                 {
                     foreach (var error in errors)

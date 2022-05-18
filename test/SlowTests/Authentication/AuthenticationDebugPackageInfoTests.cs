@@ -127,11 +127,11 @@ namespace SlowTests.Authentication
         private async Task AssertDatabaseDebugInfoEntries(string dbName, Dictionary<string, DatabaseAccess> databaseAccesses,
             SecurityClearance securityClearance, string[] shouldContain)
         {
-            var certificates = SetupServerAuthentication();
-            var adminCert = RegisterClientCertificate(certificates.ServerCertificate.Value, certificates.ClientCertificate1.Value, new Dictionary<string, DatabaseAccess>(),
+            var certificates = Certificates.SetupServerAuthentication();
+            var adminCert = Certificates.RegisterClientCertificate(certificates.ServerCertificate.Value, certificates.ClientCertificate1.Value, new Dictionary<string, DatabaseAccess>(),
                 SecurityClearance.ClusterAdmin);
 
-            var userCert = RegisterClientCertificate(certificates.ServerCertificate.Value, certificates.ClientCertificate2.Value, databaseAccesses, securityClearance);
+            var userCert = Certificates.RegisterClientCertificate(certificates.ServerCertificate.Value, certificates.ClientCertificate2.Value, databaseAccesses, securityClearance);
 
             using var store = GetDocumentStore(new Options {AdminCertificate = adminCert, ClientCertificate = userCert, ModifyDatabaseName = s => dbName});
             var requestExecutor = store.GetRequestExecutor(store.Database);
@@ -176,11 +176,11 @@ namespace SlowTests.Authentication
         {
             DoNotReuseServer();
             var databaseName = GetDatabaseName();
-            var certs = SetupServerAuthentication();
-            var adminCert = RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate1.Value,
+            var certs = Certificates.SetupServerAuthentication();
+            var adminCert = Certificates.RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate1.Value,
                 new Dictionary<string, DatabaseAccess>(),
                 SecurityClearance.ClusterAdmin);
-            var userCert = RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate2.Value,
+            var userCert = Certificates.RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate2.Value,
                 new Dictionary<string, DatabaseAccess>() { [databaseName] = DatabaseAccess.ReadWrite }, SecurityClearance.Operator);
 
             using (var store = GetDocumentStore(new Options() {ClientCertificate = userCert, AdminCertificate = adminCert, ModifyDatabaseName = _ => databaseName}))
@@ -209,11 +209,11 @@ namespace SlowTests.Authentication
         {
             DoNotReuseServer();
             var databaseName = GetDatabaseName();
-            var certs = SetupServerAuthentication();
-            var adminCert = RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate1.Value,
+            var certs = Certificates.SetupServerAuthentication();
+            var adminCert = Certificates.RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate1.Value,
                 new Dictionary<string, DatabaseAccess>(),
                 SecurityClearance.ClusterAdmin);
-            var userCert = RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate2.Value,
+            var userCert = Certificates.RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate2.Value,
                 new Dictionary<string, DatabaseAccess>() {[databaseName] = DatabaseAccess.ReadWrite}, SecurityClearance.ValidUser);
 
             using (var store = GetDocumentStore(new Options()
@@ -241,10 +241,10 @@ namespace SlowTests.Authentication
         {
             DoNotReuseServer();
             var databaseName = GetDatabaseName();
-            var certs = SetupServerAuthentication();
-            var adminCert = RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate1.Value,
+            var certs = Certificates.SetupServerAuthentication();
+            var adminCert = Certificates.RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate1.Value,
                 new Dictionary<string, DatabaseAccess>(), SecurityClearance.ClusterAdmin);
-            var userCert = RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate2.Value,
+            var userCert = Certificates.RegisterClientCertificate(certs.ServerCertificate.Value, certs.ClientCertificate2.Value,
                 new Dictionary<string, DatabaseAccess>() { [databaseName] = DatabaseAccess.Admin }, SecurityClearance.ValidUser);
 
             using (var store = GetDocumentStore(new Options()
@@ -275,7 +275,7 @@ namespace SlowTests.Authentication
             foreach (var e in debugEntries)
                 Assert.True(archiveEntries.Contains(e), $"{e} is missing from the debug package");
             foreach (var e in archiveEntries)
-                Assert.True(debugEntries.Contains(e), $"{e} should not be in the debug package");
+                Assert.True(debugEntries.Contains(e) || e.Contains("requestTimes"), $"{e} should not be in the debug package");
         }
 
         private string GetFileNameWithoutExtension(RouteInformation route, string prefixFolder)

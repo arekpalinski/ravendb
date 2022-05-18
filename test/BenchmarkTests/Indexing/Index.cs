@@ -215,7 +215,7 @@ namespace BenchmarkTests.Indexing
                 }
             }
 
-            WaitForIndexing(store, ReIndexDatabaseName, timeout: 3 * DefaultTestOperationTimeout);
+            Indexes.WaitForIndexing(store, ReIndexDatabaseName, timeout: 3 * DefaultTestOperationTimeout);
 
             await store.Maintenance.ForDatabase(ReIndexDatabaseName).SendAsync(new StopIndexingOperation());
 
@@ -224,7 +224,7 @@ namespace BenchmarkTests.Indexing
                 .ForDatabase(ReIndexDatabaseName)
                 .SendAsync(new PatchByQueryOperation("from Companies update { this.Name = this.Name + '_patched'; }"));
 
-            await operation.WaitForCompletionAsync();
+            await operation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
         }
     }
 }

@@ -13,7 +13,6 @@ using Raven.Server.Documents.TimeSeries;
 using Raven.Server.ServerWide.Context;
 using Raven.Tests.Core.Utils.Entities;
 using SlowTests.Client.TimeSeries.Policies;
-using SlowTests.Client.TimeSeries.Query;
 using Sparrow;
 using Xunit;
 using Xunit.Abstractions;
@@ -325,7 +324,7 @@ namespace SlowTests.Client.TimeSeries.Session
                     var agg = query.First();
                     if (agg.Count != 3)
                     {
-                        var db = GetDocumentDatabaseInstanceFor(store).Result;
+                        var db = Databases.GetDocumentDatabaseInstanceFor(store).Result;
                         var tss = db.DocumentsStorage.TimeSeriesStorage;
                         using (db.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext ctx))
                         using (ctx.OpenReadTransaction())
@@ -626,7 +625,7 @@ select out(doc)
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
                 await store.TimeSeries.RegisterAsync<User, StockPrice>();
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -656,7 +655,7 @@ select out(doc)
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await QueryFromMultipleTimeSeries.VerifyFullPolicyExecution(store, config.Collections["Users"], rawName: "StockPrices");
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12, rawName: "StockPrices");
 
                 using (var session = store.OpenSession())
                 {
@@ -758,7 +757,7 @@ select out()
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
                 await store.TimeSeries.RegisterAsync<User, StockPrice>();
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var baseline = now.AddDays(-12);
@@ -784,7 +783,7 @@ select out()
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await QueryFromMultipleTimeSeries.VerifyFullPolicyExecution(store, config.Collections["Users"], rawName: "StockPrices");
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12, rawName: "StockPrices");
 
                 using (var session = store.OpenSession())
                 {

@@ -16,7 +16,7 @@ namespace SlowTests.RecoveryTests
         {
         }
 
-        [Fact64Bit(Skip = "RavenDB-13765")]
+        [MultiplatformFact(RavenArchitecture.AllX64, Skip = "RavenDB-13765")]
         public async Task CanRecoverSampleData()
         {
             var rootPath = NewDataPath(prefix: Guid.NewGuid().ToString());
@@ -33,7 +33,7 @@ namespace SlowTests.RecoveryTests
                     ModifyDatabaseName = _ => badName
                 }))
             {
-                CreateNorthwindDatabase(corruptedStore);
+                Samples.CreateNorthwindDatabase(corruptedStore);
             }
 
             Assert.True(Server.ServerStore.DatabasesLandlord.UnloadDirectly(badName));
@@ -49,7 +49,7 @@ namespace SlowTests.RecoveryTests
             }
         }
 
-        [Fact64Bit]
+        [MultiplatformFact(RavenArchitecture.AllX64)]
         public async Task CanRecoverTimeSeries()
         {
             var rootPath = NewDataPath(prefix: Guid.NewGuid().ToString());
@@ -58,7 +58,7 @@ namespace SlowTests.RecoveryTests
             var recoveredPath = Path.Combine(rootPath, "recovery");
 
             using (var serverStore = GetDocumentStore(new Options { CreateDatabase = false }))
-            using (EnsureDatabaseDeletion(badName, serverStore))
+            using (Databases.EnsureDatabaseDeletion(badName, serverStore))
             {
                 using (var store = GetDocumentStore(
                     new Options

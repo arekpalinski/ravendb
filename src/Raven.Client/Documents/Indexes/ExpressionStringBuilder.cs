@@ -1324,8 +1324,25 @@ namespace Raven.Client.Documents.Indexes
                         return node; // we don't have nullable type on the server side, we can safely ignore this.
                 }
             }
-
             var exprType = node.Expression != null ? node.Member.DeclaringType : node.Type;
+#if FEATURE_DATEONLY_TIMEONLY_SUPPORT
+            if (_isProjectionPart && (node.Type == typeof(TimeOnly) || node.Type == typeof(DateOnly) || node.Type == typeof(TimeOnly?) || node.Type == typeof(DateOnly?)))
+            {
+                if (Nullable.GetUnderlyingType(node.Type) is Type underlyingType)
+                {
+                    Out($"As{underlyingType.Name}(");
+                }
+                else
+                {
+                    Out($"As{node.Type.Name}(");
+                }
+
+                
+                OutMember(node.Expression, node.Member, exprType);
+                Out(")");
+                return node;
+            }
+#endif
             OutMember(node.Expression, node.Member, exprType);
             return node;
         }
@@ -1376,7 +1393,7 @@ namespace Raven.Client.Documents.Indexes
                 Out("new");
             }
             else
-            {
+            { 
                 Visit(node.NewExpression);
                 if (TypeExistsOnServer(node.Type) == false)
                 {
@@ -1714,10 +1731,13 @@ namespace Raven.Client.Documents.Indexes
 
                     var oldAvoidDuplicateParameters = _avoidDuplicatedParameters;
                     var oldIsSelectMany = _isSelectMany;
-
+                    var oldIsProjectionPart = _isProjectionPart;
                     _isSelectMany = node.Method.Name == "SelectMany";
                     if (node.Method.Name == "Select" || _isSelectMany)
+                    {
                         _avoidDuplicatedParameters = true;
+                        _isProjectionPart = true;
+                    }
 
                     if (node.Arguments[num2].NodeType == ExpressionType.MemberAccess)
                     {
@@ -1739,6 +1759,7 @@ namespace Raven.Client.Documents.Indexes
 
                     _isSelectMany = oldIsSelectMany;
                     _avoidDuplicatedParameters = oldAvoidDuplicateParameters;
+                    _isProjectionPart = oldIsProjectionPart;
                 }
                 finally
                 {
@@ -2170,6 +2191,7 @@ namespace Raven.Client.Documents.Indexes
         private bool _insideWellKnownType;
         private bool _avoidDuplicatedParameters;
         private bool _isSelectMany;
+        private bool _isProjectionPart;
         private readonly HashSet<Type> _loadDocumentTypes = new HashSet<Type>();
 
         /// <summary>

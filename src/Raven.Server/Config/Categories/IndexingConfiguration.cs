@@ -11,6 +11,7 @@ using Raven.Server.Documents.Indexes.Analysis;
 using Raven.Server.Documents.Indexes.Configuration;
 using Raven.Server.Documents.Indexes.Persistence.Lucene;
 using Raven.Server.ServerWide;
+using Raven.Server.Utils.Features;
 using Sparrow;
 using Sparrow.LowMemory;
 using Sparrow.Platform;
@@ -70,6 +71,7 @@ namespace Raven.Server.Config.Categories
             protected set => _runInMemory = value;
         }
 
+        [Description("Indicate if all indexes in the database are disabled")]
         [DefaultValue(false)]
         [IndexUpdateType(IndexUpdateType.None)]
         [ConfigurationEntry("Indexing.Disable", ConfigurationEntryScope.ServerWideOrPerDatabase)]
@@ -394,6 +396,12 @@ namespace Raven.Server.Config.Categories
         [IndexUpdateType(IndexUpdateType.Refresh)]
         [ConfigurationEntry("Indexing.TimeSinceLastQueryAfterWhichDeepCleanupCanBeExecutedInMin", ConfigurationEntryScope.ServerWideOrPerDatabaseOrPerIndex)]
         public TimeSetting TimeSinceLastQueryAfterWhichDeepCleanupCanBeExecuted { get; set; }
+
+        [Description("Require database admin clearance to deploy JavaScript indexes")]
+        [DefaultValue(false)]
+        [IndexUpdateType(IndexUpdateType.None)]
+        [ConfigurationEntry("Indexing.Static.RequireAdminToDeployJavaScriptIndexes", ConfigurationEntryScope.ServerWideOrPerDatabase)]
+        public bool RequireAdminToDeployJavaScriptIndexes { get; set; }
 
         protected override void ValidateProperty(PropertyInfo property)
         {

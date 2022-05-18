@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using FastTests;
@@ -81,7 +83,7 @@ namespace SlowTests.Server.Documents.TimeSeries
                 }
                 Assert.True(c >= 0);
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
                 await cleaner.ExecuteCleanup();
 
                 c = 0;
@@ -170,7 +172,11 @@ namespace SlowTests.Server.Documents.TimeSeries
                     tsCount1 = storage.DocumentsStorage.TimeSeriesStorage.GetNumberOfTimeSeriesDeletedRanges(context);
                 }
 
-                var storage2 = await Server.ServerStore.DatabasesLandlord.TryGetOrCreateResourceStore(store1.Database);
+                var storage2 = await Server.ServerStore.DatabasesLandlord.TryGetOrCreateResourceStore(store2.Database);
+
+                cleaner = storage2.TombstoneCleaner;
+                await cleaner.ExecuteCleanup();
+
                 long tsCount2 = 0;
                 using (storage2.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                 using (context.OpenReadTransaction())
@@ -329,7 +335,6 @@ namespace SlowTests.Server.Documents.TimeSeries
                         var c2 = storage.DocumentsStorage.TimeSeriesStorage.GetNumberOfTimeSeriesDeletedRanges(context);
                         var c3 = storage.DocumentsStorage.TimeSeriesStorage.GetNumberOfTimeSeriesPendingDeletionSegments(context);
 
-
                         Assert.Equal(750, c2);
                         Assert.Equal(2, c3);
                     }
@@ -352,6 +357,129 @@ namespace SlowTests.Server.Documents.TimeSeries
                     return c;
                 }, 0, interval: 333);
                 Assert.Equal(0, res);
+            }
+        }
+
+        [Fact]
+        public async Task ShouldNotRemoveStatsOfExistingTimeSeries()
+        {
+            using (var store1 = GetDocumentStore())
+            using (var store2 = GetDocumentStore())
+            {
+                var users = new List<string>()
+                {
+                    "user/1",
+                    "user/2",
+                    "user/11",
+                    "user/21",
+                    "user/12",
+                    "user/22",
+                    "user/3",
+                    "user/13"
+                };
+
+                using (var session = store1.OpenSession())
+                {
+                    foreach (string user in users)
+                    {
+                        session.Store(new User { Name = "EGR" }, user);
+                    }
+
+                    session.SaveChanges();
+                }
+
+                foreach (string user in users)
+                {
+                    using (var session = store1.OpenSession())
+                    {
+                        var tsf = session.TimeSeriesFor(user, "raven");
+                        for (int i = 0; i <= 30; i++)
+                        {
+                            tsf.Append(_baseline.AddDays(i), i);
+                        }
+
+                        session.SaveChanges();
+                    }
+                }
+
+                foreach (string user in users)
+                {
+                    using (var session = store1.OpenSession())
+                    {
+                        var tsf = session.TimeSeriesFor(user, "raven");
+                        tsf.Delete(_baseline, _baseline.AddDays(29));
+                        session.SaveChanges();
+                    }
+                }
+
+                var storage = await Server.ServerStore.DatabasesLandlord.TryGetOrCreateResourceStore(store1.Database);
+                var cleaner = storage.TombstoneCleaner;
+
+                await SetupReplicationAsync(store1, store2);
+                await EnsureReplicatingAsync(store1, store2);
+
+                using (var controller = new ReplicationController(storage))
+                {
+                    foreach (string user in users)
+                    {
+                        using (var session = store1.OpenSession())
+                        {
+                            var tsf = session.TimeSeriesFor(user, "raven");
+                            tsf.Delete(_baseline.AddDays(29), _baseline.AddDays(29));
+                            tsf.Delete(_baseline.AddDays(30), _baseline.AddDays(30));
+                            session.SaveChanges();
+                        }
+                    }
+
+                    controller.ReplicateOnce();
+
+                    await cleaner.ExecuteCleanup();
+                }
+
+                await EnsureReplicatingAsync(store1, store2);
+
+                await cleaner.ExecuteCleanup();
+
+                var tss = storage.DocumentsStorage.TimeSeriesStorage;
+
+                using (storage.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    Assert.Equal(0, tss.Stats.GetNumberOfEntries(ctx));
+                }
+            }
+        }
+
+        [Fact]
+        public async Task CanReplicateWhenStatsNameIsNull()
+        {
+            var backupPath = NewDataPath(forceCreateDir: true);
+            var fullBackupPath = Path.Combine(backupPath, "2022-03-27-12-38-05-8912792.ravendb-snapshot");
+
+            await using (var file = File.Create(fullBackupPath))
+            {
+                await using (var stream = typeof(TimeSeriesTombstoneCleaner).Assembly.GetManifestResourceStream("SlowTests.Data.RavenDB_18381.2022-03-27-12-38-05-8912792.ravendb-snapshot"))
+                {
+                    await stream.CopyToAsync(file);
+                }
+            }
+
+            using (var store1 = GetDocumentStore(new Options
+            {
+                CreateDatabase = false
+            }))
+            using (var store2 = GetDocumentStore())
+            {
+                using (Backup.RestoreDatabase(store1,
+                           new RestoreBackupConfiguration
+                           {
+                               BackupLocation = backupPath,
+                               DatabaseName = store1.Database
+                           }))
+                {
+                    await SetupReplicationAsync(store1, store2);
+                    await EnsureReplicatingAsync(store1, store2);
+                }
             }
         }
 

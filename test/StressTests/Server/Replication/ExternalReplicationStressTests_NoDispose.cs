@@ -20,16 +20,16 @@ namespace StressTests.Server.Replication
         {
         }
 
-        [Fact64Bit]
+        [MultiplatformFact(RavenArchitecture.AllX64)]
         public void ExternalReplicationShouldWorkWithSmallTimeoutStress()
         {
             for (int i = 0; i < 10; i++)
             {
-                Parallel.For(0, 3, RavenTestHelper.DefaultParallelOptions, async _ =>
+                Parallel.For(0, 3, RavenTestHelper.DefaultParallelOptions, _ =>
                 {
                     using (var test = new ExternalReplicationTests(Output))
                     {
-                        await test.ExternalReplicationShouldWorkWithSmallTimeoutStress(20000);
+                        test.ExternalReplicationShouldWorkWithSmallTimeoutStress(20000).Wait(TimeSpan.FromMinutes(10));
                     }
                 });
             }

@@ -412,7 +412,6 @@ namespace Raven.Server.Documents.Queries.Parser
             // Lines where Name = 'Chang' select Product
 
             isImplicit = false;
-            SynteticWithQuery prev = default;
             alias = default;
             field = null;
             var start = Scanner.Position;
@@ -486,7 +485,7 @@ namespace Raven.Server.Documents.Queries.Parser
                     if (gq.HasAlias(alias))
                         return true;
 
-                    if (_synteticWithQueries?.TryGetValue(alias, out prev) == true && !prev.IsEdge)
+                    if (_synteticWithQueries?.TryGetValue(alias, out SynteticWithQuery prev) == true && !prev.IsEdge)
                         return true;
 
                     AddWithQuery(collection, null, alias, null, isEdge, start, true);
@@ -1830,7 +1829,6 @@ Grouping by 'Tag' or Field is supported only as a second grouping-argument.";
             "AS",
             "SELECT",
             "WHERE",
-            "FILTER",
             "LOAD",
             "GROUP",
             "ORDER",
@@ -1838,7 +1836,6 @@ Grouping by 'Tag' or Field is supported only as a second grouping-argument.";
             "UPDATE",
             "OFFSET",
             "LIMIT",
-            "FILTER_LIMIT",
             "SCALE"
         };
 
@@ -1864,8 +1861,21 @@ Grouping by 'Tag' or Field is supported only as a second grouping-argument.";
                 return false;
             }
 
+            var oldPos = Scanner.Position;
             if (Field(out var token))
             {
+                if (required == false && // need to check that this is a real alias 
+                    token.FieldValue.Equals("FILTER", StringComparison.OrdinalIgnoreCase))
+                {
+                    // if the alias is 'filter' *and* the next term is *not* a keyword, we have a filter clause so not an alias 
+                    if (Scanner.TryPeek(AliasKeywords) == false)
+                    {
+                        Scanner.Reset(oldPos);
+                        alias = null;
+                        return false;
+                    }
+                }
+
                 alias = token.FieldValue;
                 return true;
             }

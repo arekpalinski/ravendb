@@ -44,7 +44,7 @@ namespace SlowTests.Client.Attachments
                         store.Operations.Send(new PutAttachmentOperation("users/1", "file1", stream, "image/png"));
 
                     var exportOperation = await store.Smuggler.ExportAsync(new DatabaseSmugglerExportOptions(), file);
-                    var exportResult = (SmugglerResult)exportOperation.WaitForCompletion();
+                    var exportResult = (SmugglerResult)await exportOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                     Assert.Equal(1, exportResult.Documents.ReadCount);
                     Assert.Equal(1, exportResult.Documents.Attachments.ReadCount);
@@ -70,7 +70,7 @@ namespace SlowTests.Client.Attachments
                     Assert.Equal(1, stats.CountOfUniqueAttachments);
 
                     var importOperation = await store.Smuggler.ImportAsync(new DatabaseSmugglerImportOptions(), file);
-                    var importResult = (SmugglerResult)importOperation.WaitForCompletion();
+                    var importResult = (SmugglerResult)await importOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                     Assert.Equal(1, importResult.Documents.ReadCount);
                     Assert.Equal(1, importResult.Documents.Attachments.ReadCount);
@@ -192,7 +192,7 @@ namespace SlowTests.Client.Attachments
                         store.Operations.Send(new PutAttachmentOperation("users/1", "file1", stream, "image/png"));
 
                     var exportOperation = await store.Smuggler.ExportAsync(new DatabaseSmugglerExportOptions(), file);
-                    var exportResult = (SmugglerResult)exportOperation.WaitForCompletion();
+                    var exportResult = (SmugglerResult)await exportOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                     Assert.Equal(1, exportResult.Documents.ReadCount);
                     Assert.Equal(1, exportResult.Documents.Attachments.ReadCount);
@@ -210,7 +210,7 @@ namespace SlowTests.Client.Attachments
                     Assert.Equal(0, stats.CountOfUniqueAttachments);
 
                     var importOperation = await store.Smuggler.ImportAsync(new DatabaseSmugglerImportOptions(), file);
-                    var importResult = (SmugglerResult)importOperation.WaitForCompletion();
+                    var importResult = (SmugglerResult)await importOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                     Assert.Equal(1, importResult.Documents.ReadCount);
                     Assert.Equal(1, importResult.Documents.Attachments.ReadCount);
@@ -259,7 +259,7 @@ namespace SlowTests.Client.Attachments
                     }
 
                     var exportOperation = await store.Smuggler.ExportAsync(new DatabaseSmugglerExportOptions(), file);
-                    var exportResult = (SmugglerResult)exportOperation.WaitForCompletion();
+                    var exportResult = (SmugglerResult)await exportOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                     Assert.Equal(1, exportResult.Documents.ReadCount);
                     Assert.Equal(0, exportResult.Documents.Attachments.ReadCount);
@@ -278,7 +278,7 @@ namespace SlowTests.Client.Attachments
                     Assert.Equal(1, stats.CountOfUniqueAttachments);
 
                     var importOperation = await store.Smuggler.ImportAsync(new DatabaseSmugglerImportOptions(), file);
-                    var importResult = (SmugglerResult)importOperation.WaitForCompletion();
+                    var importResult = (SmugglerResult)await importOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                     Assert.Equal(1, importResult.Documents.ReadCount);
                     Assert.Equal(0, importResult.Documents.Attachments.ReadCount);
@@ -325,7 +325,7 @@ namespace SlowTests.Client.Attachments
                     ModifyDatabaseName = s => $"{s}_store1"
                 }))
                 {
-                    await SetDatabaseId(store1, dbId);
+                    await Databases.SetDatabaseId(store1, dbId);
 
                     await RevisionsHelper.SetupRevisions(Server.ServerStore, store1.Database, configuration =>
                     {
@@ -351,7 +351,7 @@ namespace SlowTests.Client.Attachments
                     }
 
                     var exportOperation = await store1.Smuggler.ExportAsync(new DatabaseSmugglerExportOptions(), file);
-                    var exportResult = (SmugglerResult)exportOperation.WaitForCompletion();
+                    var exportResult = (SmugglerResult)await exportOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                     Assert.Equal(1, exportResult.Documents.ReadCount);
                     Assert.Equal(2, exportResult.RevisionDocuments.ReadCount);
@@ -370,10 +370,10 @@ namespace SlowTests.Client.Attachments
                     ModifyDatabaseName = s => $"{s}_store2"
                 }))
                 {
-                    await SetDatabaseId(store2, dbId2);
+                    await Databases.SetDatabaseId(store2, dbId2);
 
                     var importOperation = await store2.Smuggler.ImportAsync(new DatabaseSmugglerImportOptions(), file);
-                    var importResult = (SmugglerResult)importOperation.WaitForCompletion();
+                    var importResult = (SmugglerResult)await importOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                     Assert.Equal(1, importResult.Documents.ReadCount);
                     Assert.Equal(2, importResult.RevisionDocuments.ReadCount);
@@ -428,7 +428,7 @@ namespace SlowTests.Client.Attachments
                     ModifyDatabaseName = s => $"{s}_store1"
                 }))
                 {
-                    await SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
+                    await Databases.SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
                     await RevisionsHelper.SetupRevisions(Server.ServerStore, store1.Database, configuration =>
                     {
                         configuration.Collections["Users"].PurgeOnDelete = false;
@@ -440,7 +440,7 @@ namespace SlowTests.Client.Attachments
                         store1.Operations.Send(new PutAttachmentOperation("users/1", "big-file", bigStream, "image/png"));
 
                     var exportOperation = await store1.Smuggler.ExportAsync(new DatabaseSmugglerExportOptions(), file);
-                    var exportResult = (SmugglerResult)await exportOperation.WaitForCompletionAsync();
+                    var exportResult = (SmugglerResult)await exportOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                     Assert.Equal(1, exportResult.Documents.ReadCount);
                     Assert.Equal(4, exportResult.RevisionDocuments.ReadCount);
@@ -460,7 +460,7 @@ namespace SlowTests.Client.Attachments
                 }))
                 {
                     var dbId = new Guid("00000000-48c4-421e-9466-000000000000");
-                    await SetDatabaseId(store2, dbId);
+                    await Databases.SetDatabaseId(store2, dbId);
 
                     await RevisionsHelper.SetupRevisions(Server.ServerStore, store2.Database);
 
@@ -474,7 +474,7 @@ namespace SlowTests.Client.Attachments
                             return backupOperation.Status;
                         },OperationStatus.Completed), OperationStatus.Completed);
 
-                        var importResult = (SmugglerResult)await importOperation.WaitForCompletionAsync();
+                        var importResult = (SmugglerResult)await importOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                         Assert.Equal(1, importResult.Documents.ReadCount);
                         Assert.True(4 == importResult.RevisionDocuments.ReadCount, $"{i} : importResult.RevisionDocuments.ReadCount = {importResult.RevisionDocuments.ReadCount}");

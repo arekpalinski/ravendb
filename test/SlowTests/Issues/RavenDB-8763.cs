@@ -19,21 +19,21 @@ namespace SlowTests.Issues
             using (var store = GetDocumentStore())
             {
                 var index = new ReduceMeByTag();
-                store.ExecuteIndex(index);
+                await store.ExecuteIndexAsync(index);
                 using (var session = store.OpenAsyncSession())
                 {
-                    session.StoreAsync(new ReduceMe
+                    await session.StoreAsync(new ReduceMe
                     {
                         Tag = "Foo",
                         Amount = 2
-                    }).Wait();
-                    session.StoreAsync(new ReduceMe
+                    });
+                    await session.StoreAsync(new ReduceMe
                     {
                         Tag = "Foo",
                         Amount = 3
-                    }).Wait();
-                    session.SaveChangesAsync().Wait();
-                    WaitForIndexing(store);
+                    });
+                    await session.SaveChangesAsync();
+                    Indexes.WaitForIndexing(store);
                     var query = session.Query<ReduceMe>(index.IndexName);
                     await using (var stream = await session.Advanced.StreamAsync(query))
                     {

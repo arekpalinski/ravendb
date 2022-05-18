@@ -32,12 +32,12 @@ namespace SlowTests.Issues
                 var index = new Orders_ByOrderBy();
                 index.Execute(store);
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
                 var indexInstance1 = database.IndexStore.GetIndex(index.IndexName);
 
-                Assert.Equal(IndexDefinitionBase.IndexVersion.CurrentVersion, indexInstance1.Definition.Version);
+                Assert.Equal(IndexDefinitionBaseServerSide.IndexVersion.CurrentVersion, indexInstance1.Definition.Version);
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 var indexTimeFields = indexInstance1._indexStorage.ReadIndexTimeFields();
                 Assert.Empty(indexTimeFields);
@@ -50,7 +50,7 @@ namespace SlowTests.Issues
                     session.SaveChanges();
                 }
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 indexTimeFields = indexInstance1._indexStorage.ReadIndexTimeFields();
                 Assert.Equal(1, indexTimeFields.Count);
@@ -64,7 +64,7 @@ namespace SlowTests.Issues
                     session.SaveChanges();
                 }
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 indexTimeFields = indexInstance1._indexStorage.ReadIndexTimeFields();
                 Assert.Equal(2, indexTimeFields.Count);
@@ -72,12 +72,12 @@ namespace SlowTests.Issues
                 Assert.Contains("ShippedAt", indexTimeFields);
 
                 Server.ServerStore.DatabasesLandlord.UnloadDirectly(store.Database);
-                database = await GetDocumentDatabaseInstanceFor(store);
+                database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var indexInstance2 = database.IndexStore.GetIndex(index.IndexName);
                 Assert.NotEqual(indexInstance1, indexInstance2);
 
-                Assert.Equal(IndexDefinitionBase.IndexVersion.CurrentVersion, indexInstance2.Definition.Version);
+                Assert.Equal(IndexDefinitionBaseServerSide.IndexVersion.CurrentVersion, indexInstance2.Definition.Version);
 
                 indexTimeFields = indexInstance2._indexStorage.ReadIndexTimeFields();
                 Assert.Equal(2, indexTimeFields.Count);
@@ -109,7 +109,7 @@ namespace SlowTests.Issues
                         .ToList();
                 }
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 var database = await server.ServerStore.DatabasesLandlord.TryGetOrCreateResourceStore(store.Database);
                 indexStoragePath1 = database.IndexStore.GetIndex(index.IndexName)._environment.Options.BasePath.FullPath;
@@ -136,13 +136,13 @@ namespace SlowTests.Issues
             {
                 var database = await server.ServerStore.DatabasesLandlord.TryGetOrCreateResourceStore(store.Database);
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 var indexInstance1 = database.IndexStore.GetIndex(index.IndexName);
                 var indexInstance2 = database.IndexStore.GetIndex("Auto/Orders/ByOrderedAt");
 
-                Assert.Equal(IndexDefinitionBase.IndexVersion.BaseVersion, indexInstance1.Definition.Version);
-                Assert.Equal(IndexDefinitionBase.IndexVersion.BaseVersion, indexInstance2.Definition.Version);
+                Assert.Equal(IndexDefinitionBaseServerSide.IndexVersion.BaseVersion, indexInstance1.Definition.Version);
+                Assert.Equal(IndexDefinitionBaseServerSide.IndexVersion.BaseVersion, indexInstance2.Definition.Version);
 
                 var indexTimeFields = indexInstance1._indexStorage.ReadIndexTimeFields();
                 Assert.Equal(0, indexTimeFields.Count);
@@ -156,8 +156,8 @@ namespace SlowTests.Issues
                 indexInstance1 = database.IndexStore.GetIndex(index.IndexName);
                 indexInstance2 = database.IndexStore.GetIndex("Auto/Orders/ByOrderedAt");
 
-                Assert.Equal(IndexDefinitionBase.IndexVersion.BaseVersion, indexInstance1.Definition.Version);
-                Assert.Equal(IndexDefinitionBase.IndexVersion.BaseVersion, indexInstance2.Definition.Version);
+                Assert.Equal(IndexDefinitionBaseServerSide.IndexVersion.BaseVersion, indexInstance1.Definition.Version);
+                Assert.Equal(IndexDefinitionBaseServerSide.IndexVersion.BaseVersion, indexInstance2.Definition.Version);
 
                 store.Maintenance.Send(new ResetIndexOperation(index.IndexName));
                 store.Maintenance.Send(new ResetIndexOperation("Auto/Orders/ByOrderedAt"));
@@ -165,8 +165,8 @@ namespace SlowTests.Issues
                 indexInstance1 = database.IndexStore.GetIndex(index.IndexName);
                 indexInstance2 = database.IndexStore.GetIndex("Auto/Orders/ByOrderedAt");
 
-                Assert.Equal(IndexDefinitionBase.IndexVersion.CurrentVersion, indexInstance1.Definition.Version);
-                Assert.Equal(IndexDefinitionBase.IndexVersion.CurrentVersion, indexInstance2.Definition.Version);
+                Assert.Equal(IndexDefinitionBaseServerSide.IndexVersion.CurrentVersion, indexInstance1.Definition.Version);
+                Assert.Equal(IndexDefinitionBaseServerSide.IndexVersion.CurrentVersion, indexInstance2.Definition.Version);
             }
         }
 
@@ -187,7 +187,7 @@ namespace SlowTests.Issues
                     session.SaveChanges();
                 }
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 using (var session = store.OpenSession(new SessionOptions { NoCaching = true }))
                 {

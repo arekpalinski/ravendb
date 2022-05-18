@@ -18,6 +18,7 @@ using Raven.Tests.Core.Utils.Entities;
 using SlowTests.Client.TimeSeries.Patch;
 using SlowTests.Client.TimeSeries.Replication;
 using Sparrow;
+using Tests.Infrastructure;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -29,7 +30,7 @@ namespace StressTests.Client.TimeSeries
         {
         }
 
-        [Fact]
+        [MultiplatformFact(RavenArchitecture.AllX64)]
         public async Task RapidRetention()
         {
             var cluster = await CreateRaftCluster(3);
@@ -285,7 +286,7 @@ update
     }
 }"
                     }));
-                await appendOperation.WaitForCompletionAsync();
+                await appendOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                 var deleteFrom = toAppend[timeSeriesPointsAmount * 1 / 3].Timestamp;
                 var deleteTo = toAppend[timeSeriesPointsAmount * 3 / 4].Timestamp;
@@ -306,7 +307,7 @@ update
   timeseries(this, $timeseries).delete($from, $to);
 }"
                     }));
-                await deleteOperation.WaitForCompletionAsync();
+                await deleteOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                 var getFrom = toAppend[timeSeriesPointsAmount * 1 / 5].Timestamp;
                 var getTo = toAppend[timeSeriesPointsAmount * 4 / 5].Timestamp;
@@ -327,7 +328,7 @@ update
   this.Result = timeseries(this, $timeseries).get($from, $to);
 }"
                     }));
-                await getOperation.WaitForCompletionAsync();
+                await getOperation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                 using (var session = store.OpenAsyncSession())
                 {

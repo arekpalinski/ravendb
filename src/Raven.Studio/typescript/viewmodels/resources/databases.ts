@@ -28,8 +28,10 @@ import storageKeyProvider = require("common/storage/storageKeyProvider");
 import compactDatabaseDialog = require("viewmodels/resources/compactDatabaseDialog");
 import notificationCenter = require("common/notifications/notificationCenter");
 import saveDatabaseLockModeCommand = require("commands/resources/saveDatabaseLockModeCommand");
+import databaseSettings = require("viewmodels/database/settings/databaseSettings");
 
 type databaseState = "errored" | "disabled" | "online" | "offline" | "remote";
+type filterState = databaseState | 'local' | 'all';
 
 class databases extends viewModelBase {
     
@@ -49,7 +51,7 @@ class databases extends viewModelBase {
 
     filters = {
         searchText: ko.observable<string>(),
-        localOnly: ko.observable<string>()
+        requestedState: ko.observable<filterState>('all')
     };
 
     selectionState: KnockoutComputed<checkbox>;
@@ -97,7 +99,7 @@ class databases extends viewModelBase {
         const filters = this.filters;
 
         filters.searchText.throttle(200).subscribe(() => this.filterDatabases());
-        filters.localOnly.subscribe(() => this.filterDatabases());
+        filters.requestedState.subscribe(() => this.filterDatabases());
 
         this.selectionState = ko.pureComputed<checkbox>(() => {
             const databases = this.databases().sortedDatabases().filter(x => !x.filteredOut());
@@ -399,18 +401,28 @@ class databases extends viewModelBase {
         const filters = this.filters;
         let searchText = filters.searchText();
         const hasSearchText = !!searchText;
-        const localOnly = filters.localOnly();
-        const nodeTag = this.clusterManager.localNodeTag();
 
         if (hasSearchText) {
             searchText = searchText.toLowerCase();
         }
 
-        const matchesFilters = (db: databaseInfo) => {
+        const matchesFilters = (db: databaseInfo): boolean => {
+            const state = filters.requestedState();
+            const nodeTag = this.clusterManager.localNodeTag();
+            
+            const matchesOnline = state === 'online' && db.online();
+            const matchesDisabled = state === 'disabled' && db.disabled();
+            const matchesErrored = state === 'errored' && db.hasLoadError();
+            const matchesOffline = state === 'offline' && (!db.online() && !db.disabled() && !db.hasLoadError() && db.isLocal(nodeTag));
+            
+            const matchesLocal = state === 'local' && db.isLocal(nodeTag);
+            const matchesRemote = state === 'remote' && !db.isLocal(nodeTag);
+            const matchesAll = state === 'all';
+            
             const matchesText = !hasSearchText || db.name.toLowerCase().indexOf(searchText) >= 0;
-            const matchesLocal = !localOnly || db.isLocal(nodeTag);
-
-            return matchesText && matchesLocal;
+            
+            return matchesText &&
+                (matchesOnline || matchesDisabled || matchesErrored || matchesOffline || matchesLocal || matchesRemote || matchesAll);
         };
 
         const databases = this.databases();
@@ -631,14 +643,32 @@ class databases extends viewModelBase {
 
     toggleDisableDatabaseIndexing(db: databaseInfo) {
         const enableIndexing = db.indexingDisabled();
-        const message = enableIndexing ? "Enable" : "Disable";
+
+        const message1 = enableIndexing ? "Enable" : "Disable";
+        const message2 = enableIndexing ? "Enabling" : "Disabling";
 
         eventsCollector.default.reportEvent("databases", "toggle-indexing");
 
-        this.confirmationMessage("Are you sure?", message + " indexing?")
+        this.confirmationMessage(`${message1} indexing?`,
+            `<div class="margin-top">You're ${message2.toLowerCase()} all indexes on this database.</div>
+             <div class="margin-top-lg flex-horizontal padding padding-sm bg-warning text-warning">
+                 <div class="flex-start"><i class="icon-warning"></i></div>
+                 <div class="margin-left margin-left-lg">
+                     After clicking <strong>${message1}</strong>, the database must be reloaded in order for this indexing configuration to be in effect.<br />
+                     Without reloading, the change will NOT apply (despite being written to the database record).
+                 </div>
+             </div>
+             <div class="padding padding-xs margin-top-sm bg-warning text-warning">
+                <div class="margin-left-lg">${databaseSettings.howToReloadDatabaseHtml}</div>
+             </div>`,
+            {
+                buttons: ["Cancel", message1],
+                html: true,
+                wideDialog: true
+            })
             .done(result => {
                 if (result.can) {
-                    db.inProgressAction(enableIndexing ? "Enabling..." : "Disabling...");
+                    db.inProgressAction(`${message2}...`);
 
                     new toggleDisableIndexingCommand(enableIndexing, db)
                         .execute()

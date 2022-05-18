@@ -109,15 +109,15 @@ namespace SlowTests.Issues
                 new Person_ByName().Execute(store);
                 new Person_ByAge().Execute(store);
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 var operation1 = await store.Operations.SendAsync(new DeleteByQueryOperation<Person>("Person/ByName", x => x.Name == "Bob"));
-                await operation1.WaitForCompletionAsync();
+                await operation1.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 var operation2 = await store.Operations.SendAsync(new DeleteByQueryOperation<Person, Person_ByAge>(x => x.Age < 35));
-                await operation2.WaitForCompletionAsync();
+                await operation2.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                 using (var session = store.OpenAsyncSession())
                 {
@@ -146,12 +146,12 @@ namespace SlowTests.Issues
                 new Person_ByName().Execute(store);
                 new Person_ByAge().Execute(store);
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 var operation1 = store.Operations.Send(new DeleteByQueryOperation<Person>("Person/ByName", x => x.Name == "Bob"));
                 operation1.WaitForCompletion(TimeSpan.FromSeconds(15));
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 var operation2 = store.Operations.Send(new DeleteByQueryOperation<Person, Person_ByAge>(x => x.Age < 35));
                 operation2.WaitForCompletion(TimeSpan.FromSeconds(15));

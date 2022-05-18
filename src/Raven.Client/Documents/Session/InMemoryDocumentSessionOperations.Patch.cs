@@ -304,7 +304,7 @@ namespace Raven.Client.Documents.Session
             return true;
         }
 
-        private static readonly CreateSerializerOptions SerializerOptions = new CreateSerializerOptions {TypeNameHandling = TypeNameHandling.Objects};
+        private static readonly CreateSerializerOptions SerializerOptions = new CreateSerializerOptions {TypeNameHandling = TypeNameHandling.Auto};
 
         private object AddTypeNameToValueIfNeeded(Type propertyType, object value)
         {
@@ -312,7 +312,12 @@ namespace Raven.Client.Documents.Session
                 return null;
 
             var typeOfValue = value.GetType();
-            if (propertyType == typeOfValue || typeOfValue.IsClass == false)
+            if (
+#if FEATURE_DATEONLY_TIMEONLY_SUPPORT
+                value is not (DateOnly or TimeOnly) 
+                &&  
+#endif
+                (propertyType == typeOfValue || typeOfValue.IsClass == false))
                 return value;
 
             using (var writer = Conventions.Serialization.CreateWriter(Context))
@@ -326,7 +331,7 @@ namespace Raven.Client.Documents.Session
                 writer.WriteStartObject();
                 writer.WritePropertyName("Value");
 
-                serializer.Serialize(writer, value);
+                serializer.Serialize(writer, value, propertyType);
 
                 writer.WriteEndObject();
 

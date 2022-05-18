@@ -161,7 +161,7 @@ namespace Raven.Server.Smuggler.Documents
                     _batch = _database.IndexStore.CreateIndexBatch();
             }
 
-            public async ValueTask WriteIndexAsync(IndexDefinitionBase indexDefinition, IndexType indexType)
+            public async ValueTask WriteIndexAsync(IndexDefinitionBaseServerSide indexDefinition, IndexType indexType)
             {
                 if (_batch != null)
                 {
@@ -1039,7 +1039,7 @@ namespace Raven.Server.Smuggler.Documents
                 {
                     if (currentDatabaseRecord?.DocumentsCompression?.Collections?.Length > 0 || currentDatabaseRecord?.DocumentsCompression?.CompressAllCollections == true)
                     {
-                        var collectionsToAdd = new List<string>();
+                        var collectionsToAdd = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                         foreach (var collection in currentDatabaseRecord.DocumentsCompression.Collections)
                         {

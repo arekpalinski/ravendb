@@ -6,7 +6,6 @@ using FastTests;
 using Raven.Client.Documents;
 using Raven.Client.Documents.Operations.TimeSeries;
 using Raven.Client.Documents.Session;
-using SlowTests.Client.TimeSeries.Query;
 using SlowTests.Core.Utils.Entities;
 using Sparrow;
 using Xunit;
@@ -494,7 +493,7 @@ namespace SlowTests.Client.TimeSeries.Issues
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
                 await store.TimeSeries.RegisterAsync<User, StockPrice>();
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -524,7 +523,7 @@ namespace SlowTests.Client.TimeSeries.Issues
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await QueryFromMultipleTimeSeries.VerifyFullPolicyExecution(store, config.Collections["Users"], rawName: "StockPrices");
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12, rawName: "StockPrices");
 
                 using (var session = store.OpenSession())
                 {
@@ -570,7 +569,7 @@ namespace SlowTests.Client.TimeSeries.Issues
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
                 await store.TimeSeries.RegisterAsync<User, StockPrice>();
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -600,7 +599,7 @@ namespace SlowTests.Client.TimeSeries.Issues
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await QueryFromMultipleTimeSeries.VerifyFullPolicyExecution(store, config.Collections["Users"], rawName: "StockPrices");
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12, rawName: "StockPrices");
 
                 using (var session = store.OpenSession())
                 {

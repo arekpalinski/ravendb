@@ -57,7 +57,7 @@ namespace StressTests.Issues
                 new Company_ByName().Execute(store);
                 put_1500_companies(store);
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 var task = Task.Run(async () =>
                 {
@@ -73,7 +73,7 @@ namespace StressTests.Issues
                         {
                             if (serverToggled)
                             {
-                                await operation.WaitForCompletionAsync();
+                                await operation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
                             }
                             else
                             {

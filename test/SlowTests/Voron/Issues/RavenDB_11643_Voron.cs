@@ -3,6 +3,7 @@ using System.IO;
 using FastTests.Voron;
 using Tests.Infrastructure;
 using Voron.Data.BTrees;
+using Voron.Data.Compression;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -14,7 +15,7 @@ namespace SlowTests.Voron.Issues
         {
         }
 
-        [Fact64Bit]
+        [MultiplatformFact(RavenArchitecture.AllX64)]
         public void PageRefValidationOnBranchPagesShouldNotThrow()
         {
             using (var tx = Env.WriteTransaction())
@@ -83,7 +84,7 @@ namespace SlowTests.Voron.Issues
 
                     if (treePage.IsCompressed)
                     {
-                        using (var decompressed = tree.DecompressPage(treePage, skipCache: true))
+                        using (var decompressed = tree.DecompressPage(treePage, DecompressionUsage.Read, skipCache: true))
                         {
                             Assert.Equal(0, decompressed.NumberOfEntries);
 

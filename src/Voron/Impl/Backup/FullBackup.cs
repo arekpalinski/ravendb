@@ -99,14 +99,17 @@ namespace Voron.Impl.Backup
                 long allocatedPages;
                 var writePersistentContext = new TransactionPersistentContext(true);
                 var readPersistentContext = new TransactionPersistentContext(true);
-                using (var txw = env.NewLowLevelTransaction(writePersistentContext, TransactionFlags.ReadWrite)) // so we can snapshot the headers safely
+                using (env.Journal.Applicator.TakeFlushingLock()) // prevent from running JournalApplicator.UpdateDatabaseStateAfterSync() concurrently
+                using (var txw = env.NewLowLevelTransaction(writePersistentContext, TransactionFlags.ReadWrite)) // so no new journal files will be created
                 {
                     txr = env.NewLowLevelTransaction(readPersistentContext, TransactionFlags.Read);// now have snapshot view
                     allocatedPages = dataPager.NumberOfAllocatedPages;
 
                     Debug.Assert(HeaderAccessor.HeaderFileNames.Length == 2);
                     infoNotify(($"Voron copy headers for {basePath}", 2));
-                    VoronBackupUtil.CopyHeaders(compressionLevel, package, copier, env.Options, basePath);
+                    env.HeaderAccessor.CopyHeaders(compressionLevel, package, copier, env.Options, basePath);
+
+                    env._forTestingPurposes?.ActionToCallDuringFullBackupRighAfterCopyHeaders?.Invoke();
 
                     // journal files snapshot
                     var files = env.Journal.Files; // thread safety copy

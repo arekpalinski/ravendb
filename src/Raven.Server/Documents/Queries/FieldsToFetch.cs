@@ -5,6 +5,8 @@ using Raven.Client;
 using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Queries;
 using Raven.Server.Documents.Indexes;
+using Raven.Server.Documents.Indexes.MapReduce.Auto;
+using Raven.Server.Documents.Indexes.MapReduce.Static;
 using Raven.Server.Documents.Queries.AST;
 using Raven.Server.Documents.Queries.Results;
 using Sparrow;
@@ -33,7 +35,7 @@ namespace Raven.Server.Documents.Queries
 
         public readonly ProjectionOptions Projection;
 
-        public FieldsToFetch(IndexQueryServerSide query, IndexDefinitionBase indexDefinition)
+        public FieldsToFetch(IndexQueryServerSide query, IndexDefinitionBaseServerSide indexDefinition)
         {
             Projection = new ProjectionOptions(query);
 
@@ -53,7 +55,7 @@ namespace Raven.Server.Documents.Queries
         }
 
         private static FieldToFetch GetFieldToFetch(
-            IndexDefinitionBase indexDefinition,
+            IndexDefinitionBaseServerSide indexDefinition,
             QueryMetadata metadata,
             ProjectionBehavior? projectionBehavior,
             SelectField selectField,
@@ -151,7 +153,10 @@ namespace Raven.Server.Documents.Queries
                 if (selectFieldName == Constants.Documents.Indexing.Fields.DocumentIdFieldName)
                 {
                     anyExtractableFromIndex = maybeExtractFromIndex;
-                    return new FieldToFetch(selectFieldName, selectField, selectField.Alias, canExtractFromIndex: false, isDocumentId: true, isTimeSeries: false);
+                    
+                    return new FieldToFetch(selectFieldName, selectField, selectField.Alias, 
+                        canExtractFromIndex: indexDefinition is MapReduceIndexDefinition or AutoMapReduceIndexDefinition, 
+                        isDocumentId: true, isTimeSeries: false);
                 }
 
                 if (selectFieldName.Value[0] == '_')
@@ -213,7 +218,7 @@ namespace Raven.Server.Documents.Queries
         private static Dictionary<string, FieldToFetch> GetFieldsToFetch(
             QueryMetadata metadata,
             ProjectionBehavior? projectionBehavior,
-            IndexDefinitionBase indexDefinition,
+            IndexDefinitionBaseServerSide indexDefinition,
             out bool anyExtractableFromIndex,
             out bool extractAllStoredFields,
             out bool singleFieldNoAlias,

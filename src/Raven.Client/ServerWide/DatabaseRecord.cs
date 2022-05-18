@@ -228,9 +228,11 @@ namespace Raven.Client.ServerWide
 
             if (IsRolling(definition.DeploymentMode, globalDeploymentMode))
             {
+                definition.ClusterState ??= new ClusterState();
+                definition.ClusterState.LastRollingDeploymentIndex = raftIndex;
                 if (differences == null || (differences.Value & IndexDefinition.ReIndexRequiredMask) != 0)
                 {
-                    InitializeRollingDeployment(definition.Name, createdAt);
+                    InitializeRollingDeployment(definition.Name, createdAt, raftIndex);
                     definition.DeploymentMode = IndexDeploymentMode.Rolling;
         }
             }
@@ -264,7 +266,7 @@ namespace Raven.Client.ServerWide
             if (globalDeploymentMode == IndexDeploymentMode.Rolling)
             {
                 if (differences == null || (differences.Value & IndexDefinition.ReIndexRequiredMask) != 0)
-                    InitializeRollingDeployment(definition.Name, createdAt);
+                    InitializeRollingDeployment(definition.Name, createdAt, raftIndex);
         }
         }
 
@@ -276,7 +278,7 @@ namespace Raven.Client.ServerWide
             return fromDefinition == IndexDeploymentMode.Rolling;
         }
 
-        private void InitializeRollingDeployment(string indexName, DateTime createdAt)
+        private void InitializeRollingDeployment(string indexName, DateTime createdAt, long raftIndex)
         {
             RollingIndexes ??= new Dictionary<string, RollingIndex>();
             
@@ -303,6 +305,7 @@ namespace Raven.Client.ServerWide
                 }
 
                 rollingIndex.ActiveDeployments[node] = deployment;
+                rollingIndex.RaftCommandIndex = raftIndex;
             }
         }
 

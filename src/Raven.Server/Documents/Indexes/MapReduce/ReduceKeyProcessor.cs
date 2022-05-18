@@ -223,7 +223,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                         _singleValueHash = (ulong)dbl;
                         break;
                     case Mode.MultipleValues:
-                        if (_indexVersion < IndexDefinitionBase.IndexVersion.ReduceKeyProcessorHashDoubleFix)
+                        if (_indexVersion < IndexDefinitionBaseServerSide.IndexVersion.ReduceKeyProcessorHashDoubleFix)
                         {
                             // we keep the previous behavior for old indexes, because it will keep the reduce buckets
                             CopyToBuffer((byte*)&d, sizeof(double));
@@ -250,7 +250,11 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                 ticks = dateTimeOffset.Ticks;
             if (value is TimeSpan timeSpan)
                 ticks = timeSpan.Ticks;
-
+            if (value is DateOnly @do)
+                ticks = @do.DayNumber * TimeSpan.TicksPerDay;
+            if (value is TimeOnly to)
+                ticks = to.Ticks;
+                    
             if (ticks.HasValue)
             {
                 var t = ticks.Value;

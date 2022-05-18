@@ -34,21 +34,24 @@ namespace FastTests.Client
             X509Certificate2 adminCertificate = null;
             if (useSsl)
             {
-                var certificates = SetupServerAuthentication();
-                adminCertificate = RegisterClientCertificate(certificates.ServerCertificate.Value, certificates.ClientCertificate1.Value, new Dictionary<string, DatabaseAccess>(), SecurityClearance.ClusterAdmin);
-                clientCertificate = RegisterClientCertificate(certificates.ServerCertificate.Value, certificates.ClientCertificate2.Value, new Dictionary<string, DatabaseAccess>
+                var certificates = Certificates.SetupServerAuthentication();
+                adminCertificate = Certificates.RegisterClientCertificate(certificates.ServerCertificate.Value, certificates.ClientCertificate1.Value, new Dictionary<string, DatabaseAccess>(), SecurityClearance.ClusterAdmin);
+                clientCertificate = Certificates.RegisterClientCertificate(certificates.ServerCertificate.Value, certificates.ClientCertificate2.Value, new Dictionary<string, DatabaseAccess>
                 {
                     [dbName] = DatabaseAccess.ReadWrite
                 });
-
-                Server.ForTestingPurposesOnly().PrintExceptionDuringBulkInsertProcessingToConsole = true;
             }
 
             using (var store = GetDocumentStore(new Options
             {
                 AdminCertificate = adminCertificate,
                 ClientCertificate = clientCertificate,
-                ModifyDatabaseName = s => dbName
+                ModifyDatabaseName = s => dbName,
+                ModifyDocumentStore = s =>
+                {
+                    if (useSsl)
+                        s.OnFailedRequest += (_, args) => Console.WriteLine($"Failed Request ('{args.Database}'): {args.Url}. Exception: {args.Exception}");
+                }
             }))
             {
                 using (var bulkInsert = store.BulkInsert())

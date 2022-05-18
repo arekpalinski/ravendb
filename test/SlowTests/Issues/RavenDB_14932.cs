@@ -46,8 +46,12 @@ namespace SlowTests.Issues
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
                 var now = DateTime.UtcNow;
+                var nowSeconds = now.Second;
+                now = now.AddSeconds(-nowSeconds);
+                database.Time.UtcDateTime = () => DateTime.UtcNow.AddSeconds(-nowSeconds);
+
                 var baseline = now.AddDays(-12);
                 var total = ((TimeSpan)TimeValue.FromDays(12)).TotalMinutes;
 
@@ -64,16 +68,19 @@ namespace SlowTests.Issues
                     session.SaveChanges();
                 }
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
-                await database.TimeSeriesPolicyRunner.RunRollups();
-                await database.TimeSeriesPolicyRunner.DoRetention();
+                await TimeSeries.WaitForPolicyRunnerAsync(database);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 4, policies: new List<TimeSeriesPolicy> { p1 });
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 5, policies: new List<TimeSeriesPolicy> { p2 });
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 2, policies: new List<TimeSeriesPolicy> { p3 });
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 3, policies: new List<TimeSeriesPolicy> { p4 });
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
                 RavenTestHelper.AssertNoIndexErrors(store);
 
                 using (var session = store.OpenSession())
                 {
                     var user = session.Load<User>("users/karmel");
+
                     var count = session
                         .TimeSeriesFor(user, "Heartrate")
                         .Get(DateTime.MinValue, DateTime.MaxValue)
@@ -102,7 +109,7 @@ namespace SlowTests.Issues
                     var results = session.Query<TimeSeriesIndex.Result, TimeSeriesIndex>()
                         .ToList();
 
-                    Assert.Equal(count, results.Count);
+                    Assert.True(count == results.Count, $"Test time = {now}");
                 }
             }
         }

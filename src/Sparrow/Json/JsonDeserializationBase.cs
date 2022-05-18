@@ -73,8 +73,11 @@ namespace Sparrow.Json
                 {
                     assign
                 };
-                foreach (var fieldInfo in typeof(T).GetFields())
+                foreach (var fieldInfo in typeof(T).GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
                 {
+                    if ((fieldInfo.IsPublic == false) && (fieldInfo.IsDefined(typeof(ForceJsonSerializationAttribute)) == false))
+                        continue;
+
                     if (fieldInfo.IsStatic || fieldInfo.IsDefined(typeof(JsonDeserializationIgnoreAttribute)))
                         continue;
 
@@ -86,8 +89,12 @@ namespace Sparrow.Json
                     SetValue(fieldInfo.FieldType, access, fieldValue);
                 }
 
-                foreach (var propertyInfo in typeof(T).GetProperties())
+                foreach (var propertyInfo in typeof(T).GetProperties(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
                 {
+                    if ((propertyInfo.GetGetMethod(true)?.IsPublic == false) &&
+                        propertyInfo.IsDefined(typeof(ForceJsonSerializationAttribute)) == false)
+                        continue;
+
                     if (propertyInfo.CanWrite == false || propertyInfo.IsDefined(typeof(JsonDeserializationIgnoreAttribute)))
                         continue;
 
@@ -278,8 +285,12 @@ namespace Sparrow.Json
                     }
                 }
 
-                if (propertyType == typeof(List<string>) || propertyType == typeof(HashSet<string>))
+                var isReadOnlyListOfStrings = propertyType == typeof(IReadOnlyList<string>);
+                if (propertyType == typeof(List<string>) || propertyType == typeof(HashSet<string>) || isReadOnlyListOfStrings)
                 {
+                    if (isReadOnlyListOfStrings)
+                        propertyType = typeof(List<string>);
+
                     var method = typeof(JsonDeserializationBase).GetMethod(nameof(ToCollectionOfString), BindingFlags.NonPublic | BindingFlags.Static);
                     method = method.MakeGenericMethod(propertyType);
                     return Expression.Call(method, json, Expression.Constant(propertyName));

@@ -48,8 +48,8 @@ namespace SlowTests.Client.Attachments
             using (var store1 = GetDocumentStore())
             using (var store2 = GetDocumentStore())
             {
-                await SetDatabaseId(store1, dbId1);
-                await SetDatabaseId(store2, dbId2);
+                await Databases.SetDatabaseId(store1, dbId1);
+                await Databases.SetDatabaseId(store2, dbId2);
 
                 using (var session = store1.OpenSession())
                 {
@@ -178,7 +178,7 @@ namespace SlowTests.Client.Attachments
         }
 
         [Theory]
-        [InlineData("\t", null)]
+        [InlineData("\r\n", null)]
         [InlineData("\\", "\\")]
         [InlineData("/", "/")]
         [InlineData("5", "5")]
@@ -192,7 +192,7 @@ namespace SlowTests.Client.Attachments
             using (var store2 = GetDocumentStore())
             {
                 var dbId1 = new Guid("00000000-48c4-421e-9466-000000000000");
-                await SetDatabaseId(store1, dbId1);
+                await Databases.SetDatabaseId(store1, dbId1);
 
                 using (var session = store1.OpenSession())
                 {
@@ -244,8 +244,8 @@ namespace SlowTests.Client.Attachments
             {
                 var dbId1 = new Guid("00000000-48c4-421e-9466-000000000000");
                 var dbId2 = new Guid("99999999-48c4-421e-9466-999999999999");
-                await SetDatabaseId(store1, dbId1);
-                await SetDatabaseId(store2, dbId2);
+                await Databases.SetDatabaseId(store1, dbId1);
+                await Databases.SetDatabaseId(store2, dbId2);
 
                 using (var session = store1.OpenSession())
                 {
@@ -332,7 +332,7 @@ namespace SlowTests.Client.Attachments
             using (var store2 = GetDocumentStore())
             {
                 var dbId1 = new Guid("00000000-48c4-421e-9466-000000000000");
-                await SetDatabaseId(store1, dbId1);
+                await Databases.SetDatabaseId(store1, dbId1);
 
                 for (int i = 1; i <= 3; i++)
                 {
@@ -350,6 +350,7 @@ namespace SlowTests.Client.Attachments
                     store1.Operations.Send(new PutAttachmentOperation("users/1", "big-file", stream2, "image/png"));
 
                 await SetupAttachmentReplicationAsync(store1, store2);
+                WaitForUserToContinueTheTest(store2);
                 AssertAttachmentCount(store2, 2, 4);
 
                 using (var session = store2.OpenSession())
@@ -482,7 +483,7 @@ namespace SlowTests.Client.Attachments
             using (var store2 = GetDocumentStore())
             {
                 var dbId1 = new Guid("00000000-48c4-421e-9466-000000000000");
-                await SetDatabaseId(store1, dbId1);
+                await Databases.SetDatabaseId(store1, dbId1);
 
                 await RevisionsHelper.SetupRevisions(Server.ServerStore, store1.Database, modifyConfiguration: configuration =>
                 {
@@ -780,8 +781,8 @@ namespace SlowTests.Client.Attachments
             using (var store1 = GetDocumentStore())
             using (var store2 = GetDocumentStore())
             {
-                await SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
-                await SetDatabaseId(store2, new Guid("99999999-48c4-421e-9466-999999999999"));
+                await Databases.SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
+                await Databases.SetDatabaseId(store2, new Guid("99999999-48c4-421e-9466-999999999999"));
 
                 using (var session = store1.OpenAsyncSession())
                 {
@@ -892,8 +893,8 @@ namespace SlowTests.Client.Attachments
                 }
             }))
             {
-                await SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
-                await SetDatabaseId(store2, new Guid("99999999-48c4-421e-9466-999999999999"));
+                await Databases.SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
+                await Databases.SetDatabaseId(store2, new Guid("99999999-48c4-421e-9466-999999999999"));
 
                 using (var session = store1.OpenAsyncSession())
                 {
@@ -984,8 +985,8 @@ namespace SlowTests.Client.Attachments
                 }
             }))
             {
-                await SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
-                await SetDatabaseId(store2, new Guid("99999999-48c4-421e-9466-999999999999"));
+                await Databases.SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
+                await Databases.SetDatabaseId(store2, new Guid("99999999-48c4-421e-9466-999999999999"));
 
                 using (var session = store1.OpenAsyncSession())
                 {
@@ -1057,8 +1058,8 @@ namespace SlowTests.Client.Attachments
             using (var store1 = GetDocumentStore())
             using (var store2 = GetDocumentStore())
             {
-                await SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
-                await SetDatabaseId(store2, new Guid("99999999-48c4-421e-9466-999999999999"));
+                await Databases.SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
+                await Databases.SetDatabaseId(store2, new Guid("99999999-48c4-421e-9466-999999999999"));
 
                 using (var session = store1.OpenAsyncSession())
                 {
@@ -1105,8 +1106,8 @@ namespace SlowTests.Client.Attachments
             using (var store1 = GetDocumentStore())
             using (var store2 = GetDocumentStore())
             {
-                await SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
-                await SetDatabaseId(store2, new Guid("99999999-48c4-421e-9466-999999999999"));
+                await Databases.SetDatabaseId(store1, new Guid("00000000-48c4-421e-9466-000000000000"));
+                await Databases.SetDatabaseId(store2, new Guid("99999999-48c4-421e-9466-999999999999"));
 
                 using (var session = store1.OpenAsyncSession())
                 {
@@ -1233,7 +1234,7 @@ namespace SlowTests.Client.Attachments
             using (var store1 = GetDocumentStore())
             using (var store2 = GetDocumentStore())
             {
-                var database1 = await GetDocumentDatabaseInstanceFor(store1);
+                var database1 = await Databases.GetDocumentDatabaseInstanceFor(store1);
                 using (var controller = new ReplicationController(database1))
                 {
                     using (var session = store1.OpenAsyncSession())
@@ -1350,8 +1351,8 @@ namespace SlowTests.Client.Attachments
                     EnsureNoReplicationLoop(cluster.Nodes[1], databaseName),
                     EnsureNoReplicationLoop(cluster.Nodes[2], databaseName)
                 };
-                await Task.WhenAll(tasks);
-                tasks.ForEach(t => t.Wait());
+
+                tasks.ForEach(t => Assert.True(t.Wait(TimeSpan.FromMinutes(1))));
 
                 var result = await store.Maintenance.Server.SendAsync(new DeleteDatabasesOperation(databaseName, hardDelete: true, fromNode: toRemove, timeToWaitForConfirmation: TimeSpan.FromSeconds(60)));
                 await mainServer.ServerStore.Cluster.WaitForIndexNotification(result.RaftCommandIndex + 1);
@@ -1375,8 +1376,8 @@ namespace SlowTests.Client.Attachments
                     EnsureNoReplicationLoop(cluster.Nodes[1], databaseName),
                     EnsureNoReplicationLoop(cluster.Nodes[2], databaseName)
                 };
-                await Task.WhenAll(tasks);
-                tasks.ForEach(t => t.Wait());
+
+                tasks.ForEach(t => Assert.True(t.Wait(TimeSpan.FromMinutes(1))));
             }
         }
 
@@ -1619,8 +1620,8 @@ namespace SlowTests.Client.Attachments
                     Assert.Equal(3, attachments[0].Size);
                 }
 
-                var db1 = await GetDocumentDatabaseInstanceFor(store1);
-                var db2 = await GetDocumentDatabaseInstanceFor(store2);
+                var db1 = await Databases.GetDocumentDatabaseInstanceFor(store1);
+                var db2 = await Databases.GetDocumentDatabaseInstanceFor(store2);
                 var replicationConnection1 = db1.ReplicationLoader.OutgoingHandlers.First();
                 var replicationConnection2 = db2.ReplicationLoader.OutgoingHandlers.First();
 

@@ -71,7 +71,7 @@ namespace SlowTests.Client.TimeSeries.Query
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
 
@@ -92,7 +92,7 @@ namespace SlowTests.Client.TimeSeries.Query
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 using (var session = store.OpenSession())
                 {
@@ -150,7 +150,7 @@ select out()
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -174,7 +174,7 @@ select out()
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 using (var session = store.OpenSession())
                 {
@@ -229,7 +229,7 @@ select timeseries(
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -253,7 +253,7 @@ select timeseries(
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 using (var session = store.OpenSession())
                 {
@@ -308,7 +308,7 @@ select out(u)
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = new DateTime(2020, 6, 6);
 
@@ -386,7 +386,7 @@ select out(u)
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -410,7 +410,7 @@ select out(u)
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 using (var session = store.OpenSession())
                 {
@@ -467,7 +467,7 @@ select out(u)
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -557,7 +557,7 @@ select out(u)
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = RavenTestHelper.UtcToday.AddHours(-4);
                 database.Time.UtcDateTime = () => now;
@@ -579,7 +579,7 @@ select out(u)
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
             
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 using (var session = store.OpenSession())
                 {
@@ -614,7 +614,7 @@ select out('Heartrate')
         {
             using (var store = GetDocumentStore())
             {
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var baseline = now.AddDays(-90);
@@ -683,7 +683,7 @@ select out()
         {
             using (var store = GetDocumentStore())
             {
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
 
@@ -750,7 +750,7 @@ select out()
         {
             using (var store = GetDocumentStore())
             {
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var baseline = now.AddDays(-12);
@@ -791,8 +791,8 @@ select out()
                 };
 
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                await WaitForPolicyRunner(database);
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.WaitForPolicyRunnerAsync(database);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 var raw = GetSum(store, now);
                 Assert.Equal(noPolicy, raw);
@@ -800,8 +800,8 @@ select out()
                 config.Collections["Users"].RawPolicy = new RawTimeSeriesPolicy(TimeValue.FromDays(5));
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
 
-                await WaitForPolicyRunner(database);
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.WaitForPolicyRunnerAsync(database);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 var rawAndRoll = GetSum(store, now);
                 Assert.Equal(raw, rawAndRoll);
@@ -813,7 +813,7 @@ select out()
         {
             using (var store = GetDocumentStore())
             {
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowSeconds = now.Second;
@@ -859,16 +859,16 @@ select out()
                 };
 
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                await WaitForPolicyRunner(database);
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.WaitForPolicyRunnerAsync(database);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 var raw = GetSum(store, now);
                 Assert.Equal(noPolicy, raw);
 
                 config.Collections["Users"].RawPolicy = new RawTimeSeriesPolicy(TimeValue.FromDays(5));
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                await WaitForPolicyRunner(database);
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.WaitForPolicyRunnerAsync(database);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 var rawAndRoll = GetSum(store, now);
                 Assert.Equal(raw, rawAndRoll);
@@ -880,7 +880,7 @@ select out()
         {
             using (var store = GetDocumentStore())
             {
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var baseline = now.AddDays(-45);
@@ -991,7 +991,7 @@ select out()
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -1015,7 +1015,7 @@ select out()
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 using (var session = store.OpenSession())
                 {
@@ -1079,7 +1079,7 @@ select out()
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -1103,7 +1103,7 @@ select out()
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 using (var session = store.OpenSession())
                 {
@@ -1157,7 +1157,7 @@ select out()
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -1181,7 +1181,7 @@ select out()
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 using (var session = store.OpenSession())
                 {
@@ -1234,7 +1234,7 @@ select out()
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -1258,7 +1258,7 @@ select out()
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 using (var session = store.OpenSession())
                 {
@@ -1348,7 +1348,7 @@ select out()
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -1372,7 +1372,7 @@ select out()
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
 
                 using (var session = store.OpenSession())
@@ -1435,7 +1435,7 @@ select out()
                     PolicyCheckFrequency = TimeSpan.FromSeconds(1)
                 };
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = DateTime.UtcNow;
                 var nowMinutes = now.Minute;
@@ -1460,7 +1460,7 @@ select out()
                 await database.TimeSeriesPolicyRunner.RunRollups();
                 await database.TimeSeriesPolicyRunner.DoRetention();
 
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
 
                 using (var session = store.OpenSession())
                 {
@@ -1503,7 +1503,7 @@ select out()
         {
             using (var store = GetDocumentStore())
             {
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = new DateTime(2020, 7, day);
                 database.Time.UtcDateTime = () => now.AddMilliseconds(1);
@@ -1546,16 +1546,16 @@ select out()
                 };
 
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
-                await WaitForPolicyRunner(database);
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.WaitForPolicyRunnerAsync(database);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"], 12);
                 var raw = GetSum(store, now);
                 Assert.Equal(noPolicy, raw);
 
                 config.Collections["Users"].RawPolicy = new RawTimeSeriesPolicy(TimeValue.FromDays(5));
                 await store.Maintenance.SendAsync(new ConfigureTimeSeriesOperation(config));
                 
-                await WaitForPolicyRunner(database);
-                await VerifyFullPolicyExecution(store, config.Collections["Users"]);
+                await TimeSeries.WaitForPolicyRunnerAsync(database);
+                await TimeSeries.VerifyPolicyExecutionAsync(store, config.Collections["Users"],12);
 
                 var rawAndRoll = GetSum(store, now);
                 Assert.Equal(raw, rawAndRoll);
@@ -1567,7 +1567,7 @@ select out()
         {
             using (var store = GetDocumentStore())
             {
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = new DateTime(2020, 7, 31);
                 database.Time.UtcDateTime = () => now.AddMilliseconds(1);
@@ -1623,7 +1623,7 @@ select out()
         {
             using (var store = GetDocumentStore())
             {
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var now = new DateTime(2020, 3, 29);
                 database.Time.UtcDateTime = () => now.AddMilliseconds(1);
@@ -1672,48 +1672,6 @@ select out()
                 var raw = GetSum(store, now);
                 Assert.Equal(noPolicy, raw);
             }
-        }
-
-        internal static async Task VerifyFullPolicyExecution(DocumentStore store, TimeSeriesCollectionConfiguration configuration, string rawName = "Heartrate")
-        {
-            var raw = configuration.RawPolicy;
-            configuration.ValidateAndInitialize();
-
-            await WaitForValueAsync(() =>
-            {
-                using (var session = store.OpenSession())
-                {
-                    var ts = session.TimeSeriesFor("users/karmel", rawName)
-                        .Get()?
-                        .ToList();
-
-                    Assert.NotNull(ts);
-                    if (raw != null)
-                        Assert.Equal(((TimeSpan)raw.RetentionTime).TotalMinutes, ts.Count);
-
-                    foreach (var policy in configuration.Policies)
-                    {
-                        ts = session.TimeSeriesFor("users/karmel", policy.GetTimeSeriesName(rawName))
-                            .Get()?
-                            .ToList();
-
-                        TimeValue retentionTime = policy.RetentionTime;
-                        if (retentionTime == TimeValue.MaxValue)
-                        {
-                            var seconds = TimeSpan.FromDays(12).TotalSeconds;
-                            var x = Math.Ceiling(seconds / policy.AggregationTime.Value);
-                            var max = Math.Max(x * policy.AggregationTime.Value, seconds);
-                            retentionTime = TimeSpan.FromSeconds(max);
-                        }
-
-                        Assert.NotNull(ts);
-                        var expected = ((TimeSpan)retentionTime).TotalMinutes / ((TimeSpan)policy.AggregationTime).TotalMinutes;
-                        if ((int)expected != ts.Count && Math.Ceiling(expected) != ts.Count)
-                            Assert.False(true,$"Expected {expected}, but got {ts.Count}");
-                    }
-                }
-                return true;
-            }, true);
         }
     }
 }

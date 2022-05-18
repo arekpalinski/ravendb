@@ -154,11 +154,11 @@ namespace SlowTests.Issues
         }
 
         [Fact]
-        public void CanUseLazilyAsyncNonSharded()
+        public async Task CanUseLazilyAsyncNonSharded()
         {
             using (var documentStore = SetupNonShardedStore())
             {
-                CanUseLazilyAsync(documentStore).Wait();
+                await CanUseLazilyAsync(documentStore);
             }
         }
 
@@ -426,7 +426,7 @@ namespace SlowTests.Issues
 
         //    foreach (var documentStore in shards.Values)
         //    {
-        //        WaitForIndexing(documentStore);
+        //        Indexes.WaitForIndexing(documentStore);
         //    }
 
         //    return shardedDocumentStore;
@@ -436,7 +436,7 @@ namespace SlowTests.Issues
         {
             var store = GetDocumentStore();
             FillDatabase(store);
-            WaitForIndexing(store);
+            Indexes.WaitForIndexing(store);
             return store;
         }
 

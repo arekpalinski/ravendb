@@ -178,9 +178,9 @@ namespace Raven.Server.Documents.Indexes
             _stats.AddMapReferenceError(key, message);
         }
 
-        public void AddReduceError(string message)
+        public void AddReduceError(string message, string reduceKey = null)
         {
-            _stats.AddReduceError(message);
+            _stats.AddReduceError(message, reduceKey);
         }
 
         public void RecordMapAttempt()
@@ -356,6 +356,9 @@ namespace Raven.Server.Documents.Indexes
 
             if (_stats.MapDetails != null && name == "Map")
                 operation.MapDetails = _stats.MapDetails;
+
+            if (_stats.CleanupDetails != null && name == "Cleanup")
+                operation.CleanupDetails = _stats.CleanupDetails;
 
             if (_stats.LuceneMergeDetails != null && name == IndexingOperation.Lucene.Merge)
                 operation.LuceneMergeDetails = _stats.LuceneMergeDetails;

@@ -157,8 +157,9 @@ namespace SlowTests.Client.Counters
                 await SetupReplicationAsync(storeA, storeB);
                 await SetupReplicationAsync(storeB, storeA);
 
-                EnsureReplicating(storeA, storeB);
-                
+                await EnsureReplicatingAsync(storeA, storeB);
+                await EnsureReplicatingAsync(storeB, storeA);
+
                 using (var session = storeB.OpenAsyncSession())
                 {
                     var counters = await session.CountersFor("users/1").GetAllAsync();
@@ -677,7 +678,7 @@ namespace SlowTests.Client.Counters
             using (var storeA = GetDocumentStore())
             using (var storeB = GetDocumentStore())
             {
-                var database1 = await GetDocumentDatabaseInstanceFor(storeA);
+                var database1 = await Databases.GetDocumentDatabaseInstanceFor(storeA);
                 using (var controller = new ReplicationController(database1))
                 {
                     using (var session = storeA.OpenAsyncSession())
@@ -798,7 +799,7 @@ namespace SlowTests.Client.Counters
             });
 
             var result = await restoreStore.Maintenance.Server.SendAsync(restore);
-            result.WaitForCompletion();
+            await result.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
         }
 
         private static async Task AssertCounters(IAsyncDocumentSession session)

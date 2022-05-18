@@ -256,7 +256,7 @@ namespace SlowTests.Client.TimeSeries
         {
             using (var store = GetDocumentStore())
             {
-                var baseline = DateTime.Today;
+                var baseline = RavenTestHelper.UtcToday;
 
                 using (var session = store.OpenSession())
                 {
@@ -286,7 +286,7 @@ namespace SlowTests.Client.TimeSeries
         [Fact]
         public async Task SplitSegmentSpecialCaseShouldWork()
         {
-            var baseline = DateTime.Today;
+            var baseline = RavenTestHelper.UtcToday;
 
             using (var store = GetDocumentStore())
             {
@@ -298,7 +298,7 @@ namespace SlowTests.Client.TimeSeries
 
                 using (store.OpenSession())
                 {
-                    var db = await this.GetDocumentDatabaseInstanceFor(store);
+                    var db = await Databases.GetDocumentDatabaseInstanceFor(store);
                     using (db.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                     {
                         var incrementOperations = new List<SingleResult>();
@@ -351,7 +351,7 @@ namespace SlowTests.Client.TimeSeries
         {
             using (var store = GetDocumentStore())
             {
-                var baseline = DateTime.Today;
+                var baseline = RavenTestHelper.UtcToday;
 
                 using (var session = store.OpenSession())
                 {
@@ -383,7 +383,7 @@ namespace SlowTests.Client.TimeSeries
         {
             using (var store = GetDocumentStore())
             {
-                var baseline = DateTime.Today;
+                var baseline = RavenTestHelper.UtcToday;
 
                 using (var session = store.OpenSession())
                 {
@@ -409,7 +409,7 @@ namespace SlowTests.Client.TimeSeries
         {
             using (var store = GetDocumentStore())
             {
-                var baseline = DateTime.Today;
+                var baseline = RavenTestHelper.UtcToday;
 
                 using (var session = store.OpenSession())
                 {
@@ -441,7 +441,7 @@ namespace SlowTests.Client.TimeSeries
         {
             using (var store = GetDocumentStore())
             {
-                var baseline = DateTime.Today;
+                var baseline = RavenTestHelper.UtcToday;
 
                 using (var session = store.OpenSession())
                 {
@@ -473,7 +473,7 @@ namespace SlowTests.Client.TimeSeries
         {
             using (var store = GetDocumentStore())
             {
-                var baseline = DateTime.Today;
+                var baseline = RavenTestHelper.UtcToday;
 
                 using (var session = store.OpenSession())
                 {
@@ -513,7 +513,7 @@ namespace SlowTests.Client.TimeSeries
         {
             using (var store = GetDocumentStore())
             {
-                var baseline = DateTime.Today;
+                var baseline = RavenTestHelper.UtcToday;
 
                 using (var session = store.OpenSession())
                 {
@@ -538,7 +538,7 @@ namespace SlowTests.Client.TimeSeries
         {
             using (var store = GetDocumentStore())
             {
-                var baseline = DateTime.Today;
+                var baseline = RavenTestHelper.UtcToday;
 
                 using (var session = store.OpenSession())
                 {
@@ -570,7 +570,7 @@ namespace SlowTests.Client.TimeSeries
         {
             using (var store = GetDocumentStore())
             {
-                var baseline = DateTime.Today;
+                var baseline = RavenTestHelper.UtcToday;
 
                 using (var session = store.OpenSession())
                 {
@@ -600,7 +600,7 @@ namespace SlowTests.Client.TimeSeries
         [Fact]
         public async Task ShouldThrowEntriesWhenSegmentIsFull()
         {
-            var baseline = DateTime.Today;
+            var baseline = RavenTestHelper.UtcToday;
 
             using (var store = GetDocumentStore())
             {
@@ -614,7 +614,7 @@ namespace SlowTests.Client.TimeSeries
                 {
                     var e = Assert.ThrowsAsync<InvalidDataException>(async () =>
                     {
-                        var db = await this.GetDocumentDatabaseInstanceFor(store);
+                        var db = await Databases.GetDocumentDatabaseInstanceFor(store);
                         using (db.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                         {
                             var incrementOperations = new List<SingleResult>();
@@ -649,7 +649,7 @@ namespace SlowTests.Client.TimeSeries
         [Fact]
         public async Task ShouldTakeLowerValueOnReplicationConflictWhenDecrementOperation()
         {
-            var baseline = DateTime.Today;
+            var baseline = RavenTestHelper.UtcToday;
 
             using (var storeA = GetDocumentStore())
             using (var storeB = GetDocumentStore())
@@ -667,7 +667,7 @@ namespace SlowTests.Client.TimeSeries
 
                 using (storeA.OpenSession())
                 {
-                    var dbA = await this.GetDocumentDatabaseInstanceFor(storeA);
+                    var dbA = await Databases.GetDocumentDatabaseInstanceFor(storeA);
                     using (dbA.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext contextA))
                     {
 
@@ -692,7 +692,7 @@ namespace SlowTests.Client.TimeSeries
 
                 using (storeB.OpenSession())
                 {
-                    var dbB = await this.GetDocumentDatabaseInstanceFor(storeB);
+                    var dbB = await Databases.GetDocumentDatabaseInstanceFor(storeB);
                     using (dbB.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext contextB))
                     {
                         var incrementOperations = new List<SingleResult>();
@@ -741,7 +741,7 @@ namespace SlowTests.Client.TimeSeries
         [Fact]
         public async Task ShouldTakeHigherValueOnReplicationConflictWhenIncrementOperation()
         {
-            var baseline = DateTime.Today;
+            var baseline = RavenTestHelper.UtcToday;
 
             using (var storeA = GetDocumentStore())
             using (var storeB = GetDocumentStore())
@@ -760,7 +760,7 @@ namespace SlowTests.Client.TimeSeries
 
                 using (storeA.OpenSession())
                 {
-                    var dbA = await this.GetDocumentDatabaseInstanceFor(storeA);
+                    var dbA = await Databases.GetDocumentDatabaseInstanceFor(storeA);
                     using (dbA.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext contextA))
                     {
                         var incrementOperations = new List<SingleResult>();
@@ -785,7 +785,7 @@ namespace SlowTests.Client.TimeSeries
 
                 using (storeB.OpenSession())
                 {
-                    var dbB = await this.GetDocumentDatabaseInstanceFor(storeB);
+                    var dbB = await Databases.GetDocumentDatabaseInstanceFor(storeB);
                     using (dbB.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext contextB))
                     {
                         var incrementOperations = new List<SingleResult>();
@@ -834,7 +834,7 @@ namespace SlowTests.Client.TimeSeries
         [Fact(Skip = "RavenDB-17557")]
         public async Task ReplicationShouldNotCollapseWhenSegmentReachedCapacity()
         {
-            var baseline = DateTime.Today;
+            var baseline = RavenTestHelper.UtcToday;
 
             using (var storeA = GetDocumentStore())
             using (var storeB = GetDocumentStore())
@@ -853,7 +853,7 @@ namespace SlowTests.Client.TimeSeries
 
                 using (storeA.OpenSession())
                 {
-                    var dbA = await this.GetDocumentDatabaseInstanceFor(storeA);
+                    var dbA = await Databases.GetDocumentDatabaseInstanceFor(storeA);
                     using (dbA.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext contextA))
                     {
                         var incrementOperations = new List<SingleResult>();
@@ -881,7 +881,7 @@ namespace SlowTests.Client.TimeSeries
 
                 using (storeB.OpenSession())
                 {
-                    var dbB = await this.GetDocumentDatabaseInstanceFor(storeB);
+                    var dbB = await Databases.GetDocumentDatabaseInstanceFor(storeB);
                     using (dbB.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext contextB))
                     {
                         var incrementOperations = new List<SingleResult>();
@@ -926,7 +926,7 @@ namespace SlowTests.Client.TimeSeries
                     for (int i = 0; i < tsA.Length; i++)
                         Assert.True(Equals(tsA[i], tsB[i]),$"{tsA[i]} vs {tsB[i]}");
 
-                    var dbA = await this.GetDocumentDatabaseInstanceFor(storeA);
+                    var dbA = await Databases.GetDocumentDatabaseInstanceFor(storeA);
                     var count = dbA.NotificationCenter.GetAlertCount();
                     if (count > 0)
                     {
@@ -939,7 +939,7 @@ namespace SlowTests.Client.TimeSeries
                         }
                     }
 
-                    var dbB = await this.GetDocumentDatabaseInstanceFor(storeB);
+                    var dbB = await Databases.GetDocumentDatabaseInstanceFor(storeB);
                     var keyB = AlertRaised.GetKey(AlertType.Replication, null);
                     var alertB = dbB.NotificationCenter.GetStoredMessage(keyB);
 
@@ -951,7 +951,7 @@ namespace SlowTests.Client.TimeSeries
         [Fact]
         public async Task ShouldMergeEntriesForIncrementalTimeSeries()
         {
-            var baseline = DateTime.Today;
+            var baseline = RavenTestHelper.UtcToday;
 
             using (var store = GetDocumentStore())
             {
@@ -963,7 +963,7 @@ namespace SlowTests.Client.TimeSeries
 
                 using (store.OpenSession())
                 {
-                    var db = await this.GetDocumentDatabaseInstanceFor(store);
+                    var db = await Databases.GetDocumentDatabaseInstanceFor(store);
                     using (db.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                     {
                         var incrementOperations = new List<SingleResult>();
@@ -1002,7 +1002,7 @@ namespace SlowTests.Client.TimeSeries
         [Fact]
         public async Task ShouldMergeEntriesForIncrementalTimeSeries2()
         {
-            var baseline = DateTime.Today;
+            var baseline = RavenTestHelper.UtcToday;
 
             using (var store = GetDocumentStore())
             {
@@ -1014,7 +1014,7 @@ namespace SlowTests.Client.TimeSeries
 
                 using (store.OpenSession())
                 {
-                    var db = await this.GetDocumentDatabaseInstanceFor(store);
+                    var db = await Databases.GetDocumentDatabaseInstanceFor(store);
                     using (db.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                     {
                         var incrementOperations = new List<SingleResult>();
@@ -1062,7 +1062,7 @@ namespace SlowTests.Client.TimeSeries
         [Fact]
         public async Task ShouldMergeEntriesForIncrementalTimeSeries3()
         {
-            var baseline = DateTime.Today;
+            var baseline = RavenTestHelper.UtcToday;
 
             using (var store = GetDocumentStore())
             {
@@ -1074,7 +1074,7 @@ namespace SlowTests.Client.TimeSeries
 
                 using (store.OpenSession())
                 {
-                    var db = await this.GetDocumentDatabaseInstanceFor(store);
+                    var db = await Databases.GetDocumentDatabaseInstanceFor(store);
                     using (db.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                     {
                         var incrementOperations = new List<SingleResult>();
@@ -1146,7 +1146,7 @@ namespace SlowTests.Client.TimeSeries
                     session.SaveChanges();
                 }
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
                 await database.TimeSeriesPolicyRunner.RunRollups();
 
                 using (var session = store.OpenSession())
@@ -1170,7 +1170,7 @@ namespace SlowTests.Client.TimeSeries
         [Fact]
         public async Task GetIncrementalTimeSeriesFullResultsShouldWork()
         {
-            var baseline = DateTime.Today;
+            var baseline = RavenTestHelper.UtcToday;
 
             using (var store = GetDocumentStore())
             {
@@ -1182,7 +1182,7 @@ namespace SlowTests.Client.TimeSeries
 
                 using (store.OpenSession())
                 {
-                    var db = await this.GetDocumentDatabaseInstanceFor(store);
+                    var db = await Databases.GetDocumentDatabaseInstanceFor(store);
                     using (db.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                     {
                         var incrementOperations = new List<SingleResult>();
@@ -1543,7 +1543,7 @@ namespace SlowTests.Client.TimeSeries
         {
             using (var store = GetDocumentStore())
             {
-                var baseline = DateTime.Today;
+                var baseline = RavenTestHelper.UtcToday;
 
                 using (var session = store.OpenSession())
                 {
@@ -1778,7 +1778,7 @@ namespace SlowTests.Client.TimeSeries
                     session.SaveChanges();
                 }
 
-                var db = await GetDocumentDatabaseInstanceFor(store);
+                var db = await Databases.GetDocumentDatabaseInstanceFor(store);
                 using (db.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                 {
                     var incrementOperations = new List<SingleResult>();
@@ -1880,7 +1880,7 @@ select timeseries(
                     session.SaveChanges();
                 }
 
-                var db = await GetDocumentDatabaseInstanceFor(store);
+                var db = await Databases.GetDocumentDatabaseInstanceFor(store);
                 using (db.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                 {
                     var incrementOperations = new List<SingleResult>();

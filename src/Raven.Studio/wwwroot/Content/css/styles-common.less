@@ -609,7 +609,7 @@ hr {
         }
 
         .icon-edit:before {
-            content: "\e92a";
+            content: "\f116";
             color: @brand-success;
         }
 
@@ -2052,9 +2052,15 @@ ul.properties {
 .copy-button-hidden {
     visibility: hidden;
     color: @copy-button-color;
+    position: absolute;
+    right: @gutter;
 
     &:hover {
         color: @copy-button-hover-color;
+    }
+    
+    &.inherit-position {
+        position: inherit;
     }
 }
 
@@ -2064,6 +2070,10 @@ ul.properties {
              visibility: visible;
          }
      }
+}
+
+.border-warning {
+    border-color: @brand-warning !important;
 }
 
 @import "prism.less";

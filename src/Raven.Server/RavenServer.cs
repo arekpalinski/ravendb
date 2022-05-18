@@ -1785,7 +1785,7 @@ namespace Raven.Server
                         Logger.Info($"RavenDB TCP is configured to use {string.Join(", ", Configuration.Core.TcpServerUrls)} and bind to {ipAddress} at {port}");
 
                     var listener = new TcpListener(ipAddress, status.Port != 0 ? status.Port : port);
-                    status.Listeners.Add(listener);
+
                     try
                     {
                         listener.Start();
@@ -1810,6 +1810,8 @@ namespace Raven.Server
                         
                         continue;
                     }
+
+                    status.Listeners.Add(listener);
 
                     successfullyBoundToAtLeastOne = true;
                     var listenerLocalEndpoint = (IPEndPoint)listener.LocalEndpoint;
@@ -2739,12 +2741,14 @@ namespace Raven.Server
             internal bool ThrowExceptionInListenToNewTcpConnection = false;
             internal bool ThrowExceptionInTrafficWatchTcp = false;
             internal bool GatherVerboseDatabaseDisposeInformation = false;
-            internal bool PrintExceptionDuringBulkInsertProcessingToConsole = false;
+
             internal DebugPackageTestingStuff DebugPackage = new DebugPackageTestingStuff();
             internal class DebugPackageTestingStuff
             {
                 internal string[] RoutesToSkip = new string[] { };
             }
+
+
         }
     }
 }

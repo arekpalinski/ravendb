@@ -27,8 +27,7 @@ namespace SlowTests.Server.Documents.ETL.Olap
     public class LocalTests : EtlTestBase
     {
         internal const string DefaultFrequency = "* * * * *"; // every minute
-        private const string AllFilesPattern = "*.*";
-
+        internal const string AllFilesPattern = "*.*";
 
         public LocalTests(ITestOutputHelper output) : base(output)
         {
@@ -1322,7 +1321,7 @@ loadToOrders(partitionBy(
             {
                 await store.Maintenance.SendAsync(new CreateSampleDataOperation());
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 long expectedCount;
                 using (var session = store.OpenAsyncSession())
@@ -2031,7 +2030,13 @@ loadToOrders(partitionBy(['year', orderDate.getFullYear()]),
                 var result = AddEtl(store, configuration, connectionString);
                 var taskId = result.TaskId;
 
-                etlDone.Wait(TimeSpan.FromMinutes(1));
+                var database = await GetDatabase(store.Database);
+                var timeout = database.DocumentsStorage.Environment.Options.RunningOn32Bits
+                    ? TimeSpan.FromMinutes(2)
+                    : TimeSpan.FromMinutes(1);
+
+                Assert.True(etlDone.Wait(timeout), 
+                    $"olap etl to local machine did not finish in {timeout.TotalMinutes} minutes. stats : {S3Tests.GetPerformanceStats(database)}");
 
                 var files = Directory.GetFiles(path, searchPattern: AllFilesPattern, SearchOption.AllDirectories).OrderBy(x => x).ToList();
 
@@ -2071,7 +2076,8 @@ loadToOrders(partitionBy(['year', orderDate.getFullYear()]),
                 }
 
                 etlDone = WaitForEtl(store, (n, statistics) => statistics.LoadSuccesses != 0);
-                Assert.True(etlDone.Wait(TimeSpan.FromMinutes(1)));
+                Assert.True(etlDone.Wait(timeout), 
+                    $"olap etl to local machine did not finish in {timeout.TotalMinutes} minutes. stats : {S3Tests.GetPerformanceStats(database)}");
 
                 files = Directory.GetFiles(path, searchPattern: AllFilesPattern, SearchOption.AllDirectories).OrderBy(x => x).ToList();
                 Assert.Equal(10, files.Count);
@@ -2460,7 +2466,7 @@ loadToOrders(partitionBy(['year', orderDate.getFullYear()]),
             return scriptPath;
         }
 
-        private void SetupLocalOlapEtl(DocumentStore store, string script, string path, string name = "olap-test", string frequency = null, string transformationName = null)
+        internal static AddEtlOperationResult SetupLocalOlapEtl(DocumentStore store, string script, string path, string name = "olap-test", string frequency = null, string transformationName = null)
         {
             var connectionStringName = $"{store.Database} to local";
             var configuration = new OlapEtlConfiguration
@@ -2479,10 +2485,10 @@ loadToOrders(partitionBy(['year', orderDate.getFullYear()]),
                 }
             };
 
-            SetupLocalOlapEtl(store, configuration, path, connectionStringName);
+            return SetupLocalOlapEtl(store, configuration, path, connectionStringName);
         }
 
-        private void SetupLocalOlapEtl(DocumentStore store, OlapEtlConfiguration configuration, string path, string connectionStringName)
+        private static AddEtlOperationResult SetupLocalOlapEtl(DocumentStore store, OlapEtlConfiguration configuration, string path, string connectionStringName)
         {
             var connectionString = new OlapConnectionString
             {
@@ -2493,7 +2499,7 @@ loadToOrders(partitionBy(['year', orderDate.getFullYear()]),
                 }
             };
 
-            AddEtl(store, configuration, connectionString);
+            return FailoverTests.AddOlapEtl(store, configuration, connectionString);
         }
 
         private class User

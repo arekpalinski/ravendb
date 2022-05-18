@@ -1,7 +1,8 @@
 name: compile
 
 on:
-  pull_request
+  pull_request:
+  push:
 
 jobs:
   job1:
@@ -45,7 +46,7 @@ jobs:
       - name: Setup nodejs
         uses: actions/setup-node@v2
         with:
-          node-version: '10'
+          node-version: '14'
       - name: Restore
         run: |
           npm install

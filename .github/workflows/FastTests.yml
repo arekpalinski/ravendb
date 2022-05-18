@@ -10,7 +10,7 @@ on:
         - v5.3
 
 env:
-  DOTNET_VERSION: 6.0.101
+  DOTNET_VERSION: 6.0.202
   
 
 jobs:
@@ -18,12 +18,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
         matrix:
-          os: [ ubuntu-latest, windows-latest ]
+          os: [ ubuntu-latest, windows-latest, macos-latest ]
         fail-fast: false
     steps:
     - uses: actions/checkout@v2
 
-    - name: Setup .NET Core
+    - name: Setup .NET
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
@@ -42,12 +42,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
         matrix:
-          os: [ ubuntu-latest, windows-latest ]
+          os: [ ubuntu-latest, windows-latest, macos-latest ]
         fail-fast: false
     steps:
     - uses: actions/checkout@v2
 
-    - name: Setup .NET Core
+    - name: Setup .NET
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}

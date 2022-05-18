@@ -25,19 +25,19 @@ namespace SlowTests.Issues
         {
         }
 
-        [Fact64Bit(Skip = "RavenDB-13765")]
+        [MultiplatformFact(RavenArchitecture.AllX64, Skip = "RavenDB-13765")]
         public async Task CanRecoverEncryptedDatabase()
         {
             await CanRecoverEncryptedDatabaseInternal();
         }
 
-        [Fact64Bit(Skip = "RavenDB-13765")]
+        [MultiplatformFact(RavenArchitecture.AllX64, Skip = "RavenDB-13765")]
         public async Task CanRecoverEncryptedDatabase_Compressed()
         {
             await CanRecoverEncryptedDatabaseInternal(compressDocuments: true);
         }
 
-        [Fact64Bit(Skip = "RavenDB-13765")]
+        [MultiplatformFact(RavenArchitecture.AllX64, Skip = "RavenDB-13765")]
         public async Task RecoveryOfEncryptedDatabaseWithoutMasterKeyShouldThrow()
         {
             await Assert.ThrowsAsync<InvalidOperationException>(async () =>
@@ -46,7 +46,7 @@ namespace SlowTests.Issues
 
         private async Task CanRecoverEncryptedDatabaseInternal(bool nullifyMasterKey = false, bool compressDocuments = false)
         {
-            string dbName = SetupEncryptedDatabase(out var certificates, out var masterKey);
+            string dbName = Encryption.SetupEncryptedDatabase(out var certificates, out var masterKey);
 
             if (nullifyMasterKey)
             {
@@ -78,7 +78,7 @@ namespace SlowTests.Issues
                 Path = dbPath
             }))
             {
-                await CreateLegacyNorthwindDatabase(store);
+                await Samples.CreateLegacyNorthwindDatabaseAsync(store);
 
                 databaseStatistics = store.Maintenance.Send(new GetStatisticsOperation());
             }

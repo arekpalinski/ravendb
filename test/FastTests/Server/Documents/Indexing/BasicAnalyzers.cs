@@ -42,7 +42,7 @@ namespace FastTests.Server.Documents.Indexing
                 var configuration = RavenConfiguration.CreateForTesting("test", Raven.Server.ServerWide.ResourceType.Server);
                 configuration.Initialize();
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var index = new TestIndex(database, configuration.Indexing);
 
@@ -115,7 +115,7 @@ namespace FastTests.Server.Documents.Indexing
 
                 configuration.Initialize();
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
 
                 var index = new TestIndex(database, configuration.Indexing);
 
@@ -250,7 +250,7 @@ namespace FastTests.Server.Documents.Indexing
         }
     }
 
-    internal class TestIndexDefinitions : IndexDefinitionBase
+    internal class TestIndexDefinitions : IndexDefinitionBaseServerSide
     {
         public override long Version => IndexVersion.CurrentVersion;
 
@@ -279,7 +279,7 @@ namespace FastTests.Server.Documents.Indexing
             throw new NotImplementedException();
         }
 
-        public override IndexDefinitionCompareDifferences Compare(IndexDefinitionBase indexDefinition)
+        public override IndexDefinitionCompareDifferences Compare(IndexDefinitionBaseServerSide indexDefinition)
         {
             throw new NotImplementedException();
         }

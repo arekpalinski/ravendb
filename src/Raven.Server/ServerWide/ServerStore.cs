@@ -55,6 +55,7 @@ using Raven.Server.NotificationCenter.Notifications;
 using Raven.Server.NotificationCenter.Notifications.Details;
 using Raven.Server.NotificationCenter.Notifications.Server;
 using Raven.Server.Rachis;
+using Raven.Server.Rachis.Remote;
 using Raven.Server.ServerWide.BackgroundTasks;
 using Raven.Server.ServerWide.Commands;
 using Raven.Server.ServerWide.Commands.ConnectionStrings;
@@ -67,6 +68,7 @@ using Raven.Server.Storage;
 using Raven.Server.Storage.Layout;
 using Raven.Server.Storage.Schema;
 using Raven.Server.Utils;
+using Raven.Server.Utils.Features;
 using Raven.Server.Web.System;
 using Sparrow;
 using Sparrow.Json;
@@ -152,6 +154,8 @@ namespace Raven.Server.ServerWide
             });
 
             Configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+
+            FeatureGuardian = new FeatureGuardian(configuration);
 
             _server = server;
 
@@ -511,6 +515,8 @@ namespace Raven.Server.ServerWide
         }
 
         public bool HasFixedPort { get; internal set; }
+
+        public readonly FeatureGuardian FeatureGuardian;
 
         public async Task AddNodeToClusterAsync(string nodeUrl, string nodeTag = null, bool validateNotInTopology = true, bool asWatcher = false, CancellationToken token = default)
         {
@@ -3163,7 +3169,10 @@ namespace Raven.Server.ServerWide
                     return;
                 }
 
-                _engine.AcceptNewConnection(tcp.Stream, disconnect, remoteEndpoint);
+                var features = TcpConnectionHeaderMessage.GetSupportedFeaturesFor(TcpConnectionHeaderMessage.OperationTypes.Cluster, tcp.ProtocolVersion);
+                var remoteConnection = new RemoteConnection(_engine.Tag, _engine.CurrentTerm, tcp.Stream, features.Cluster, disconnect);
+
+                _engine.AcceptNewConnection(remoteConnection, remoteEndpoint);
             }
             catch (IOException e)
             {

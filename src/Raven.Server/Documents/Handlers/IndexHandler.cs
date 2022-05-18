@@ -830,7 +830,7 @@ namespace Raven.Server.Documents.Handlers
                 var name = GetIndexNameFromCollectionAndField(field) ?? GetQueryStringValueAndAssertIfSingleAndNotEmpty("name");
 
                 var fromValue = GetStringQueryString("fromValue", required: false);
-                var existingResultEtag = GetLongFromHeaders("If-None-Match");
+                var existingResultEtag = GetLongFromHeaders(Constants.Headers.IfNoneMatch);
 
                 var result = Database.QueryRunner.ExecuteGetTermsQuery(name, field, fromValue, existingResultEtag, GetPageSize(), context, token, out var index);
 
@@ -1036,7 +1036,7 @@ namespace Raven.Server.Documents.Handlers
                 if (indexDefinition.Type.IsJavaScript() == false)
                     throw new UnauthorizedAccessException("Testing indexes is only allowed for JavaScript indexes.");
 
-                var compiledIndex = new JavaScriptIndex(indexDefinition, Database.Configuration, IndexDefinitionBase.IndexVersion.CurrentVersion);
+                var compiledIndex = new JavaScriptIndex(indexDefinition, Database.Configuration, IndexDefinitionBaseServerSide.IndexVersion.CurrentVersion);
 
                 var inputSize = GetIntValueQueryString("inputSize", false) ?? DefaultInputSizeForTestingJavaScriptIndex;
                 var collections = new HashSet<string>(compiledIndex.Maps.Keys);

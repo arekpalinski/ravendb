@@ -212,7 +212,7 @@ namespace Raven.Server.Documents.TimeSeries
 
                 foreach (var tsKey in uniqueTimeSeries)
                 {
-                    if (table.SeekOnePrimaryKeyWithPrefix(tsKey, Slices.BeforeAllKeys, out _) == false)
+                    if (table.SeekOnePrimaryKeyPrefix(tsKey, out _) == false)
                     {
                         using (Slice.External(context.Allocator, tsKey, tsKey.Size - 1, out var statsKey))
                         {
@@ -292,22 +292,38 @@ namespace Raven.Server.Documents.TimeSeries
                 (changeVector, etag) = GenerateChangeVector(context);
             }
 
-            using (var sliceHolder = new TimeSeriesSliceHolder(context, documentId, name, collectionName.Name).WithEtag(etag))
-            using (table.Allocate(out var tvb))
-            using (Slice.From(context.Allocator, changeVector, out var cv))
+            var hash = (long)Hashing.XXHash64.Calculate(changeVector, Encoding.UTF8);
+
+            using (var sliceHolder = new TimeSeriesSliceHolder(context, documentId, name, collectionName.Name).WithChangeVectorHash(hash))
             {
-                tvb.Add(sliceHolder.TimeSeriesKeySlice);
-                tvb.Add(Bits.SwapBytes(etag));
-                tvb.Add(cv);
-                tvb.Add(sliceHolder.CollectionSlice);
-                tvb.Add(context.GetTransactionMarker());
-                tvb.Add(from.Ticks);
-                tvb.Add(to.Ticks);
+                if (table.ReadByKey(sliceHolder.TimeSeriesKeySlice, out var tableValueReader))
+                {
+                    var existingChangeVector = ExtractDeletedRangeChangeVector(context, ref tableValueReader);
 
-                table.Set(tvb);
+                    if (ChangeVectorUtils.GetConflictStatus(changeVector, existingChangeVector) == ConflictStatus.AlreadyMerged)
+                    {
+                        return null;
+                    }
+
+                    // in case of a hash collision (Conflict) we overwrite the existing entry
+                }
+
+                using (table.Allocate(out var tvb))
+                using (Slice.From(context.Allocator, changeVector, out var cv))
+                {
+                    tvb.Add(sliceHolder.TimeSeriesKeySlice);
+                    tvb.Add(Bits.SwapBytes(etag));
+                    tvb.Add(cv);
+                    tvb.Add(sliceHolder.CollectionSlice);
+                    tvb.Add(context.GetTransactionMarker());
+                    tvb.Add(from.Ticks);
+                    tvb.Add(to.Ticks);
+
+                    table.Set(tvb);
+                }
+
+                return changeVector;
             }
-
-            return changeVector;
         }
 
         public string DeleteTimestampRange(DocumentsOperationContext context, DeletionRangeRequest deletionRangeRequest, string remoteChangeVector = null, bool updateMetadata = true)
@@ -315,7 +331,8 @@ namespace Raven.Server.Documents.TimeSeries
             deletionRangeRequest.From = EnsureMillisecondsPrecision(deletionRangeRequest.From);
             deletionRangeRequest.To = EnsureMillisecondsPrecision(deletionRangeRequest.To);
 
-            InsertDeletedRange(context, deletionRangeRequest, remoteChangeVector);
+            if (InsertDeletedRange(context, deletionRangeRequest, remoteChangeVector) == null)
+                return null;
 
             var collection = deletionRangeRequest.Collection;
             var documentId = deletionRangeRequest.DocumentId;
@@ -385,7 +402,7 @@ namespace Raven.Server.Documents.TimeSeries
 
                     using (var holder = new TimeSeriesSegmentHolder(this, context, documentId, name, collectionName, baseline, remoteChangeVector))
                     {
-                        if (holder.LoadCurrentSegment() == false)
+                        if (holder.LoadClosestSegment() == false)
                             return false;
 
                         // we need to get the next segment before the actual remove, since it might lead to a split
@@ -693,7 +710,7 @@ namespace Raven.Server.Documents.TimeSeries
                     return false;
                 }
 
-                holder.AppendToNewSegment(segment, baseline);
+                holder.AppendToNewSegment(segment, baseline, changeVector);
 
                 context.Transaction.AddAfterCommitNotification(new TimeSeriesChange
                 {
@@ -724,7 +741,7 @@ namespace Raven.Server.Documents.TimeSeries
 
             using (var holder = new TimeSeriesSegmentHolder(this, context, documentId, name, collectionName, fromReplicationChangeVector: changeVector, timeStamp: baseline))
             {
-                if (holder.LoadCurrentSegment() == false)
+                if (holder.LoadClosestSegment() == false)
                     holder.AppendToNewSegment(segment, baseline, changeVectorFromReplication: changeVector);
                 else
                     holder.AppendExistingSegment(segment, changeVectorFromReplication: changeVector);
@@ -1011,12 +1028,12 @@ namespace Raven.Server.Documents.TimeSeries
 
                 ReduceCountBeforeAppend();
                 _tss.Stats.UpdateStats(_context, SliceHolder, _collection, newValueSegment, BaselineDate, ReadOnlySegment.NumberOfLiveEntries);
-
+                using (Slice.From(_context.Allocator, _currentChangeVector, out Slice cv))
                 using (Table.Allocate(out var tvb))
                 {
                     tvb.Add(SliceHolder.TimeSeriesKeySlice);
                     tvb.Add(Bits.SwapBytes(_currentEtag));
-                    tvb.Add(Slices.Empty); // we put empty slice in the change-vector, so it wouldn't replicate
+                    tvb.Add(cv);
                     tvb.Add(newValueSegment.Ptr, newValueSegment.NumberOfBytes);
                     tvb.Add(SliceHolder.CollectionSlice);
                     tvb.Add(_context.GetTransactionMarker());
@@ -1127,7 +1144,8 @@ namespace Raven.Server.Documents.TimeSeries
                 _tss._documentDatabase.NotificationCenter.Add(alert);
             }
 
-            public bool LoadCurrentSegment()
+            //Return true if we have the same key or the closest result to the sliceHolder
+            public bool LoadClosestSegment()
             {
                 if (Table.SeekOneBackwardByPrimaryKeyPrefix(SliceHolder.TimeSeriesPrefixSlice, SliceHolder.TimeSeriesKeySlice, out _tvr))
                 {
@@ -1135,6 +1153,17 @@ namespace Raven.Server.Documents.TimeSeries
                     return true;
                 }
 
+                return false;
+            }
+
+            //Return true only if we have the same key as the sliceHolder
+            public bool LoadCurrentSegment()
+            {
+                if (Table.ReadByKey(SliceHolder.TimeSeriesKeySlice, out _tvr))
+                {
+                    Initialize();
+                    return true;
+                }
                 return false;
             }
 
@@ -1681,7 +1710,7 @@ namespace Raven.Server.Documents.TimeSeries
                         using (var slicer = new TimeSeriesSliceHolder(context, documentId, name, collection).WithBaseline(current.Timestamp))
                         {
                             var segmentHolder = new TimeSeriesSegmentHolder(this, context, slicer, documentId, name, collectionName, options);
-                            if (segmentHolder.LoadCurrentSegment() == false)
+                            if (segmentHolder.LoadClosestSegment() == false)
                             {
                                 // no matches for this series at all, need to create new segment
                                 segmentHolder.AppendToNewSegment(current);
@@ -2306,6 +2335,12 @@ namespace Raven.Server.Documents.TimeSeries
             using (TimeSeriesStats.ExtractStatsKeyFromStorageKey(context, item.Key, out var statsKey))
             {
                 item.Name = Stats.GetTimeSeriesNameOriginalCasing(context, statsKey);
+
+                if (item.Name == null)
+                {
+                    // RavenDB-18381 - replace Null in lower-case name to recover from an existing state of broken replication
+                    TimeSeriesValuesSegment.ParseTimeSeriesKey(item.Key, context, out _, out item.Name);
+                }
             }
 
             return item;
@@ -2362,6 +2397,12 @@ namespace Raven.Server.Documents.TimeSeries
                 var item = CreateDeletedRangeItem(context, ref tvh.Reader);
                 yield return item;
             }
+        }
+
+        private static string ExtractDeletedRangeChangeVector(DocumentsOperationContext context, ref TableValueReader reader)
+        {
+            var changeVectorPtr = reader.Read((int)DeletedRangeTable.ChangeVector, out int changeVectorSize);
+            return Encoding.UTF8.GetString(changeVectorPtr, changeVectorSize);
         }
 
         private static TimeSeriesDeletedRangeItem CreateDeletedRangeItem(DocumentsOperationContext context, ref TableValueReader reader)
@@ -2778,7 +2819,7 @@ namespace Raven.Server.Documents.TimeSeries
 
         private enum DeletedRangeTable
         {
-            // lower document id, record separator, lower time series name, record separator, local etag
+            // lower document id, record separator, lower time series name, record separator, change vector hash
             RangeKey = 0,
 
             Etag = 1,

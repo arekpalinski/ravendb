@@ -4,6 +4,7 @@
 //  </copyright>
 // -----------------------------------------------------------------------
 
+using System;
 using System.Linq;
 using System.Threading;
 using FastTests;
@@ -47,7 +48,7 @@ namespace SlowTests.Bugs
 
                 new MyIndex().Execute(store);
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 var firstQueryResult = store.Commands().Query(new IndexQuery { Query = "FROM INDEX 'MyIndex'" });
 
@@ -86,9 +87,8 @@ namespace SlowTests.Bugs
 
                 cts.Cancel();
 
-                car1.Wait();
-                car2.Wait();
-
+                Assert.True(car1.Wait(TimeSpan.FromMinutes(1)));
+                Assert.True(car2.Wait(TimeSpan.FromMinutes(1)));
 
                 QueryResult finalQueryResult = store.Commands().Query(new IndexQuery { Query = "FROM INDEX 'MyIndex'" });
 

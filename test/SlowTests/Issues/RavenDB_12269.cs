@@ -1,5 +1,6 @@
 ﻿using System.Threading.Tasks;
 using FastTests;
+using Raven.Client;
 using Raven.Client.Documents;
 using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Operations.Indexes;
@@ -39,7 +40,7 @@ namespace SlowTests.Issues
                     Name = "Users_ByName"
                 }));
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 var db = await GetDatabase(store.Database);
 
@@ -56,7 +57,7 @@ namespace SlowTests.Issues
                 }));
 
                 
-                var replacementIndex = db.IndexStore.GetIndex("ReplacementOf/Users_ByName");
+                var replacementIndex = db.IndexStore.GetIndex($"{Constants.Documents.Indexing.SideBySideIndexNamePrefix}Users_ByName");
 
                 // let's try to force calling storageEnvironment.Cleanup() inside ExecuteIndexing method
                 replacementIndex.LowMemory(LowMemorySeverity.ExtremelyLow);
@@ -65,7 +66,7 @@ namespace SlowTests.Issues
 
                 db.IndexStore.StartIndexing();
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 // let's try to force calling storageEnvironment.Cleanup() inside ExecuteIndexing method
                 replacementIndex.LowMemory(LowMemorySeverity.ExtremelyLow);

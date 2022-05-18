@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -79,7 +80,7 @@ namespace SlowTests.Server.Replication
                 }
 
                 var operation = await store.Smuggler.ExportAsync(new DatabaseSmugglerExportOptions(), exportFile);
-                await operation.WaitForCompletionAsync();
+                await operation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
             }
 
             using (var store = GetDocumentStore(new Options { Server = leader, ReplicationFactor = 1 }))
@@ -91,11 +92,11 @@ namespace SlowTests.Server.Replication
                 var dest = nodes.First(n => n.ServerStore.NodeTag != srcTag);
 
                 var operation = await store.Smuggler.ImportAsync(new DatabaseSmugglerImportOptions(), exportFile);
-                await operation.WaitForCompletionAsync();
+                await operation.WaitForCompletionAsync(TimeSpan.FromMinutes(5));
 
                 using (var session = store.OpenAsyncSession())
                 {
-                    WaitForIndexing(store, store.Database, nodeTag: src.ServerStore.NodeTag);
+                    Indexes.WaitForIndexing(store, store.Database, nodeTag: src.ServerStore.NodeTag);
                     var firstNodeDocs = await session.Query<User>().ToArrayAsync();
                     Assert.Equal(0, firstNodeDocs.Length);
                 }
@@ -108,7 +109,7 @@ namespace SlowTests.Server.Replication
                 using var re = RequestExecutor.CreateForSingleNodeWithConfigurationUpdates(dest.WebUrl, store.Database, null, store.Conventions);
                 using (var secondSession = store.OpenAsyncSession(new SessionOptions { RequestExecutor = re }))
                 {
-                    WaitForIndexing(store, store.Database, nodeTag: dest.ServerStore.NodeTag);
+                    Indexes.WaitForIndexing(store, store.Database, nodeTag: dest.ServerStore.NodeTag);
                     var secondNodeDocs = await secondSession.Query<User>().ToArrayAsync();
                     Assert.Equal(0, secondNodeDocs.Length);
                 }
@@ -175,7 +176,7 @@ namespace SlowTests.Server.Replication
 
                 using (var session = store.OpenAsyncSession())
                 {
-                    WaitForIndexing(store, store.Database, nodeTag: src.ServerStore.NodeTag);
+                    Indexes.WaitForIndexing(store, store.Database, nodeTag: src.ServerStore.NodeTag);
                     var firstNodeDocs = await session.Query<User>().ToArrayAsync();
                     Assert.Equal(0, firstNodeDocs.Length);
                 }
@@ -188,7 +189,7 @@ namespace SlowTests.Server.Replication
                 using var re = RequestExecutor.CreateForSingleNodeWithConfigurationUpdates(dest.WebUrl, store.Database, null, store.Conventions);
                 using (var secondSession = store.OpenAsyncSession(new SessionOptions { RequestExecutor = re }))
                 {
-                    WaitForIndexing(store, store.Database, nodeTag: dest.ServerStore.NodeTag);
+                    Indexes.WaitForIndexing(store, store.Database, nodeTag: dest.ServerStore.NodeTag);
                     var secondNodeDocs = await secondSession.Query<User>().ToArrayAsync();
                     Assert.Equal(0, secondNodeDocs.Length);
                 }

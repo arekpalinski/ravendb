@@ -7,7 +7,6 @@ using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Indexes.Spatial;
 using Raven.Client.Documents.Linq;
 using Raven.Client.Documents.Queries.Facets;
-using Raven.Client.Documents.Queries.Timings;
 using Raven.Client.Documents.Session;
 using Raven.Client.Exceptions;
 using Raven.Server.Documents.Queries.Timings;
@@ -20,6 +19,33 @@ public class FilterTests : RavenTestBase
 {
     public FilterTests(ITestOutputHelper output) : base(output)
     {
+    }
+
+    [Fact]
+    public void CanUseFilterAsContextualKeywordForBackwardCompatability()
+    {
+        using var store = GetDocumentStore();
+        var data = GetDatabaseItems();
+        Insert(store, data);
+        // raw
+        using (var s = store.OpenSession())
+        {
+            var result = s.Advanced
+                .RawQuery<Employee>("from Employees filter where filter.Name = 'Jane' filter filter.Name ='Jane' select filter")
+                .SingleOrDefault();
+
+            Assert.Equal("Jane", result.Name);
+
+            var c = s.Advanced.RawQuery<Employee>(@"
+declare function filter(a) {
+    return {filtered: true};
+}
+from Employees as a
+select filter(a)").Count();
+
+            Assert.Equal(3, c);
+
+        }
     }
 
     [Fact]
@@ -633,7 +659,7 @@ filter Name = 'Frank'")
                 session.SaveChanges();
             }
 
-            WaitForIndexing(store);
+            Indexes.WaitForIndexing(store);
 
             using (var session = store.OpenSession())
             {
@@ -711,7 +737,7 @@ filter Name = 'Frank'")
         public BlogIndex()
         {
             Map = blogs => from b in blogs
-                select new { Tags = b.Tags };
+                           select new { Tags = b.Tags };
             Store("Tags", FieldStorage.Yes);
             Index("Tags", FieldIndexing.Exact);
         }

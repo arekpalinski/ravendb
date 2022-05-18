@@ -706,6 +706,7 @@ interface confirmationDialogOptions {
     forceRejectWithResolve?: boolean;
     defaultOption?: string;
     html?: boolean;
+    wideDialog?: boolean;
 }
 
 interface getIndexEntriesFieldsCommandResult {
@@ -873,5 +874,5 @@ interface iconPlusText {
 
 interface columnPreviewFeature {
     install($tooltip: JQuery, valueProvider: () => any, elementProvider: () => any, containerSelector: string): void;
-    syntax(column: virtualColumn, escapedValue: any): void;
+    syntax(column: virtualColumn, escapedValue: any, element: any): void;
 }

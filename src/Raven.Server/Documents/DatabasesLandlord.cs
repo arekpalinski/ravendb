@@ -41,14 +41,15 @@ namespace Raven.Server.Documents
         private readonly ConcurrentDictionary<string, Timer> _wakeupTimers = new ConcurrentDictionary<string, Timer>();
 
         public readonly ResourceCache<DocumentDatabase> DatabasesCache = new ResourceCache<DocumentDatabase>();
-        private readonly TimeSpan _concurrentDatabaseLoadTimeout;
         private readonly Logger _logger;
-        private readonly SemaphoreSlim _databaseSemaphore;
         private readonly ServerStore _serverStore;
 
         // used in ServerWideBackupStress
         internal bool SkipShouldContinueDisposeCheck = false;
         internal Action<(DocumentDatabase Database, string caller)> AfterDatabaseCreation;
+        internal SemaphoreSlim _databaseSemaphore;
+        internal TimeSpan _concurrentDatabaseLoadTimeout;
+        internal int _dueTimeOnRetry = 60_000;
 
         public DatabasesLandlord(ServerStore serverStore)
         {
@@ -83,6 +84,7 @@ namespace Raven.Server.Documents
             internal int? HoldDocumentDatabaseCreation = null;
             internal bool PreventedRehabOfIdleDatabase = false;
             internal Action<DocumentDatabase> OnBeforeDocumentDatabaseInitialization;
+            internal ManualResetEventSlim RescheduleDatabaseWakeupMre = null;
         }
 
         private async Task HandleClusterDatabaseChanged(string databaseName, long index, string type, ClusterDatabaseChangeType changeType, object _)
@@ -293,11 +295,11 @@ namespace Raven.Server.Documents
             return disabled || isRestoring;
         }
 
-        private void UnloadDatabaseInternal(string databaseName,[CallerMemberName] string caller = null)
+        private void UnloadDatabaseInternal(string databaseName, [CallerMemberName] string caller = null)
         {
             using (DatabasesCache.RemoveLockAndReturn(databaseName, CompleteDatabaseUnloading, out _, caller))
             {
-                
+
             }
         }
 
@@ -388,7 +390,7 @@ namespace Raven.Server.Documents
                 }
 
                 // delete the cache info
-                DeleteDatabaseCachedInfo(dbName, _serverStore);
+                DeleteDatabaseCachedInfo(dbName, throwOnError: true);
             }
             finally
             {
@@ -535,7 +537,7 @@ namespace Raven.Server.Documents
                 });
                 DatabasesCache.Clear();
 
-                
+
 
                 exceptionAggregator.ThrowIfNeeded();
             }
@@ -790,7 +792,7 @@ namespace Raven.Server.Documents
                 documentDatabase.Initialize(InitializeOptions.None, wakeup);
 
                 AddToInitLog("Finish database initialization");
-                DeleteDatabaseCachedInfo(documentDatabase.Name, _serverStore);
+                DeleteDatabaseCachedInfo(documentDatabase.Name, throwOnError: false);
                 if (_logger.IsInfoEnabled)
                     _logger.Info($"Started database {config.ResourceName} in {sp.ElapsedMilliseconds:#,#;;0}ms");
 
@@ -823,9 +825,20 @@ namespace Raven.Server.Documents
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void DeleteDatabaseCachedInfo(string databaseName, ServerStore serverStore)
+        private void DeleteDatabaseCachedInfo(string databaseName, bool throwOnError)
         {
-            serverStore.DatabaseInfoCache.Delete(databaseName);
+            try
+            {
+                _serverStore.DatabaseInfoCache.Delete(databaseName);
+            }
+            catch (Exception e)
+            {
+                if (throwOnError)
+                    throw;
+
+                if (_logger.IsInfoEnabled)
+                    _logger.Info($"Failed to delete database info for '{databaseName}' database.", e);
+            }
         }
 
         public RavenConfiguration CreateDatabaseConfiguration(StringSegment databaseName, bool ignoreDisabledDatabase = false, bool ignoreBeenDeleted = false, bool ignoreNotRelevant = false)
@@ -1042,8 +1055,21 @@ namespace Raven.Server.Documents
                     if (_serverStore.ServerShutdown.IsCancellationRequested)
                         return;
 
-                    TryGetOrCreateResourceStore(name, wakeup);
+                    _ = TryGetOrCreateResourceStore(name, wakeup).ContinueWith(t =>
+                          {
+                              var ex = t.Exception.ExtractSingleInnerException();
+                              if (ex is DatabaseConcurrentLoadTimeoutException e)
+                              {
+                                  // database failed to load, retry after 1 min
+                                  ForTestingPurposes?.RescheduleDatabaseWakeupMre?.Set();
+
+                                  if (_logger.IsInfoEnabled)
+                                      _logger.Info($"Failed to start database '{name}' on timer, will retry the wakeup in '{_dueTimeOnRetry}' ms", e);
+
+                                  RescheduleDatabaseWakeup(name, milliseconds: _dueTimeOnRetry, wakeup);
                 }
+                          }, TaskContinuationOptions.OnlyOnFaulted);
+            }
             }
             catch
             {

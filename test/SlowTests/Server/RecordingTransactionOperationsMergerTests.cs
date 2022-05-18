@@ -360,7 +360,7 @@ namespace SlowTests.Server
 
                 await store.ExecuteIndexAsync(new DailyInvoicesIndex());
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 store.Maintenance.Send(new StopTransactionsRecordingOperation());
             }
@@ -456,7 +456,7 @@ namespace SlowTests.Server
                 store.Commands().Delete(id, null);
 
                 //Wait for all tombstones to exhaust their purpose
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
                 using (database.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                     await WaitFor(() =>
                     {
@@ -479,7 +479,7 @@ namespace SlowTests.Server
                 store.Commands().Execute(command);
                 store.Maintenance.Send(new ReplayTransactionsRecordingOperation(replayStream, command.Result));
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
                 using (database.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                 using (context.OpenReadTransaction())
                 {
@@ -515,7 +515,7 @@ namespace SlowTests.Server
                     session.SaveChanges();
                 }
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
                 database.DocumentsStorage.RevisionsStorage.Operations.DeleteRevisionsBefore("Users", DateTime.UtcNow);
 
                 store.Maintenance.Send(new StopTransactionsRecordingOperation());
@@ -617,7 +617,7 @@ namespace SlowTests.Server
                 var command = new OutgoingReplicationHandler.UpdateSiblingCurrentEtag(message, new AsyncManualResetEvent());
                 command.Init();
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
                 await database.TxMerger.Enqueue(command);
 
                 store.Maintenance.Send(new StopTransactionsRecordingOperation());
@@ -631,7 +631,7 @@ namespace SlowTests.Server
                 store.Commands().Execute(command);
                 store.Maintenance.Send(new ReplayTransactionsRecordingOperation(replayStream, command.Result));
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
                 using (database.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                 using (context.OpenReadTransaction())
                 {
@@ -658,7 +658,7 @@ namespace SlowTests.Server
                 var command = new IncomingReplicationHandler.MergedUpdateDatabaseChangeVectorCommand(
                     expectedChangeVector, 5, Guid.NewGuid().ToString(), new AsyncManualResetEvent(), isHub: false);
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
                 await database.TxMerger.Enqueue(command);
 
                 store.Maintenance.Send(new StopTransactionsRecordingOperation());
@@ -672,7 +672,7 @@ namespace SlowTests.Server
                 store.Commands().Execute(command);
                 store.Maintenance.Send(new ReplayTransactionsRecordingOperation(replayStream, command.Result));
 
-                var database = await GetDocumentDatabaseInstanceFor(store);
+                var database = await Databases.GetDocumentDatabaseInstanceFor(store);
                 using (database.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
                 using (context.OpenReadTransaction())
                 {
@@ -767,7 +767,7 @@ namespace SlowTests.Server
                             // to avoid a race condition where we will wait for an operation
                             // before it starts (request is send to the server)
 
-                var result = await operation.WaitForCompletionAsync<ReplayTxOperationResult>();
+                var result = await operation.WaitForCompletionAsync<ReplayTxOperationResult>(TimeSpan.FromMinutes(5));
 
                 //Assert
                 //Todo To think how to assert this test and if this test should be exist
@@ -1019,7 +1019,7 @@ namespace SlowTests.Server
                 expected.Age = 67;
                 master.Commands().Put(id, null, expected);
 
-                await WaitForConflict(slave, id);
+                await Replication.WaitForConflict(slave, id);
 
                 slave.Maintenance.Server.Send(new ModifyConflictSolverOperation(slave.Database, null, true));
 
@@ -1277,7 +1277,7 @@ namespace SlowTests.Server
                 var parameters = new Parameters { ["age"] = newAge };
                 store.Operations
                     .Send(new PatchByQueryOperation(new IndexQuery { Query = query, QueryParameters = parameters }))
-                    .WaitForCompletion();
+                    .WaitForCompletion(TimeSpan.FromMinutes(5));
 
                 store.Maintenance.Send(new StopTransactionsRecordingOperation());
             }
@@ -1387,7 +1387,7 @@ namespace SlowTests.Server
                     session.SaveChanges();
                 }
 
-                var db = await GetDocumentDatabaseInstanceFor(store);
+                var db = await Databases.GetDocumentDatabaseInstanceFor(store);
                 using (var token = new OperationCancelToken(db.Configuration.Databases.OperationTimeout.AsTimeSpan, db.DatabaseShutdown, CancellationToken.None))
                 {
                     var result = await db.DocumentsStorage.RevisionsStorage.RevertRevisions(last, TimeSpan.FromMinutes(60), onProgress: null,

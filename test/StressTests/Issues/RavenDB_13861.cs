@@ -20,7 +20,7 @@ namespace StressTests.Issues
         {
         }
 
-        [Fact32Bit]
+        [MultiplatformFact(RavenArchitecture.AllX86)]
         public async Task BatchMemorySizeLimitationShouldBeExactIn32Bit()
         {
             var str = string.Join(string.Empty, Enumerable.Range(0, 1600).Select(x => x.ToString()).ToArray());
@@ -53,14 +53,14 @@ namespace StressTests.Issues
             }
         }
 
-        [Fact32Bit]
+        [MultiplatformFact(RavenArchitecture.AllX86)]
         public async Task BatchMemorySizeLimitationShouldBeExactInEncryptedModeIn32Bit()
         {
             var str = string.Join(string.Empty, Enumerable.Range(0, 1600).Select(x => x.ToString()).ToArray());
 
-            var certificates = SetupServerAuthentication();
+            var certificates = Certificates.SetupServerAuthentication();
             var dbName = GetDatabaseName();
-            var adminCert = RegisterClientCertificate(certificates, new Dictionary<string, DatabaseAccess>(), SecurityClearance.ClusterAdmin);
+            var adminCert = Certificates.RegisterClientCertificate(certificates, new Dictionary<string, DatabaseAccess>(), SecurityClearance.ClusterAdmin);
 
             var buffer = new byte[32];
             using (var rand = RandomNumberGenerator.Create())
@@ -121,7 +121,7 @@ namespace StressTests.Issues
             }
         }
 
-        [Fact64Bit]
+        [MultiplatformFact(RavenArchitecture.AllX64)]
         public async Task BatchMemorySizeLimitationShouldBeExactIn64Bit()
         {
             var str = string.Join(string.Empty, Enumerable.Range(0, 1600).Select(x => x.ToString()).ToArray());
@@ -155,14 +155,14 @@ namespace StressTests.Issues
             }
         }
 
-        [Fact64Bit]
+        [MultiplatformFact(RavenArchitecture.AllX64)]
         public async Task BatchMemorySizeLimitationShouldBeExactInEncryptedModeIn64Bit()
         {
             var str = string.Join(string.Empty, Enumerable.Range(0, 1600).Select(x => x.ToString()).ToArray());
 
-            var certificates = SetupServerAuthentication();
+            var certificates = Certificates.SetupServerAuthentication();
             var dbName = GetDatabaseName();
-            var adminCert = RegisterClientCertificate(certificates, new Dictionary<string, DatabaseAccess>(), SecurityClearance.ClusterAdmin);
+            var adminCert = Certificates.RegisterClientCertificate(certificates, new Dictionary<string, DatabaseAccess>(), SecurityClearance.ClusterAdmin);
 
             var buffer = new byte[32];
             using (var rand = RandomNumberGenerator.Create())

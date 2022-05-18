@@ -114,7 +114,7 @@ update {
     this.Age++;
 }
 "));
-                op.WaitForCompletion();
+                op.WaitForCompletion(TimeSpan.FromMinutes(5));
 
                 using (var session = store.OpenSession())
                 {
@@ -157,7 +157,7 @@ update {
                     }
                 }
 
-                WaitForIndexing(store);
+                Indexes.WaitForIndexing(store);
 
                 store.Maintenance.Send(new StopIndexingOperation());
 
@@ -255,7 +255,7 @@ update {
     this.Age++;
 }
 "));
-                op.WaitForCompletion();
+                op.WaitForCompletion(TimeSpan.FromMinutes(5));
 
                 using (var session = store.OpenSession())
                 {
