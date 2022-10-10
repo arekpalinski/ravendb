@@ -436,6 +436,12 @@ namespace FastTests.Corax
             }
         }
 
+        [Microsoft.Coyote.SystematicTesting.Test]
+        public void CoyoteSimpleAndOrForBiggerSet()
+        {
+            SimpleAndOrForBiggerSet(8000, 18);
+        }
+
         [Fact]
         public void SimpleInStatement()
         {

@@ -12,9 +12,6 @@
     <GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
     <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
     <GenerateNeutralResourcesLanguageAttribute>false</GenerateNeutralResourcesLanguageAttribute>
-
-    <SignAssembly Condition="'$(OS)' == 'Windows_NT'">true</SignAssembly>
-    <AssemblyOriginatorKeyFile>..\..\RavenDB.snk</AssemblyOriginatorKeyFile>
     
   </PropertyGroup>
     <PropertyGroup Condition="'$(RuntimeIdentifier)' == ''">
