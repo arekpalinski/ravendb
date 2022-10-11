@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Version></Version>
+    <Description>RavenDB Client is the client library for accessing RavenDB</Description>
+    <Authors>Hibernating Rhinos</Authors>
+    <TargetFrameworks>net6.0</TargetFrameworks>
+    <!--<PackageId>RavenDB.Client2</PackageId>-->
+    <PackageTags>ravendb;client;database;nosql;doc db</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+
+
+
+</Project>

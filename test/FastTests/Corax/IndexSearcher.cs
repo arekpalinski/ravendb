@@ -8,6 +8,9 @@ using Corax.Pipeline;
 using Corax.Queries;
 using Corax.Utils;
 using FastTests.Voron;
+using Microsoft.Coyote;
+using Microsoft.Coyote.SystematicTesting;
+using Raven.Server.Integrations.PostgreSQL.Messages;
 using Sparrow;
 using Sparrow.Server;
 using Sparrow.Threading;
@@ -440,6 +443,32 @@ namespace FastTests.Corax
         public void CoyoteSimpleAndOrForBiggerSet()
         {
             SimpleAndOrForBiggerSet(8000, 18);
+
+            Dispose();
+        }
+
+        [Fact]
+        public void CoyoteTestTask()
+        {
+            var configuration = Configuration.Create().WithTestingIterations(100);
+            var engine = TestingEngine.Create(configuration, () =>
+            {
+                using (var t = new IndexSearcherTest(Output))
+                    t.SimpleAndOrForBiggerSet(8000, 18);
+            });
+            engine.Run();
+
+            var report = engine.TestReport;
+            Console.WriteLine("Coyote found {0} bug.", report.NumOfFoundBugs);
+
+
+            if (string.IsNullOrEmpty(engine.ReproducibleTrace) == false)
+            {
+                var config = Configuration.Create().WithReproducibleTrace(engine.ReproducibleTrace);
+                TestingEngine engine2 = TestingEngine.Create(config, CoyoteSimpleAndOrForBiggerSet);
+                engine2.Run();
+            }
+            Assert.True(report.NumOfFoundBugs == 0, $"Coyote found {report.NumOfFoundBugs} bug(s).");
         }
 
         [Fact]

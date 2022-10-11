@@ -24,7 +24,6 @@ using Raven.Client.Exceptions.Database;
 using Raven.Client.Exceptions.Routing;
 using Raven.Client.Exceptions.Security;
 using Raven.Client.Extensions;
-using Raven.Client.Properties;
 using Raven.Client.ServerWide.Commands;
 using Raven.Client.Util;
 using Sparrow;
@@ -1331,7 +1330,7 @@ namespace Raven.Client.Http
             return new DisposableAction(() => _localClientVersion = null);
         }
 
-        public static readonly string ClientVersion = RavenVersionAttribute.Instance.AssemblyVersion;
+        public static readonly string ClientVersion = "aaa";// RavenVersionAttribute.Instance.AssemblyVersion;
 
         internal HttpRequestMessage CreateRequest<TResult>(JsonOperationContext ctx, ServerNode node, RavenCommand<TResult> command, out string url)
         {

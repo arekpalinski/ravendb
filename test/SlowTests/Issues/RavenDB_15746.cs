@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using FastTests;
+using Microsoft.Coyote;
+using Microsoft.Coyote.SystematicTesting;
 using Orders;
 using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Operations.Indexes;
@@ -72,6 +74,27 @@ namespace SlowTests.Issues
                 // should index all documents regardless throttling set to 1 hour
                 Indexes.WaitForIndexing(store, timeout: TimeSpan.FromSeconds(30));
             }
+        }
+
+        [Fact]
+        public void CoyoteTestTask()
+        {
+            var configuration = Configuration.Create().WithTestingIterations(100).WithPotentialDeadlocksReportedAsBugs(false);
+            var engine = TestingEngine.Create(configuration, ShouldIndexAllDocumentsWithThrottlingSet);
+            engine.Run();
+
+            var report = engine.TestReport;
+            Console.WriteLine("Coyote found {0} bug.", report.NumOfFoundBugs);
+
+            Assert.True(report.NumOfFoundBugs == 0, $"Coyote found {report.NumOfFoundBugs} bug(s).");
+
+            //if (string.IsNullOrEmpty(engine.ReproducibleTrace) == false)
+            //{
+            //    var config = Configuration.Create().WithReproducibleTrace(engine.ReproducibleTrace);
+            //    TestingEngine engine2 = TestingEngine.Create(config, ShouldIndexAllDocumentsWithThrottlingSet);
+            //    engine2.Run();
+            //}
+            //Assert.True(report.NumOfFoundBugs == 0, $"Coyote found {report.NumOfFoundBugs} bug(s).");
         }
 
         [Fact]
