@@ -44,7 +44,6 @@ public class ShardedQueryProcessor : AbstractShardedQueryProcessor<ShardedQueryC
         CancellationToken token) : base(context, requestHandler, query, metadataOnly, indexEntriesOnly, token)
     {
         _existingResultEtag = existingResultEtag;
-        DevelopmentHelper.ShardingToDo(DevelopmentHelper.TeamMember.Grisha, DevelopmentHelper.Severity.Normal, "RavenDB-19084 Etag handling");
 
         DevelopmentHelper.ShardingToDo(DevelopmentHelper.TeamMember.Grisha, DevelopmentHelper.Severity.Normal, "RavenDB-19084 Add an option to select the shards for query in the client");
         
