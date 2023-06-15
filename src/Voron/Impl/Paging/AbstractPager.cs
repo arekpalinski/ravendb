@@ -243,8 +243,12 @@ namespace Voron.Impl.Paging
 
                 if (_pagerState != null)
                 {
-                    _pagerState.Release();
-                    _pagerState = null;
+                    //lock (_pagerStateModificationLocker)
+                    {
+                        _pagerState.Release();
+                        _pagerState = null;
+                    }
+                    
                 }
 
                 if (FileName?.FullPath != null)

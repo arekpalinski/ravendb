@@ -126,9 +126,6 @@ namespace Voron.Data.Compression
 
             while (queue.TryDequeue(out buffer))
             {
-                if (buffer.CanReuse == false)
-                    continue;
-
                 try
                 {
                     buffer.EnsureValidPointer(tx);
@@ -243,13 +240,15 @@ namespace Voron.Data.Compression
             _disposeOnceRunner.Dispose();
         }
 
-        public void Cleanup()
+        public int Cleanup()
         {
             if (_initialized == false)
-                return;
+                return 0;
 
             if (_oldPagers.Count == 0)
-                return;
+                return 0;
+
+            var disposedCount = 0;
 
             var necessaryPages = Interlocked.Read(ref _currentlyUsedBytes) / Constants.Storage.PageSize;
 
@@ -261,10 +260,13 @@ namespace Voron.Data.Compression
             {
                 var old = pagers[i];
 
+                if (old.PagerState.)
+
                 if (availablePages >= necessaryPages)
                 {
                     old.Dispose();
                     _scratchSpaceMonitor.Decrease(old.NumberOfAllocatedPages * Constants.Storage.PageSize);
+                    disposedCount++;
 
                     continue;
                 }
@@ -276,6 +278,8 @@ namespace Voron.Data.Compression
             }
 
             _oldPagers = _oldPagers.RemoveWhile(x => x.Disposed);
+
+            return disposedCount;
         }
 
         private class DecompressionBuffer : IDisposable
@@ -285,6 +289,7 @@ namespace Voron.Data.Compression
             private readonly int _size;
             private readonly DecompressionBuffersPool _pool;
             private readonly int _index;
+            private PagerState _pagerState;
 
             public DecompressionBuffer(AbstractPager pager, long position, int size, DecompressionBuffersPool pool, int index, LowLevelTransaction tx)
             {
@@ -293,23 +298,25 @@ namespace Voron.Data.Compression
                 _size = size;
                 _pool = pool;
                 _index = index;
-                _pager.EnsureMapped(tx, _position, _size / Constants.Storage.PageSize);
-                var ptr = _pager.AcquirePagePointer(tx, position);
 
-                TempPage = new TemporaryPage(ptr, size) { ReturnTemporaryPageToPool = this };
+                EnsureValidPointer(tx);
             }
 
-            public readonly TemporaryPage TempPage;
+            public TemporaryPage TempPage;
 
             public void EnsureValidPointer(LowLevelTransaction tx)
             {
+                _pagerState = _pager.GetPagerStateAndAddRefAtomically();
+
                 _pager.EnsureMapped(tx, _position, _size / Constants.Storage.PageSize);
-                var p = _pager.AcquirePagePointer(tx, _position);
+                
+                var ptr = _pager.AcquirePagePointer(null, _position); // TODO arek - not sure if we should pass tx to AcquirePagePointer(), more likely null
 
-                TempPage.SetPointer(p);
+                if (TempPage == null)
+                    TempPage = new TemporaryPage(ptr, _size) {ReturnTemporaryPageToPool = this};
+                else
+                    TempPage.SetPointer(ptr);
             }
-
-            public bool CanReuse => _pager.Disposed == false;
 
             public void Dispose()
             {
@@ -320,6 +327,8 @@ namespace Voron.Data.Compression
                 _pool._pool[_index].Enqueue(this);
 
                 Interlocked.Add(ref _pool._currentlyUsedBytes, -_size);
+
+                _pagerState.Release();
             }
         }
     }
