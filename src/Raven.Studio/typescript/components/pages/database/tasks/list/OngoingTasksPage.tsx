@@ -12,8 +12,10 @@ import {
     OngoingTaskExternalReplicationInfo,
     OngoingTaskInfo,
     OngoingTaskKafkaEtlInfo,
+    OngoingTaskKafkaSinkInfo,
     OngoingTaskOlapEtlInfo,
     OngoingTaskPeriodicBackupInfo,
+    OngoingTaskRabbitMqEtlInfo,
     OngoingTaskRavenEtlInfo,
     OngoingTaskReplicationHubInfo,
     OngoingTaskReplicationSinkInfo,
@@ -44,6 +46,7 @@ import { FlexGrow } from "components/common/FlexGrow";
 import { HrHeader } from "components/common/HrHeader";
 import { EmptySet } from "components/common/EmptySet";
 import { Icon } from "components/common/Icon";
+import { KafkaSinkPanel } from "components/pages/database/tasks/panels/KafkaSinkPanel";
 
 interface OngoingTasksPageProps {
     database: database;
@@ -153,7 +156,10 @@ export function OngoingTasksPage(props: OngoingTasksPageProps) {
     const sqlEtls = tasks.tasks.filter((x) => x.shared.taskType === "SqlEtl") as OngoingTaskSqlEtlInfo[];
     const olapEtls = tasks.tasks.filter((x) => x.shared.taskType === "OlapEtl") as OngoingTaskOlapEtlInfo[];
     const kafkaEtls = tasks.tasks.filter((x) => x.shared.taskType === "KafkaQueueEtl") as OngoingTaskKafkaEtlInfo[];
-    const rabbitMqEtls = tasks.tasks.filter((x) => x.shared.taskType === "RabbitQueueEtl") as OngoingTaskKafkaEtlInfo[];
+    const rabbitMqEtls = tasks.tasks.filter(
+        (x) => x.shared.taskType === "RabbitQueueEtl"
+    ) as OngoingTaskRabbitMqEtlInfo[];
+    const kafkaSinks = tasks.tasks.filter((x) => x.shared.taskType === "KafkaQueueSink") as OngoingTaskKafkaSinkInfo[];
     const elasticSearchEtls = tasks.tasks.filter(
         (x) => x.shared.taskType === "ElasticSearchEtl"
     ) as OngoingTaskElasticSearchEtlInfo[];
@@ -363,6 +369,18 @@ export function OngoingTasksPage(props: OngoingTasksPageProps) {
                         </div>
                     )}
 
+                    {kafkaSinks.length > 0 && (
+                        <div key="kafka-sinks">
+                            <HrHeader className="kafka-sink" count={kafkaSinks.length}>
+                                <Icon icon="kafka-sink" />
+                                KAFKA SINK
+                            </HrHeader>
+
+                            {kafkaSinks.map((x) => (
+                                <KafkaSinkPanel {...sharedPanelProps} key={taskKey(x.shared)} data={x} />
+                            ))}
+                        </div>
+                    )}
                     {elasticSearchEtls.length > 0 && (
                         <div key="elastic-search-etls">
                             <HrHeader className="elastic-etl" count={elasticSearchEtls.length}>
