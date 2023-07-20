@@ -47,6 +47,7 @@ import { HrHeader } from "components/common/HrHeader";
 import { EmptySet } from "components/common/EmptySet";
 import { Icon } from "components/common/Icon";
 import { KafkaSinkPanel } from "components/pages/database/tasks/panels/KafkaSinkPanel";
+import { RabbitMqSinkPanel } from "components/pages/database/tasks/panels/RabbitMqSinkPanel";
 
 interface OngoingTasksPageProps {
     database: database;
@@ -160,6 +161,9 @@ export function OngoingTasksPage(props: OngoingTasksPageProps) {
         (x) => x.shared.taskType === "RabbitQueueEtl"
     ) as OngoingTaskRabbitMqEtlInfo[];
     const kafkaSinks = tasks.tasks.filter((x) => x.shared.taskType === "KafkaQueueSink") as OngoingTaskKafkaSinkInfo[];
+    const rabbitMqSinks = tasks.tasks.filter(
+        (x) => x.shared.taskType === "RabbitQueueSink"
+    ) as OngoingTaskKafkaSinkInfo[];
     const elasticSearchEtls = tasks.tasks.filter(
         (x) => x.shared.taskType === "ElasticSearchEtl"
     ) as OngoingTaskElasticSearchEtlInfo[];
@@ -381,6 +385,20 @@ export function OngoingTasksPage(props: OngoingTasksPageProps) {
                             ))}
                         </div>
                     )}
+
+                    {rabbitMqSinks.length > 0 && (
+                        <div key="rabbitmq-sinks">
+                            <HrHeader className="rabbitmq-sink" count={rabbitMqSinks.length}>
+                                <Icon icon="rabbitmq-sink" />
+                                RABBITMQ SINK
+                            </HrHeader>
+
+                            {rabbitMqSinks.map((x) => (
+                                <RabbitMqSinkPanel {...sharedPanelProps} key={taskKey(x.shared)} data={x} />
+                            ))}
+                        </div>
+                    )}
+
                     {elasticSearchEtls.length > 0 && (
                         <div key="elastic-search-etls">
                             <HrHeader className="elastic-etl" count={elasticSearchEtls.length}>
