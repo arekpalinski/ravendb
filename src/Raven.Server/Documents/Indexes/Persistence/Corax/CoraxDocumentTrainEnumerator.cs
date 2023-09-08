@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using Corax;
 using Corax.Analyzers;
@@ -134,7 +135,7 @@ internal struct CoraxDocumentTrainEnumerator : IReadOnlySpanEnumerator
     }
 
     private readonly DocumentsStorage _documentStorage;
-    private readonly QueryOperationContext _queryContext;
+    private readonly DocumentsOperationContext _docsContext;
     private readonly TransactionOperationContext _indexContext;
     private readonly Index _index;
     private readonly IndexType _indexType;
@@ -147,7 +148,7 @@ internal struct CoraxDocumentTrainEnumerator : IReadOnlySpanEnumerator
     private readonly CancellationToken _token;
     private readonly Size _maxAllocatedMemory;
 
-    public CoraxDocumentTrainEnumerator(TransactionOperationContext indexContext, CoraxDocumentConverterBase converter, Index index, IndexType indexType, DocumentsStorage storage, QueryOperationContext queryContext, HashSet<string> collections, CancellationToken token, int take = int.MaxValue)
+    public CoraxDocumentTrainEnumerator(TransactionOperationContext indexContext, CoraxDocumentConverterBase converter, Index index, IndexType indexType, DocumentsStorage storage, DocumentsOperationContext docsContext, HashSet<string> collections, CancellationToken token, int take = int.MaxValue)
     {
         _indexContext = indexContext;
         _index = index;
@@ -163,7 +164,7 @@ internal struct CoraxDocumentTrainEnumerator : IReadOnlySpanEnumerator
         _maxAllocatedMemory = _index.Configuration.MaxAllocationsAtDictionaryTraining;
 
         _documentStorage = storage;
-        _queryContext = queryContext;
+        _docsContext = docsContext;
         _collections = collections;
         _terms = new List<(int FieldId, string FieldName, ByteString Value)>();
         _builder = new Builder(indexContext.Allocator, _terms);
@@ -186,10 +187,19 @@ internal struct CoraxDocumentTrainEnumerator : IReadOnlySpanEnumerator
             // We retrieve the baseline memory in order to calculate the difference.
             var atStartAllocated = new Size(NativeMemory.CurrentThreadStats.TotalAllocated, SizeUnit.Bytes);
 
-            using var itemEnumerator = _index.GetMapEnumerator(GetItemsEnumerator(_queryContext, collection, _take, _token), collection, _indexContext, scope, _indexType);
+            if (atStartAllocated > new Size(1, SizeUnit.Gigabytes))
+                //if (atStartAllocated > new Size(2, SizeUnit.Gigabytes))
+            {
+                Console.WriteLine("AAAAAAAAAAAA");
+
+                Debugger.Launch();
+                Debugger.Break();
+            }
+
+            using var itemEnumerator = _index.GetMapEnumerator(GetItemsEnumerator(_docsContext, collection, _take, _token), collection, _indexContext, scope, _indexType);
             while (true)
             {
-                if (itemEnumerator.MoveNext(_queryContext.Documents, out var mapResults, out _) == false)
+                if (itemEnumerator.MoveNext(_docsContext, out var mapResults, out _) == false)
                     break;
 
                 var doc = (Document)itemEnumerator.Current.Item;
@@ -251,28 +261,33 @@ internal struct CoraxDocumentTrainEnumerator : IReadOnlySpanEnumerator
                 // Check if we have already hit the threshold allocations.
                 var totalAllocated = new Size(NativeMemory.CurrentThreadStats.TotalAllocated, SizeUnit.Bytes) - atStartAllocated;
                 if (totalAllocated > maxAllocatedMemoryPerCollection)
+                {
+                    Console.WriteLine("Break");
                     break;
+                }
+
+                Console.WriteLine($"Total allocated: {new Size(NativeMemory.CurrentThreadStats.TotalAllocated, SizeUnit.Bytes)}, allocated diff: {totalAllocated}, at start - {atStartAllocated}");
             }
         }
     }
 
-    private IEnumerator<Document> GetDocumentsEnumerator(QueryOperationContext queryContext, string collection, long take, CancellationToken token)
+    private IEnumerator<Document> GetDocumentsEnumerator(DocumentsOperationContext docsContext, string collection, long take, CancellationToken token)
     {
-        var size = queryContext.Documents.DocumentDatabase.Configuration.Databases.PulseReadTransactionLimit;
+        var size = docsContext.DocumentDatabase.Configuration.Databases.PulseReadTransactionLimit;
         var coraxDocumentTrainDocumentSource = new CoraxDocumentTrainSourceEnumerator(_documentStorage);
         
         if (collection == Constants.Documents.Collections.AllDocumentsCollection)
-            return new PulsedTransactionEnumerator<Document, CoraxDocumentTrainSourceState>(queryContext.Documents,
-                state => coraxDocumentTrainDocumentSource.GetDocumentsForDictionaryTraining(queryContext.Documents, state), new(queryContext.Documents, size, take, token)); 
+            return new TransactionForgetAboutDocumentEnumerator(new PulsedTransactionEnumerator<Document, CoraxDocumentTrainSourceState>(docsContext,
+                state => coraxDocumentTrainDocumentSource.GetDocumentsForDictionaryTraining(docsContext, state), new(docsContext, size, take, token)), docsContext); 
 
-        return new PulsedTransactionEnumerator<Document,CoraxDocumentTrainSourceState>(queryContext.Documents, 
-            state =>  coraxDocumentTrainDocumentSource.GetDocumentsForDictionaryTraining(queryContext.Documents, collection, state)
-            , new CoraxDocumentTrainSourceState(queryContext.Documents, size, take, token));
+        return new TransactionForgetAboutDocumentEnumerator(new PulsedTransactionEnumerator<Document,CoraxDocumentTrainSourceState>(docsContext, 
+            state =>  coraxDocumentTrainDocumentSource.GetDocumentsForDictionaryTraining(docsContext, collection, state)
+            , new CoraxDocumentTrainSourceState(docsContext, size, take, token)), docsContext);
     }
 
-    private IEnumerable<IndexItem> GetItemsEnumerator(QueryOperationContext queryContext, string collection, long take, CancellationToken token)
+    private IEnumerable<IndexItem> GetItemsEnumerator(DocumentsOperationContext docsContext, string collection, long take, CancellationToken token)
     {
-        foreach (var document in GetDocumentsEnumerator(queryContext, collection, take, token))
+        foreach (var document in GetDocumentsEnumerator(docsContext, collection, take, token))
         {
             yield return new DocumentIndexItem(document.Id, document.LowerId, document.Etag, document.LastModified, document.Data.Size, document);
         }
