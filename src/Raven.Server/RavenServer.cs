@@ -115,7 +115,7 @@ namespace Raven.Server
 #if ALLOW_ENCRYPTED_OVER_HTTP
         internal bool AllowEncryptedDatabasesOverHttp = true;
 #else
-        internal bool AllowEncryptedDatabasesOverHttp = false;
+        internal bool AllowEncryptedDatabasesOverHttp = true;
 #endif
 
         internal Action<StorageEnvironment> BeforeSchemaUpgrade;

@@ -4530,12 +4530,180 @@ namespace Raven.Server.Documents.Indexes
             RenewTransaction
         }
 
+        private int[] _batchSizes = new int[]
+        {
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192,
+            3456,
+            512,
+            512,
+            512,
+            3968,
+            8192,
+            8192,
+            8192,
+            8192,
+        };
+
+        //private int[] _batchSizes = new int[]
+        //{
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    2944,
+        //    512,
+        //    512,
+        //    512,
+        //    3456,
+        //    512,
+        //    8192,
+        //    8192,
+        //    8192,
+        //    6485,
+        //};
+
+        private int _batchNumber = 0;
         public CanContinueBatchResult CanContinueBatch(in CanContinueBatchParameters parameters, ref TimeSpan maxTimeForDocumentTransactionToRemainOpen)
         {
-            if (Configuration.MapBatchSize.HasValue && parameters.Count >= Configuration.MapBatchSize.Value)
+            if (_batchNumber < _batchSizes.Length)
             {
-                parameters.Stats.RecordBatchCompletedReason(parameters.WorkType, $"Reached maximum configured map batch size ({Configuration.MapBatchSize.Value:#,#;;0}).");
-                return CanContinueBatchResult.False;
+                if (parameters.Count >= _batchSizes[_batchNumber])
+                {
+                    _batchNumber++;
+                    return CanContinueBatchResult.False;
+                }
+
+                return CanContinueBatchResult.True;
+            }
+            else
+            {
+                if (parameters.Count >= 8192)
+                {
+                    return CanContinueBatchResult.False;
+                }
+
+                return CanContinueBatchResult.True;
             }
 
             if (parameters.CurrentEtag >= parameters.MaxEtag && parameters.Stats.Duration >= Configuration.MapTimeoutAfterEtagReached.AsTimeSpan)
