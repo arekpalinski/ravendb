@@ -1,9 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using System.Threading.Tasks;
 using FastTests.Blittable;
 using FastTests.Client;
 using RachisTests;
+using Raven.Client.Documents;
+using Raven.Client.Documents.Conventions;
 using SlowTests.Client.Attachments;
 using SlowTests.Client.TimeSeries.Replication;
 using SlowTests.Issues;
@@ -23,23 +29,62 @@ namespace Tryouts
 
         public static async Task Main(string[] args)
         {
-            Console.WriteLine(Process.GetCurrentProcess().Id);
-            for (int i = 0; i < 10_000; i++)
+            using var store = new DocumentStore
             {
-                Console.WriteLine($"Starting to run {i}");
-                try
+                Urls = new[] { "http://127.0.0.1:8080" },
+                Database = "test",
+                Conventions = new DocumentConventions
                 {
-                    using (var testOutputHelper = new ConsoleTestOutputHelper())
-                    using (var test = new RavenDB_21173(testOutputHelper))
-                    {
-                        await test.ClusterTransaction_Failover_Shouldnt_Throw_ConcurrencyException();
-                    }
+                    //HttpVersion = HttpVersion.Version20
                 }
-                catch (Exception e)
+            };
+            store.Initialize();
+
+            var cts = new CancellationTokenSource();
+
+            var tasks = new List<Task>();
+            for (int j = 0; j < 100; ++j)
+            {
+                var c = j;
+                tasks.Add(Task.Run(async () =>
                 {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine(e);
-                    Console.ForegroundColor = ConsoleColor.White;
+                    Console.WriteLine($"Created {c}");
+
+                    while (true)
+                    {
+                        await StreamQueryAsync(store, cts);
+
+                        if (cts.IsCancellationRequested)
+                            return;
+                    }
+                }));
+            }
+
+            while (true)
+            {
+                var q = Console.ReadLine();
+                if (string.Equals(q, "q"))
+                {
+                    cts.Cancel();
+                    await Task.WhenAll(tasks);
+                    break;
+                }
+            }
+
+            async Task StreamQueryAsync(DocumentStore store, CancellationTokenSource cts)
+            {
+                using (var session = store.OpenAsyncSession())
+                {
+                    var query = session.Advanced.AsyncRawQuery<dynamic>("from index 'Orders/Totals'");
+
+                    var stream = await session.Advanced.StreamAsync(query);
+                    while (await stream.MoveNextAsync())
+                    {
+
+
+                        if (cts.IsCancellationRequested)
+                            return;
+                    }
                 }
             }
         }
