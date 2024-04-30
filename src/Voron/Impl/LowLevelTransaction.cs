@@ -1545,6 +1545,7 @@ namespace Voron.Impl
             internal Action ActionToCallDuringEnsurePagerStateReference;
             internal Action ActionToCallJustBeforeWritingToJournal;
             internal Action ActionToCallDuringBeginAsyncCommitAndStartNewTransaction;
+            internal Action ActionToCallOnTransactionAfterCommit;
 
             public TestingStuff(LowLevelTransaction tx)
             {
@@ -1575,6 +1576,13 @@ namespace Voron.Impl
                 ActionToCallDuringBeginAsyncCommitAndStartNewTransaction = action;
 
                 return new DisposableAction(() => ActionToCallDuringBeginAsyncCommitAndStartNewTransaction = null);
+            }
+
+            internal IDisposable CallOnTransactionAfterCommit(Action action)
+            {
+                ActionToCallOnTransactionAfterCommit = action;
+
+                return new DisposableAction(() => ActionToCallOnTransactionAfterCommit = null);
             }
 
             internal HashSet<PagerState> GetPagerStates()
