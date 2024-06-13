@@ -1063,6 +1063,42 @@ namespace Raven.Server.Smuggler.Documents
             return SmugglerSourceType.Import;
         }
 
+        public async IAsyncEnumerable<TimeSeriesDeletedRangeItemForSmuggler> GetTimeSeriesDeletedRangesAsync(ITimeSeriesActions action, List<string> collectionsToExport)
+        {
+            var collectionsHashSet = new HashSet<string>(collectionsToExport, StringComparer.OrdinalIgnoreCase);
+
+            await foreach (var reader in ReadArrayAsync(action))
+            {
+                if (reader.TryGet(nameof(TimeSeriesDeletedRangeItemForSmuggler.Collection), out LazyStringValue collection) == false || 
+                    reader.TryGet(nameof(TimeSeriesDeletedRangeItemForSmuggler.DocId), out LazyStringValue docId) == false ||
+                    reader.TryGet(nameof(TimeSeriesDeletedRangeItemForSmuggler.Name), out LazyStringValue name) == false ||
+                    reader.TryGet(nameof(TimeSeriesDeletedRangeItemForSmuggler.ChangeVector), out LazyStringValue cv) == false ||
+                    reader.TryGet(nameof(TimeSeriesDeletedRangeItemForSmuggler.From), out DateTime from) == false ||
+                    reader.TryGet(nameof(TimeSeriesDeletedRangeItemForSmuggler.To), out DateTime to) == false)
+                {
+                    _result.TimeSeriesDeletedRanges.ErroredCount++;
+                    _result.AddWarning("Could not read timeseries deleted range entry.");
+                    continue;
+                }
+
+                if (collectionsHashSet.Count > 0 && collectionsHashSet.Contains(collection) == false)
+                    continue;
+
+                action.RegisterForDisposal(reader);
+
+                yield return new TimeSeriesDeletedRangeItemForSmuggler
+                {
+                    DocId = docId,
+                    Name = name,
+                    Collection = collection,
+                    ChangeVector = cv,
+                    From = from,
+                    To = to
+                };
+            }
+        }
+
+
         public IAsyncEnumerable<DocumentItem> GetDocumentsAsync(List<string> collectionsToOperate, INewDocumentActions actions)
         {
             return ReadDocumentsAsync(collectionsToOperate, actions);
@@ -2000,6 +2036,9 @@ namespace Raven.Server.Smuggler.Documents
 
             if (type.Equals("AttachmentsDeletions", StringComparison.OrdinalIgnoreCase))
                 return DatabaseItemType.LegacyAttachmentDeletions;
+
+            if (type.Equals(nameof(DatabaseItemType.TimeSeriesDeletedRanges), StringComparison.OrdinalIgnoreCase))
+                return DatabaseItemType.TimeSeriesDeletedRanges;
 
             return DatabaseItemType.Unknown;
         }

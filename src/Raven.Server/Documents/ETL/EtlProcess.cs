@@ -55,7 +55,7 @@ namespace Raven.Server.Documents.ETL
         public string Tag { get; protected set; }
 
         public abstract EtlType EtlType { get; }
-        
+
         public virtual string EtlSubType { get; }
 
         public abstract long TaskId { get; }
@@ -98,6 +98,8 @@ namespace Raven.Server.Documents.ETL
         public abstract OngoingTaskConnectionStatus GetConnectionStatus();
 
         public abstract EtlProcessProgress GetProgress(DocumentsOperationContext documentsContext);
+
+        internal abstract bool IsRunning { get; }
 
         public static EtlProcessState GetProcessState(DocumentDatabase database, string configurationName, string transformationName)
         {
@@ -151,6 +153,8 @@ namespace Raven.Server.Documents.ETL
         private readonly ServerStore _serverStore;
 
         public readonly TConfiguration Configuration;
+
+        internal override bool IsRunning => _longRunningWork != null;
 
         protected EtlProcess(Transformation transformation, TConfiguration configuration, DocumentDatabase database, ServerStore serverStore, string tag)
         {
@@ -479,7 +483,7 @@ namespace Raven.Server.Documents.ETL
                 }
                 catch (Exception e)
                 {
-                    if (CancellationToken.IsCancellationRequested == false) 
+                    if (CancellationToken.IsCancellationRequested == false)
                     {
                         string msg = $"Failed to load transformed data for '{Name}'";
 
@@ -667,7 +671,7 @@ namespace Raven.Server.Documents.ETL
             if (_longRunningWork != null)
                 return;
 
-            if (Transformation.Disabled || Configuration.Disabled)
+            if (Transformation.Disabled || Configuration.Disabled || Database.DisableOngoingTasks)
                 return;
 
             _cts = CancellationTokenSource.CreateLinkedTokenSource(Database.DatabaseShutdown);
@@ -850,7 +854,7 @@ namespace Raven.Server.Documents.ETL
                             }
                             catch (Exception e)
                             {
-                                if (CancellationToken.IsCancellationRequested) 
+                                if (CancellationToken.IsCancellationRequested)
                                     return;
 
                                 if (Logger.IsOperationsEnabled)
@@ -1355,7 +1359,7 @@ namespace Raven.Server.Documents.ETL
                 : Transformation.Collections;
 
             var lastProcessedEtag = LastProcessState.GetLastProcessedEtag(Database.DbBase64Id, Database.ServerStore.NodeTag);
-            
+
             var overallDuration = Stopwatch.StartNew();
             foreach (var collection in collections)
             {
