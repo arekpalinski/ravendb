@@ -50,6 +50,8 @@ namespace Raven.Server.Dashboard.Cluster
                     return new DatabaseOverviewNotificationSender(topicId, _databasesInfoRetriever, watcher, _shutdown);
                 case ClusterDashboardNotificationType.OngoingTasks:
                     return new OngoingTasksNotificationSender(topicId, _databasesInfoRetriever, watcher, _shutdown);
+                case ClusterDashboardNotificationType.GcInfo:
+                    return new GcInfoNotificationSender(topicId, watcher, _shutdown);
                 default:
                     // we don't want to throw here - it allows mixed clusters to partially show data
                     return null;
