@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
+using Nest;
 using Org.BouncyCastle.Asn1;
 using Org.BouncyCastle.Asn1.X509;
 using Org.BouncyCastle.Crypto;
@@ -16,6 +17,7 @@ using Org.BouncyCastle.Crypto.Operators;
 using Org.BouncyCastle.Crypto.Prng;
 using Org.BouncyCastle.Pkcs;
 using Org.BouncyCastle.Security;
+using Org.BouncyCastle.Tls;
 using Org.BouncyCastle.X509;
 using Org.BouncyCastle.X509.Extension;
 using Raven.Client;
@@ -199,7 +201,43 @@ namespace Raven.Server.Utils
         {
             // Note this is for tests only!
             CreateCertificateAuthorityCertificate(commonNameValue + " CA", out var ca, out var caSubjectName, log);
-            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(3), out var certBytes, log: log, sans: [commonNameValue, "localhost", $"*.{commonNameValue}"], with2Eku: with2Eku);
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(3), out var certBytesA, log: log, sans: ["a.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku);
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(3), out var certBytesB, log: log, sans: ["b.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku);
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(3), out var certBytesC, log: log, sans: ["c.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku);
+            var selfSignedCertificateBasedOnPrivateKey = CertificateLoaderUtil.CreateCertificate(certBytesC);
+            selfSignedCertificateBasedOnPrivateKey.Verify();
+
+            // We had a problem where we didn't cleanup the user store in Linux (~/.dotnet/corefx/cryptography/x509stores/ca)
+            // and it exploded with thousands of certificates. This caused ssl handshakes to fail on that machine, because it would timeout when
+            // trying to match one of these certs to validate the chain
+            RemoveOldTestCertificatesFromOsStore(commonNameValue);
+            return certBytesC;
+        }
+
+        public static ((byte[], byte[], byte[]) NodesCertBytes, byte[] CaCertBytes) CreateCaAndSelfSignedNodesCertificates(string commonNameValue, string issuerName, StringBuilder log = null, bool with2Eku = true)
+        {
+            // Note this is for tests only!
+            var cacert = CreateCertificateAuthorityCertificate(commonNameValue + " CA", out var ca, out var caSubjectName, log);
+
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(3), out var certBytesA, log: log, sans: ["a.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku);
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(3), out var certBytesB, log: log, sans: ["b.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku);
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(3), out var certBytesC, log: log, sans: ["c.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku);
+            var selfSignedCertificateBasedOnPrivateKey = CertificateLoaderUtil.CreateCertificate(certBytesC);
+            selfSignedCertificateBasedOnPrivateKey.Verify();
+
+            // We had a problem where we didn't cleanup the user store in Linux (~/.dotnet/corefx/cryptography/x509stores/ca)
+            // and it exploded with thousands of certificates. This caused ssl handshakes to fail on that machine, because it would timeout when
+            // trying to match one of these certs to validate the chain
+            RemoveOldTestCertificatesFromOsStore(commonNameValue);
+            return ((certBytesA, certBytesB, certBytesC), cacert.RawData);
+        }
+
+        public static (byte[] ServerCertBytes, byte[] CaCertBytes) CreateCaAndSelfSignedServerCertificate(string commonNameValue, string issuerName, StringBuilder log = null, bool with2Eku = true)
+        {
+            // Note this is for tests only!
+            var cacert = CreateCertificateAuthorityCertificate(commonNameValue + " CA", out var ca, out var caSubjectName, log);
+
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(3), out var certBytes, log: log, sans: ["*.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku);
             var selfSignedCertificateBasedOnPrivateKey = CertificateLoaderUtil.CreateCertificate(certBytes);
             selfSignedCertificateBasedOnPrivateKey.Verify();
 
@@ -207,7 +245,61 @@ namespace Raven.Server.Utils
             // and it exploded with thousands of certificates. This caused ssl handshakes to fail on that machine, because it would timeout when
             // trying to match one of these certs to validate the chain
             RemoveOldTestCertificatesFromOsStore(commonNameValue);
-            return certBytes;
+            return (certBytes, cacert.RawData);
+        }
+
+        public static (byte[], byte[], byte[]) LoadCaAndSelfSignedNodesCertificates(string caPfxPath, string commonNameValue, string issuerName, StringBuilder log = null, bool with2Eku = true)
+        {
+            var caCert = CertificateLoaderUtil.CreateCertificate(caPfxPath, flags: CertificateLoaderUtil.FlagsForExport);
+
+            var caPrivateKey = caCert.GetRSAPrivateKey();
+
+            var caKeysPair = DotNetUtilities.GetRsaKeyPair(caPrivateKey);
+            (AsymmetricKeyParameter PrivateKey, AsymmetricKeyParameter PublicKey) ca = new (caKeysPair.Private, caKeysPair.Public);
+
+            var caSubjectName = new X509Name(caCert.Subject);
+
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(6), out var certBytesA, log: log, sans: ["a.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku);
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(6), out var certBytesB, log: log, sans: ["b.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku);
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(6), out var certBytesC, log: log, sans: ["c.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku);
+            var selfSignedCertificateBasedOnPrivateKey = CertificateLoaderUtil.CreateCertificate(certBytesC);
+            selfSignedCertificateBasedOnPrivateKey.Verify();
+
+            return (certBytesA, certBytesB, certBytesC);
+        }
+
+        public static (byte[], byte[], byte[]) RenewSelfSignedNodesCertificates(string path, string commonNameValue, string issuerName, StringBuilder log = null, bool with2Eku = true)
+        {
+            var caCert = CertificateLoaderUtil.CreateCertificate(Path.Combine(path, "ca.pfx"), flags: CertificateLoaderUtil.FlagsForExport);
+
+            var caPrivateKey = caCert.GetRSAPrivateKey();
+
+            var caKeysPair = DotNetUtilities.GetRsaKeyPair(caPrivateKey);
+            (AsymmetricKeyParameter PrivateKey, AsymmetricKeyParameter PublicKey) ca = new(caKeysPair.Private, caKeysPair.Public);
+
+            var caSubjectName = new X509Name(caCert.Subject);
+
+            var aPfx = CertificateLoaderUtil.CreateCertificate(Path.Combine(path, "a.cluster.server.certificate.24742-cluster-different-server-cert.pfx"),
+                flags: CertificateLoaderUtil.FlagsForExport);
+
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(6), out var certBytesA,
+                log: log, sans: ["a.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku, subjectKeyPair: DotNetUtilities.GetRsaKeyPair(aPfx.GetRSAPrivateKey()));
+
+            var bPfx = CertificateLoaderUtil.CreateCertificate(Path.Combine(path, "b.cluster.server.certificate.24742-cluster-different-server-cert.pfx"),
+                flags: CertificateLoaderUtil.FlagsForExport);
+
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(6), out var certBytesB,
+                log: log, sans: ["b.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku, subjectKeyPair: DotNetUtilities.GetRsaKeyPair(bPfx.GetRSAPrivateKey()));
+
+            var cPfx = CertificateLoaderUtil.CreateCertificate(Path.Combine(path, "c.cluster.server.certificate.24742-cluster-different-server-cert.pfx"),
+                flags: CertificateLoaderUtil.FlagsForExport);
+
+            CreateSelfSignedCertificateBasedOnPrivateKey(commonNameValue, caSubjectName, ca, false, false, DateTime.UtcNow.Date.AddMonths(6), out var certBytesC,
+                log: log, sans: ["c.24742-cluster-different-server-cert.ravendb.run"], with2Eku: with2Eku, subjectKeyPair: DotNetUtilities.GetRsaKeyPair(cPfx.GetRSAPrivateKey()));
+            var selfSignedCertificateBasedOnPrivateKey = CertificateLoaderUtil.CreateCertificate(certBytesC);
+            selfSignedCertificateBasedOnPrivateKey.Verify();
+
+            return (certBytesA, certBytesB, certBytesC);
         }
 
         public static (byte[], byte[]) CreateTwoTestCertificatesWithSameKey(string commonNameValue, string issuerName, StringBuilder log = null)
@@ -514,7 +606,9 @@ namespace Raven.Server.Utils
             var stream = new MemoryStream();
             store.Save(stream, Array.Empty<char>(), random);
 
-            return new X509Certificate2(stream.ToArray());
+            byte[] readOnlySpan = stream.ToArray();
+
+            return new X509Certificate2(readOnlySpan);
         }
 
         public static X509Certificate2 CreateClientCertificateFromServerCertificate(X509Certificate2 serverCertificate, out byte[] clientCertBytes)
