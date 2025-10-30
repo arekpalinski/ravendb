@@ -3,6 +3,7 @@ using Raven.Client.Util;
 using Raven.Server.NotificationCenter;
 using Raven.Server.NotificationCenter.Notifications;
 using Raven.Server.NotificationCenter.Notifications.Details;
+using Sparrow.Json;
 using Sparrow.Json.Parsing;
 
 namespace Raven.Server.Documents.ETL
@@ -12,6 +13,7 @@ namespace Raven.Server.Documents.ETL
         private readonly string _processTag;
         private readonly string _processName;
         private readonly DatabaseNotificationCenter _notificationCenter;
+        private readonly EtlErrorsStorage _etlErrorsStorage;
 
         private readonly EnsureAlerts _alertsGuard;
 
@@ -22,11 +24,12 @@ namespace Raven.Server.Documents.ETL
             // for deserialization
         }
         
-        public EtlProcessStatistics(string processTag, string processName, DatabaseNotificationCenter notificationCenter)
+        public EtlProcessStatistics(string processTag, string processName, EtlErrorsStorage etlErrorsStorage, DatabaseNotificationCenter notificationCenter)
         {
             _processTag = processTag;
             _processName = processName;
             _notificationCenter = notificationCenter;
+            _etlErrorsStorage = etlErrorsStorage;
             TransformationErrorsInCurrentBatch = new EtlErrorsDetails();
             LastLoadErrorsInCurrentBatch = new EtlErrorsDetails();
             LastSlowSqlWarningsInCurrentBatch = new SlowSqlDetails();
@@ -76,15 +79,27 @@ namespace Raven.Server.Documents.ETL
             return _alertsGuard;
         }
 
-        public void RecordTransformationError(Exception e, string documentId)
+        public void RecordTransformationError(Exception e, LazyStringValue documentId)
         {
+            var now = SystemTime.UtcNow;
+
+            var partialError = new PartialEtlError()
+            {
+                CreatedAt = now,
+                DocumentId = documentId,
+                Type = EtlErrorType.TransformationError,
+                Severity = EtlErrorSeverity.Low
+            };
+            
+            _etlErrorsStorage.StorePartialError(partialError);
+            
             TransformationErrors++;
 
-            LastTransformationErrorTime = SystemTime.UtcNow;
+            LastTransformationErrorTime = now;
 
             TransformationErrorsInCurrentBatch.Add(new EtlErrorInfo
             {
-                Date = SystemTime.UtcNow,
+                Date = now,
                 DocumentId = documentId,
                 Error = e.ToString()
             });
@@ -103,13 +118,22 @@ namespace Raven.Server.Documents.ETL
             throw new InvalidOperationException($"{message}. Current stats: {this}");
         }
 
-        public void RecordPartialLoadError(string error, string documentId, int count = 1)
+        public void RecordPartialLoadError(string error, LazyStringValue documentId, int count = 1)
         {
+            var now = SystemTime.UtcNow;
+            
+            var partialError = new PartialEtlError()
+            {
+                CreatedAt = now,
+                DocumentId = documentId,
+                Type = EtlErrorType.TransformationError,
+                Severity = EtlErrorSeverity.Low
+            };
+            
+            _etlErrorsStorage.StorePartialError(partialError);
             WasLatestLoadSuccessful = false;
 
-            LoadErrors += count;
-
-            var now = SystemTime.UtcNow;
+            LoadErrors += count; 
             
             LastLoadErrorTime = now;
 
@@ -137,6 +161,16 @@ namespace Raven.Server.Documents.ETL
         public void ThrowLoadError(string error, int count)
         {
             var now = SystemTime.UtcNow;
+
+            var etlError = new EtlError()
+            {
+                CreatedAt = now,
+                AffectedDocumentsCount = count,
+                Type = EtlErrorType.LoadError,
+                Severity = EtlErrorSeverity.Low
+            };
+            
+            _etlErrorsStorage.StoreError(etlError);
             
             LastLoadErrorTime = now;
 

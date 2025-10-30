@@ -169,7 +169,7 @@ namespace Raven.Server.Documents.ETL
             Logger = LoggingSource.Instance.GetLogger(database.Name, GetType().FullName);
             Database = database;
             _serverStore = serverStore;
-            Statistics = new EtlProcessStatistics(Tag, Name, Database.NotificationCenter);
+            Statistics = new EtlProcessStatistics(Tag, Name, Database.EtlErrorsStorage, Database.NotificationCenter);
 
             if (transformation.ApplyToAllDocuments == false)
                 _collections = new HashSet<string>(Transformation.Collections, StringComparer.OrdinalIgnoreCase);

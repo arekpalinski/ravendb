@@ -40,5 +40,12 @@ namespace Raven.Server.Documents.ETL.Handlers
             using (var processor = new EtlHandlerProcessorForProgress(this))
                 await processor.ExecuteAsync();
         }
+        
+        [RavenAction("/databases/*/etl/errors", "GET", AuthorizationStatus.ValidUser, EndpointType.Read, IsDebugInformationEndpoint = true)]
+        public async Task Errors()
+        {
+            using (var processor = new EtlHandlerProcessorForErrors(this))
+                await processor.ExecuteAsync();
+        }
     }
 }
