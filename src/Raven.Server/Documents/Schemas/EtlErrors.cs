@@ -20,7 +20,7 @@ public static class EtlErrors
         public const int IdIndex = 0;
         public const int CreatedAtIndex = 1;
         public const int AffectedDocumentsCountIndex = 2;
-        public const int TypeIndex = 3;
+        public const int StepIndex = 3;
         public const int SeverityIndex = 4;
     }
 

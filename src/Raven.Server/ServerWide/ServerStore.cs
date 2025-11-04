@@ -123,7 +123,6 @@ namespace Raven.Server.ServerWide
             new SizeLimitedConcurrentDictionary<string, ConcurrentQueue<DateTime>>(50);
 
         private readonly NotificationsStorage _notificationsStorage;
-        private readonly EtlErrorsStorage _etlErrorsStorage;
         private readonly OperationsStorage _operationsStorage;
         public ConcurrentDictionary<string, Dictionary<string, long>> IdleDatabases;
 
@@ -194,8 +193,7 @@ namespace Raven.Server.ServerWide
             NotificationCenter = new ServerNotificationCenter(this, _notificationsStorage);
 
             ThreadsInfoNotifications = new ThreadsInfoNotifications(ServerShutdown);
-
-            _etlErrorsStorage = new EtlErrorsStorage();
+            
             _operationsStorage = new OperationsStorage();
 
             Operations = new ServerOperations(this, _operationsStorage);
@@ -865,7 +863,6 @@ namespace Raven.Server.ServerWide
             var myUrl = GetNodeHttpServerUrl();
             _engine.Initialize(_env, Configuration, clusterChanges, myUrl, Server.Time, out _lastClusterTopologyIndex, ServerShutdown);
 
-            _etlErrorsStorage.Initialize(_env, ContextPool);
             _notificationsStorage.Initialize(_env, ContextPool);
             NotificationCenter.Initialize();
             foreach (var alertRaised in _storeAlertForLateRaise)

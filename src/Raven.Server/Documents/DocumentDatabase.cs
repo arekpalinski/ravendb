@@ -409,6 +409,8 @@ namespace Raven.Server.Documents
                 TxMerger.Start();
                 _addToInitLog(LogMode.Information, "Initializing ConfigurationStorage");
                 ConfigurationStorage.Initialize();
+                
+                EtlErrorsStorage.Initialize(DocumentsStorage.Environment, _serverStore.ContextPool);
 
                 _clusterTransactionErrorNotifier.Initialize();
 

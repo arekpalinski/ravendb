@@ -87,7 +87,7 @@ namespace Raven.Server.Documents.ETL
             {
                 CreatedAt = now,
                 DocumentId = documentId,
-                Type = EtlErrorType.TransformationError,
+                Step = EtlErrorStep.TransformationError,
                 Severity = EtlErrorSeverity.Low
             };
             
@@ -126,7 +126,7 @@ namespace Raven.Server.Documents.ETL
             {
                 CreatedAt = now,
                 DocumentId = documentId,
-                Type = EtlErrorType.TransformationError,
+                Step = EtlErrorStep.TransformationError,
                 Severity = EtlErrorSeverity.Low
             };
             
@@ -166,7 +166,7 @@ namespace Raven.Server.Documents.ETL
             {
                 CreatedAt = now,
                 AffectedDocumentsCount = count,
-                Type = EtlErrorType.LoadError,
+                Step = EtlErrorStep.LoadError,
                 Severity = EtlErrorSeverity.Low
             };
             

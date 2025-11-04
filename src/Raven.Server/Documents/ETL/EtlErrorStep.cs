@@ -1,6 +1,6 @@
 namespace Raven.Server.Documents.ETL;
 
-public enum EtlErrorType
+public enum EtlErrorStep
 {
     LoadError,
     TransformationError
