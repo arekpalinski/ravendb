@@ -1,4 +1,5 @@
 using System;
+using Sparrow.Json.Parsing;
 
 namespace Raven.Server.Documents.ETL;
 
@@ -13,5 +14,17 @@ public class EtlError
     private string GetId()
     {
         return $"{Step}";
+    }
+
+    public DynamicJsonValue ToJson()
+    {
+        return new DynamicJsonValue
+        {
+            [nameof(Id)] = Id,
+            [nameof(CreatedAt)] = CreatedAt,
+            [nameof(AffectedDocumentsCount)] = AffectedDocumentsCount,
+            [nameof(Step)] = Step.ToString(),
+            [nameof(Severity)] = Severity.ToString(),
+        };
     }
 }

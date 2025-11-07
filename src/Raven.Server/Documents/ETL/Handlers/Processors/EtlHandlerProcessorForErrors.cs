@@ -23,24 +23,35 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
     protected override async ValueTask HandleCurrentNodeAsync()
     {
         var names = GetNames();
-        var debugStats = EtlHandlerProcessorForStats.GetProcessesToReportOn(RequestHandler.Database, names)
-            .Select(x => new EtlTaskErrors
+        
+        var etlsToReportOn = EtlHandlerProcessorForStats.GetProcessesToReportOn(RequestHandler.Database, names);
+        var storage = RequestHandler.Database.EtlErrorsStorage;
+        
+        var tasksErrorsList = new List<EtlTaskErrors>();
+
+        foreach (var etlKvp in etlsToReportOn)
+        {
+            var taskName = etlKvp.Key;
+            using (storage.ReadErrorsOrderedByCreationDate(out var errors))
+            using (storage.ReadPartialErrorsOrderedByCreationDate(out var partialErrors))
             {
-                TaskName = x.Key,
-                Errors = x.Value.Select(y => new EtlProcessTransformationDebugStats
+                var taskErrors = new EtlTaskErrors()
                 {
-                    TransformationName = y.TransformationName,
-                    Statistics = y.Statistics,
-                    Metrics = y.Metrics
-                }).ToArray()
-            }).ToArray();
+                    TaskName = taskName,
+                    Errors = errors.Select(x => x.ToEtlError()).ToArray(),
+                    PartialErrors = partialErrors.Select(x => x.ToPartialEtlError()).ToArray()
+                };
+                
+                tasksErrorsList.Add(taskErrors);
+            };
+        }
 
         using (ContextPool.AllocateOperationContext(out JsonOperationContext context))
         {
             await using (var writer = new AsyncBlittableJsonTextWriter(context, RequestHandler.ResponseBodyStream()))
             {
                 writer.WriteStartObject();
-                writer.WriteArray(context, "Results", debugStats, (w, c, stats) => w.WriteObject(c.ReadObject(stats.ToJson(), "etl/errors")));
+                writer.WriteArray(context, "Results", tasksErrorsList, (w, c, stats) => w.WriteObject(c.ReadObject(stats.ToJson(), "etl/errors")));
                 writer.WriteEndObject();
             }
         }

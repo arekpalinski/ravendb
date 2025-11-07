@@ -8,4 +8,15 @@ public class PartialEtlErrorTableValue
     public string DocumentId;
     public long Step;
     public long Severity;
+    
+    public PartialEtlError ToPartialEtlError()
+    {
+        return new PartialEtlError
+        {
+            CreatedAt = CreatedAt,
+            DocumentId = DocumentId,
+            Step = (EtlErrorStep)Step,
+            Severity = (EtlErrorSeverity)Severity
+        };
+    }
 }

@@ -3,6 +3,7 @@ using Raven.Client.Util;
 using Raven.Server.NotificationCenter;
 using Raven.Server.NotificationCenter.Notifications;
 using Raven.Server.NotificationCenter.Notifications.Details;
+using Raven.Server.Utils.Metrics;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 
@@ -34,6 +35,8 @@ namespace Raven.Server.Documents.ETL
             LastLoadErrorsInCurrentBatch = new EtlErrorsDetails();
             LastSlowSqlWarningsInCurrentBatch = new SlowSqlDetails();
             _alertsGuard = new EnsureAlerts(this);
+            AverageErrorsRatio = Ewma.FiveMinuteEwma();
+            HealthStatus = EtlTaskHealthStatus.Healthy;
         }
 
         public string LastChangeVector { get; set; }
@@ -63,6 +66,10 @@ namespace Raven.Server.Documents.ETL
         public SlowSqlDetails LastSlowSqlWarningsInCurrentBatch { get; }
 
         public bool WasLatestLoadSuccessful { get; set; }
+        
+        public Ewma AverageErrorsRatio { get; private init; }
+        
+        public EtlTaskHealthStatus HealthStatus { get; }
 
         public void TransformationSuccess()
         {
@@ -81,6 +88,8 @@ namespace Raven.Server.Documents.ETL
 
         public void RecordTransformationError(Exception e, LazyStringValue documentId)
         {
+            AverageErrorsRatio.Update(1);
+            
             var now = SystemTime.UtcNow;
 
             var partialError = new PartialEtlError()
@@ -120,6 +129,8 @@ namespace Raven.Server.Documents.ETL
 
         public void RecordPartialLoadError(string error, LazyStringValue documentId, int count = 1)
         {
+            AverageErrorsRatio.Update(count);
+            
             var now = SystemTime.UtcNow;
             
             var partialError = new PartialEtlError()
@@ -160,6 +171,8 @@ namespace Raven.Server.Documents.ETL
 
         public void ThrowLoadError(string error, int count)
         {
+            AverageErrorsRatio.Update(count);
+            
             var now = SystemTime.UtcNow;
 
             var etlError = new EtlError()
@@ -240,7 +253,8 @@ namespace Raven.Server.Documents.ETL
                 [nameof(TransformationSuccesses)] = TransformationSuccesses,
                 [nameof(TransformationErrors)] = TransformationErrors,
                 [nameof(LoadSuccesses)] = LoadSuccesses,
-                [nameof(LoadErrors)] = LoadErrors
+                [nameof(LoadErrors)] = LoadErrors,
+                [nameof(AverageErrorsRatio)] = AverageErrorsRatio.GetRate()
             };
             return json;
         }

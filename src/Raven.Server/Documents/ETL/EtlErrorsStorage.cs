@@ -74,33 +74,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
         }
     }
     
-    /*
-    internal void StoreError(LazyStringValue id, DateTime createdAt, long affectedDocumentsCount, EtlErrorType etlErrorType)
-    {
-        using (ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-        {
-            using (var tx = context.OpenReadTransaction())
-            {
-                var table = tx.InnerTransaction.OpenTable(Schemas.EtlErrors.Current, _errorsTableName);
-                
-                var createdAtTicks = Bits.SwapBytes(createdAt.Ticks);
-                var affectedDocumentsCountSwapped = Bits.SwapBytes(affectedDocumentsCount);
-                var etlErrorTypeSwapped = Bits.SwapBytes((long)etlErrorType);
-                
-                using (table.Allocate(out TableValueBuilder tvb))
-                {
-                    tvb.Add(id.Buffer, id.Size);
-                    tvb.Add((byte*)&createdAtTicks, sizeof(long));
-                    tvb.Add((byte*)&affectedDocumentsCountSwapped, sizeof(long));
-                    tvb.Add((byte*)&etlErrorTypeSwapped, sizeof(long));
-
-                    table.Set(tvb);
-                }
-            }
-        }
-    }
-    */
-    
     internal void StorePartialError(PartialEtlError error)
     {
         using (ContextPool.AllocateOperationContext(out TransactionOperationContext context))
@@ -131,32 +104,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
             }
         }
     }
-    
-    /*
-    internal void StorePartialError(LazyStringValue id, DateTime createdAt, LazyStringValue documentId, EtlErrorType etlErrorType)
-    {
-        using (ContextPool.AllocateOperationContext(out TransactionOperationContext context))
-        {
-            using (var tx = context.OpenReadTransaction())
-            {
-                var table = tx.InnerTransaction.OpenTable(Schemas.PartialEtlErrors.Current, _partialErrorsTableName);
-
-                var createdAtTicks = Bits.SwapBytes(createdAt.Ticks);
-                var etlErrorTypeSwapped = Bits.SwapBytes((long)etlErrorType);
-                
-                using (table.Allocate(out TableValueBuilder tvb))
-                {
-                    tvb.Add(id.Buffer, id.Size);
-                    tvb.Add((byte*)&createdAtTicks, sizeof(long));
-                    tvb.Add(documentId.Buffer, documentId.Size);
-                    tvb.Add((byte*)&etlErrorTypeSwapped, sizeof(long));
-
-                    table.Set(tvb);
-                }
-            }
-        }
-    }
-    */
     
     public IDisposable ReadError(string id, out EtlErrorTableValue value)
     {

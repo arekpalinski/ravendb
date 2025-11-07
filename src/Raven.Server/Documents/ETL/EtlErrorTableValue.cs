@@ -8,4 +8,15 @@ public class EtlErrorTableValue
     public long AffectedDocumentsCount;
     public long Step;
     public long Severity;
+
+    public EtlError ToEtlError()
+    {
+        return new EtlError
+        {
+            CreatedAt = CreatedAt,
+            AffectedDocumentsCount = AffectedDocumentsCount,
+            Step = (EtlErrorStep)Step,
+            Severity = (EtlErrorSeverity)Severity
+        };
+    }
 }
