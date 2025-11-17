@@ -35,7 +35,7 @@ namespace Raven.Server.Documents.ETL
             LastLoadErrorsInCurrentBatch = new EtlErrorsDetails();
             LastSlowSqlWarningsInCurrentBatch = new SlowSqlDetails();
             _alertsGuard = new EnsureAlerts(this);
-            AverageErrorsRatio = Ewma.FiveMinuteEwma();
+            AverageErrorsRatio = new TimeAgnosticEwma();
             HealthStatus = EtlTaskHealthStatus.Healthy;
         }
 
@@ -67,7 +67,10 @@ namespace Raven.Server.Documents.ETL
 
         public bool WasLatestLoadSuccessful { get; set; }
         
-        public Ewma AverageErrorsRatio { get; private init; }
+        public TimeAgnosticEwma AverageErrorsRatio { get; private init; }
+        
+        public long BatchErrors { get; set; }
+        public long BatchSuccesses { get; set; }
         
         public EtlTaskHealthStatus HealthStatus { get; }
 
@@ -88,13 +91,12 @@ namespace Raven.Server.Documents.ETL
 
         public void RecordTransformationError(Exception e, LazyStringValue documentId)
         {
-            AverageErrorsRatio.Update(1);
-            
             var now = SystemTime.UtcNow;
 
             var partialError = new PartialEtlError()
             {
                 CreatedAt = now,
+                EtlTaskName = _processName,
                 DocumentId = documentId,
                 Step = EtlErrorStep.TransformationError,
                 Severity = EtlErrorSeverity.Low
@@ -103,6 +105,7 @@ namespace Raven.Server.Documents.ETL
             _etlErrorsStorage.StorePartialError(partialError);
             
             TransformationErrors++;
+            BatchErrors++;
 
             LastTransformationErrorTime = now;
 
@@ -129,13 +132,12 @@ namespace Raven.Server.Documents.ETL
 
         public void RecordPartialLoadError(string error, LazyStringValue documentId, int count = 1)
         {
-            AverageErrorsRatio.Update(count);
-            
             var now = SystemTime.UtcNow;
             
             var partialError = new PartialEtlError()
             {
                 CreatedAt = now,
+                EtlTaskName = _processName,
                 DocumentId = documentId,
                 Step = EtlErrorStep.TransformationError,
                 Severity = EtlErrorSeverity.Low
@@ -145,6 +147,7 @@ namespace Raven.Server.Documents.ETL
             WasLatestLoadSuccessful = false;
 
             LoadErrors += count; 
+            BatchErrors += count;
             
             LastLoadErrorTime = now;
 
@@ -171,13 +174,12 @@ namespace Raven.Server.Documents.ETL
 
         public void ThrowLoadError(string error, int count)
         {
-            AverageErrorsRatio.Update(count);
-            
             var now = SystemTime.UtcNow;
 
             var etlError = new EtlError()
             {
                 CreatedAt = now,
+                EtlTaskName = _processName,
                 AffectedDocumentsCount = count,
                 Step = EtlErrorStep.LoadError,
                 Severity = EtlErrorSeverity.Low
@@ -186,6 +188,7 @@ namespace Raven.Server.Documents.ETL
             _etlErrorsStorage.StoreError(etlError);
             
             LastLoadErrorTime = now;
+            BatchErrors += count;
 
             LastLoadErrorsInCurrentBatch.Add(new EtlErrorInfo
             {
@@ -280,6 +283,8 @@ namespace Raven.Server.Documents.ETL
             LoadSuccesses = 0;
             LoadSuccessesInCurrentBatch = 0;
             LoadErrors = 0;
+            BatchErrors = 0;
+            BatchSuccesses = 0;
             LastChangeVector = null;
             LastAlert = null;
             TransformationErrorsInCurrentBatch.Errors.Clear();

@@ -175,8 +175,6 @@ namespace Raven.Server.Documents.ETL.Providers.SQL.RelationalWriters
             {
                 sp.Restart();
 
-                //_etl.Statistics.AverageErrorsRatio.Tick();
-
                 using (var cmd = CreateCommand())
                 using (token.Register(cmd.Cancel))
                 {

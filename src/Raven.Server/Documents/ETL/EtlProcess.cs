@@ -477,8 +477,11 @@ namespace Raven.Server.Documents.ETL
                     stats.RecordLastLoadedEtag(stats.LastTransformedEtags.Values.Max());
 
                     Statistics.LoadSuccess(count);
+                    Statistics.BatchSuccesses = count;
 
                     stats.RecordLoadSuccess(count);
+
+                    Statistics.AverageErrorsRatio.UpdateOnBatchCompletion(Statistics.BatchErrors, Statistics.BatchErrors + Statistics.BatchSuccesses);
 
                     return true;
                 }
@@ -498,7 +501,9 @@ namespace Raven.Server.Documents.ETL
 
                         EnterFallbackMode(Statistics.LastLoadErrorTime);
 
-                        Statistics.ThrowLoadError(e.ToString(), count: stats.NumberOfExtractedItems.Sum(x => x.Value));
+                        var count = stats.NumberOfExtractedItems.Sum(x => x.Value);
+                        Statistics.ThrowLoadError(e.ToString(), count);
+                        Statistics.BatchErrors = count;
                     }
 
                     return false;
@@ -819,6 +824,9 @@ namespace Raven.Server.Documents.ETL
                                         RecordSuccessfulBatch(stats);
 
                                         UpdateMetrics(startTime, stats);
+                                        
+                                        Statistics.BatchErrors = 0;
+                                        Statistics.BatchSuccesses = 0;
 
                                         if (Logger.IsInfoEnabled)
                                             LogSuccessfulBatchInfo(stats);

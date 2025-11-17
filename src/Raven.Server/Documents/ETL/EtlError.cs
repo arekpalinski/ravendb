@@ -6,6 +6,8 @@ namespace Raven.Server.Documents.ETL;
 public class EtlError
 {
     public string Id => GetId();
+    // todo update this on task rename
+    public string EtlTaskName { get; set; }
     public DateTime CreatedAt { get; set; }
     public long AffectedDocumentsCount { get; set; }
     public EtlErrorStep Step { get; set; }
@@ -13,7 +15,7 @@ public class EtlError
     
     private string GetId()
     {
-        return $"{Step}";
+        return $"{CreatedAt.Ticks}";
     }
 
     public DynamicJsonValue ToJson()
@@ -21,10 +23,11 @@ public class EtlError
         return new DynamicJsonValue
         {
             [nameof(Id)] = Id,
+            [nameof(EtlTaskName)] = EtlTaskName,
             [nameof(CreatedAt)] = CreatedAt,
             [nameof(AffectedDocumentsCount)] = AffectedDocumentsCount,
-            [nameof(Step)] = Step.ToString(),
-            [nameof(Severity)] = Severity.ToString(),
+            [nameof(Step)] = Step,
+            [nameof(Severity)] = Severity,
         };
     }
 }

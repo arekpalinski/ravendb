@@ -57,10 +57,12 @@ public unsafe class EtlErrorsStorage(string databaseName)
                 var severitySwapped = Bits.SwapBytes((long)error.Severity);
                 
                 var id = context.GetLazyString(error.Id);
+                var etlTaskName = context.GetLazyString(error.EtlTaskName);
                 
                 using (table.Allocate(out TableValueBuilder tvb))
                 {
                     tvb.Add(id.Buffer, id.Size);
+                    tvb.Add(etlTaskName.Buffer, etlTaskName.Size);
                     tvb.Add((byte*)&createdAtTicks, sizeof(long));
                     tvb.Add((byte*)&affectedDocumentsCountSwapped, sizeof(long));
                     tvb.Add((byte*)&etlErrorTypeSwapped, sizeof(long));
@@ -87,11 +89,13 @@ public unsafe class EtlErrorsStorage(string databaseName)
                 var severitySwapped = Bits.SwapBytes((long)error.Severity);
 
                 var id = context.GetLazyString(error.Id);
+                var etlTaskName = context.GetLazyString(error.EtlTaskName);
                 var documentId = context.GetLazyString(error.DocumentId);
                 
                 using (table.Allocate(out TableValueBuilder tvb))
                 {
                     tvb.Add(id.Buffer, id.Size);
+                    tvb.Add(etlTaskName.Buffer, etlTaskName.Size);
                     tvb.Add((byte*)&createdAtTicks, sizeof(long));
                     tvb.Add(documentId.Buffer, documentId.Size);
                     tvb.Add((byte*)&etlErrorTypeSwapped, sizeof(long));
@@ -168,6 +172,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
     private EtlErrorTableValue ReadError(ref TableValueReader reader)
     {
         var createdAt = new DateTime(Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlErrors.EtlErrorsTable.CreatedAtIndex, out _)));
+        var etlTaskName = reader.ReadString(Schemas.EtlErrors.EtlErrorsTable.EtlTaskNameIndex);
         var affectedDocumentsCount = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlErrors.EtlErrorsTable.AffectedDocumentsCountIndex, out _));
         var step = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlErrors.EtlErrorsTable.StepIndex, out _));
         var severity = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlErrors.EtlErrorsTable.SeverityIndex, out _));
@@ -175,6 +180,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         return new EtlErrorTableValue
         {
             CreatedAt = createdAt,
+            EtlTaskName = etlTaskName,
             AffectedDocumentsCount = affectedDocumentsCount,
             Step = step,
             Severity = severity
@@ -184,6 +190,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
     private PartialEtlErrorTableValue ReadPartialError(ref TableValueReader reader)
     {
         var createdAt = new DateTime(Bits.SwapBytes(*(long*)reader.Read(Schemas.PartialEtlErrors.PartialEtlErrorsTable.CreatedAtIndex, out _)));
+        var etlTaskName = reader.ReadString(Schemas.PartialEtlErrors.PartialEtlErrorsTable.EtlTaskNameIndex);
         var documentId = reader.ReadString(Schemas.PartialEtlErrors.PartialEtlErrorsTable.DocumentIdIndex);
         var step = Bits.SwapBytes(*(long*)reader.Read(Schemas.PartialEtlErrors.PartialEtlErrorsTable.StepIndex, out _));
         var severity = Bits.SwapBytes(*(long*)reader.Read(Schemas.PartialEtlErrors.PartialEtlErrorsTable.SeverityIndex, out _));
@@ -191,6 +198,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         return new PartialEtlErrorTableValue
         {
             CreatedAt = createdAt,
+            EtlTaskName = etlTaskName,
             DocumentId = documentId,
             Severity = severity,
             Step = step
@@ -244,6 +252,72 @@ public unsafe class EtlErrorsStorage(string databaseName)
             errors = ReadPartialErrorsByCreatedAtIndex(context);
 
             return scope.Delay();
+        }
+    }
+
+    public IDisposable ReadErrorsOfTask(string etlTaskName, out IEnumerable<EtlErrorTableValue> errors)
+    {
+        using (var scope = new DisposableScope())
+        {
+            scope.EnsureDispose(ContextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(context.OpenReadTransaction());
+
+            errors = ReadErrorsOfTask(context, etlTaskName);
+
+            return scope.Delay();
+        }
+    }
+    
+    public IDisposable ReadPartialErrorsOfTask(string etlTaskName, out IEnumerable<PartialEtlErrorTableValue> errors)
+    {
+        using (var scope = new DisposableScope())
+        {
+            scope.EnsureDispose(ContextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(context.OpenReadTransaction());
+
+            errors = ReadPartialErrorsOfTask(context, etlTaskName);
+
+            return scope.Delay();
+        }
+    }
+    
+    private IEnumerable<EtlErrorTableValue> ReadErrorsOfTask(TransactionOperationContext context, string etlTaskName)
+    {
+        var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlErrors.Current, _errorsTableName);
+        if (table == null)
+            yield break;
+
+        using (Slice.From(context.Transaction.InnerTransaction.Allocator, etlTaskName, out Slice taskNameSlice))
+        {
+            foreach (var tvr in table.SeekForwardFrom(Schemas.EtlErrors.Current.Indexes[Schemas.EtlErrors.ByEtlTaskName], taskNameSlice, 0))
+            {
+                var error = ReadError(ref tvr.Result.Reader);
+
+                if (error.EtlTaskName != etlTaskName)
+                    yield break;
+
+                yield return error;
+            }
+        }
+    }
+    
+    private IEnumerable<PartialEtlErrorTableValue> ReadPartialErrorsOfTask(TransactionOperationContext context, string etlTaskName)
+    {
+        var table = context.Transaction.InnerTransaction.OpenTable(Schemas.PartialEtlErrors.Current, _partialErrorsTableName);
+        if (table == null)
+            yield break;
+
+        using (Slice.From(context.Transaction.InnerTransaction.Allocator, etlTaskName, out Slice taskNameSlice))
+        {
+            foreach (var tvr in table.SeekForwardFrom(Schemas.PartialEtlErrors.Current.Indexes[Schemas.PartialEtlErrors.ByEtlTaskName], taskNameSlice, 0))
+            {
+                var error = ReadPartialError(ref tvr.Result.Reader);
+
+                if (error.EtlTaskName != etlTaskName)
+                    yield break;
+
+                yield return error;
+            }
         }
     }
     

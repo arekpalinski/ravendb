@@ -27,13 +27,14 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
         var etlsToReportOn = EtlHandlerProcessorForStats.GetProcessesToReportOn(RequestHandler.Database, names);
         var storage = RequestHandler.Database.EtlErrorsStorage;
         
-        var tasksErrorsList = new List<EtlTaskErrors>();
+        var response = new Response();
 
         foreach (var etlKvp in etlsToReportOn)
         {
-            var taskName = etlKvp.Key;
-            using (storage.ReadErrorsOrderedByCreationDate(out var errors))
-            using (storage.ReadPartialErrorsOrderedByCreationDate(out var partialErrors))
+            // todo fix
+            var taskName = etlKvp.Value.First().Name;
+            using (storage.ReadErrorsOfTask(taskName, out var errors))
+            using (storage.ReadPartialErrorsOfTask(taskName, out var partialErrors))
             {
                 var taskErrors = new EtlTaskErrors()
                 {
@@ -42,8 +43,8 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
                     PartialErrors = partialErrors.Select(x => x.ToPartialEtlError()).ToArray()
                 };
                 
-                tasksErrorsList.Add(taskErrors);
-            };
+                response.Results.Add(taskErrors);
+            }
         }
 
         using (ContextPool.AllocateOperationContext(out JsonOperationContext context))
@@ -51,12 +52,17 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
             await using (var writer = new AsyncBlittableJsonTextWriter(context, RequestHandler.ResponseBodyStream()))
             {
                 writer.WriteStartObject();
-                writer.WriteArray(context, "Results", tasksErrorsList, (w, c, stats) => w.WriteObject(c.ReadObject(stats.ToJson(), "etl/errors")));
+                writer.WriteArray(context, "Results", response.Results, (w, c, stats) => w.WriteObject(c.ReadObject(stats.ToJson(), "etl/errors")));
                 writer.WriteEndObject();
             }
         }
     }
 
     protected override Task HandleRemoteNodeAsync(ProxyCommand<EtlTaskErrors[]> command, OperationCancelToken token) => RequestHandler.ExecuteRemoteAsync(command, token.Token);
+
+    internal class Response
+    {
+        public List<EtlTaskErrors> Results { get; set; } = new List<EtlTaskErrors>();        
+    }
 }
 

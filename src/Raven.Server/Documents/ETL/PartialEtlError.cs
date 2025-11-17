@@ -7,6 +7,7 @@ namespace Raven.Server.Documents.ETL;
 public class PartialEtlError
 {
     public string Id => GetId();
+    public string EtlTaskName { get; set; }
     public DateTime CreatedAt { get; set; }
     public string DocumentId { get; set; }
     public EtlErrorStep Step { get; set; }
@@ -14,7 +15,7 @@ public class PartialEtlError
     
     private string GetId()
     {
-        return $"{Step}";
+        return $"{CreatedAt.Ticks}";
     }
 
     public DynamicJsonValue ToJson()
@@ -22,6 +23,7 @@ public class PartialEtlError
         return new DynamicJsonValue
         {
             [nameof(Id)] = Id,
+            [nameof(EtlTaskName)] = EtlTaskName,
             [nameof(CreatedAt)] = CreatedAt,
             [nameof(DocumentId)] = DocumentId,
             [nameof(Step)] = Step,
