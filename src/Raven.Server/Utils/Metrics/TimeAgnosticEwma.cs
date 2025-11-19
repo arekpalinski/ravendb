@@ -1,7 +1,3 @@
-using System;
-using System.Threading;
-using Sparrow.Threading;
-
 namespace Raven.Server.Utils.Metrics;
 
 public sealed class TimeAgnosticEwma

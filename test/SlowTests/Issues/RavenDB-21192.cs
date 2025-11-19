@@ -135,24 +135,31 @@ public class RavenDB_21192 : RavenTestBase
 
             using (var bulkInsert = src.BulkInsert())
             {
-                for (int i = 0; i < 4; i++)
-                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
-                
-                bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
-            }
-
-            using (var session = src.OpenSession())
-            {
-                session.Store(new User { Name = "Joe Doe", Value = 1 });
-                
-                session.SaveChanges();
+                for (int i = 0; i < 10; i++)
+                    bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
             }
             
-            //WaitForUserToContinueTheTest(src);
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 50; i++)
+                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
+            }
 
             using (var bulkInsert = src.BulkInsert())
             {
-                for (int i = 0; i < 5; i++)
+                for (int i = 0; i < 900; i++)
+                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
+            }
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 900; i++)
+                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
+            }
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 1000; i++)
                     bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
             }
             

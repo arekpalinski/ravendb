@@ -67,7 +67,7 @@ namespace Raven.Server.Documents.ETL
 
         public bool WasLatestLoadSuccessful { get; set; }
         
-        public TimeAgnosticEwma AverageErrorsRatio { get; private init; }
+        public TimeAgnosticEwma AverageErrorsRatio { get; }
         
         public long BatchErrors { get; set; }
         public long BatchSuccesses { get; set; }
@@ -85,6 +85,10 @@ namespace Raven.Server.Documents.ETL
             LastLoadErrorsInCurrentBatch.Errors.Clear();
             LastSlowSqlWarningsInCurrentBatch.Statements.Clear();
             LoadSuccessesInCurrentBatch = 0;
+            
+            AverageErrorsRatio.UpdateOnBatchCompletion(BatchErrors, BatchErrors + BatchSuccesses);
+            BatchErrors = 0;
+            BatchSuccesses = 0;
 
             return _alertsGuard;
         }
@@ -126,7 +130,9 @@ namespace Raven.Server.Documents.ETL
                           "Could not tolerate transformation error ratio and stopped current ETL batch. ";
 
             CreateAlertIfAnyTransformationErrors(message);
-
+            
+            //AverageErrorsRatio.UpdateOnBatchCompletion(BatchErrors, BatchErrors + BatchSuccesses);
+            
             throw new InvalidOperationException($"{message}. Current stats: {this}");
         }
 
