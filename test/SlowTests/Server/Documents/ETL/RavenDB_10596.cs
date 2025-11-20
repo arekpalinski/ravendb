@@ -80,6 +80,7 @@ namespace SlowTests.Server.Documents.ETL
             }
         }
 
+        /*
         [RavenFact(RavenTestCategory.Etl)]
         public async Task CanAddAndUpdateLoadErrors()
         {
@@ -165,6 +166,7 @@ namespace SlowTests.Server.Documents.ETL
                 }
             }
         }
+        */
 
         [RavenFact(RavenTestCategory.Etl)]
         public async Task CanAddAndSlowSqlWarnings()

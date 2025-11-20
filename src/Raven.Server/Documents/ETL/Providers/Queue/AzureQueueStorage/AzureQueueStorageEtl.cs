@@ -104,6 +104,7 @@ public sealed class AzureQueueStorageEtl : QueueEtl<AzureQueueStorageItem>
                 }
             }
 
+            /*
             if (tooLargeDocsErrors.Count > 0)
             {
                 Database.NotificationCenter.EtlNotifications.AddLoadErrors(Tag, Name, tooLargeDocsErrors,
@@ -111,7 +112,7 @@ public sealed class AzureQueueStorageEtl : QueueEtl<AzureQueueStorageItem>
                     "Some of the documents were too big (>64KB) to be handled by Azure Queue Storage. " +
                     "It caused load errors, that have been skipped. ");
             }
-
+            */
         }
 
         return count;

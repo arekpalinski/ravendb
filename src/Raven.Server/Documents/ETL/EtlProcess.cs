@@ -845,6 +845,12 @@ namespace Raven.Server.Documents.ETL
 
                         statsAggregator.Complete();
                     }
+                    
+                    Statistics.AverageErrorsRatio.UpdateOnBatchCompletion(Statistics.BatchErrors, Statistics.BatchErrors + Statistics.BatchSuccesses);
+                    Statistics.UpdateHealthStatusOnBatchCompletion();
+            
+                    Statistics.BatchErrors = 0;
+                    Statistics.BatchSuccesses = 0;
 
                     if (didWork)
                     {

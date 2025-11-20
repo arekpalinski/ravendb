@@ -114,7 +114,7 @@ public class RavenDB_21192 : RavenTestBase
     }
     
     [RavenFact(RavenTestCategory.Etl)]
-    public void Test()
+    public void TestEwmaCalculation()
     {
         using (var src = GetDocumentStore())
         using (var dest = GetDocumentStore())
@@ -130,6 +130,8 @@ public class RavenDB_21192 : RavenTestBase
                                    loadToUsers(this);
                                    """;
             var collections1 = new List<string>() { "Users" };
+            
+            var etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 10);
 
             AddEtlTask(src, dest, etlName1, connectionStringName1, transformationName1, script1, collections1);
 
@@ -139,11 +141,33 @@ public class RavenDB_21192 : RavenTestBase
                     bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
             }
             
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+
+            var etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            Assert.Equal(0, etlStats.LoadSuccesses);
+            Assert.Equal(10, etlStats.TransformationErrors);
+            
+            Assert.Equal(1.0, etlStats.AverageErrorsRatio.GetRate());
+            
+            etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 50);
+            
             using (var bulkInsert = src.BulkInsert())
             {
                 for (int i = 0; i < 50; i++)
                     bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
             }
+            
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            Assert.Equal(50, etlStats.LoadSuccesses);
+            Assert.Equal(20, etlStats.TransformationErrors);
+            
+            Assert.InRange(etlStats.AverageErrorsRatio.GetRate(), 0.64, 0.68);
+            
+            etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 950);
 
             using (var bulkInsert = src.BulkInsert())
             {
@@ -151,19 +175,31 @@ public class RavenDB_21192 : RavenTestBase
                     bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
             }
             
-            using (var bulkInsert = src.BulkInsert())
-            {
-                for (int i = 0; i < 900; i++)
-                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
-            }
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            Assert.Equal(950, etlStats.LoadSuccesses);
+            Assert.Equal(20, etlStats.TransformationErrors);
+            
+            Assert.InRange(etlStats.AverageErrorsRatio.GetRate(), 0.05, 0.10);
+            
+            etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 510);
             
             using (var bulkInsert = src.BulkInsert())
             {
-                for (int i = 0; i < 1000; i++)
+                for (int i = 0; i < 500; i++)
                     bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
             }
             
-            WaitForUserToContinueTheTest(src);
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            Assert.Equal(950, etlStats.LoadSuccesses);
+            Assert.Equal(1020, etlStats.TransformationErrors);
+            
+            Assert.InRange(etlStats.AverageErrorsRatio.GetRate(), 0.55, 0.58);
         }
     }
     
@@ -243,6 +279,103 @@ public class RavenDB_21192 : RavenTestBase
         }
     }
 
+    [RavenFact(RavenTestCategory.Etl)]
+    public void TestEtlHealthStatusUpdates()
+    {
+        using (var src = GetDocumentStore())
+        using (var dest = GetDocumentStore())
+        {
+            const string connectionStringName1 = "ConnectionString1";
+            const string etlName1 = "ETL1";
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   if (this.Name == "James Doe")
+                                   {
+                                        throw new Error("dummy error");
+                                   }                   
+                                   loadToUsers(this);
+                                   """;
+            var collections1 = new List<string>() { "Users" };
+            
+            var etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 10);
+
+            AddEtlTask(src, dest, etlName1, connectionStringName1, transformationName1, script1, collections1);
+
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 10; i++)
+                    bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
+            }
+            
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            var etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            Assert.Equal(0, etlStats.LoadSuccesses);
+            Assert.Equal(10, etlStats.TransformationErrors);
+
+            Assert.Equal(EtlTaskHealthStatus.Failed, etlStats.HealthStatus);
+            
+            etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 50);
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 50; i++)
+                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
+            }
+            
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+
+            etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            Assert.Equal(50, etlStats.LoadSuccesses);
+            Assert.Equal(20, etlStats.TransformationErrors);
+
+            Assert.Equal(EtlTaskHealthStatus.Impaired, etlStats.HealthStatus);
+
+            etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 950);
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 900; i++)
+                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
+            }
+            
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            Assert.Equal(950, etlStats.LoadSuccesses);
+            Assert.Equal(20, etlStats.TransformationErrors);
+
+            Assert.Equal(EtlTaskHealthStatus.Healthy, etlStats.HealthStatus);
+            
+            etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 1020);
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 1000; i++)
+                    bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
+            }
+            
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            Assert.Equal(950, etlStats.LoadSuccesses);
+            Assert.Equal(1020, etlStats.TransformationErrors);
+
+            Assert.Equal(EtlTaskHealthStatus.Healthy, etlStats.HealthStatus);
+        }
+    }
+
+    private EtlProcessStatistics GetEtlStats(IDocumentStore store, string etlName)
+    {
+        var etl = GetDatabase(store.Database).GetAwaiter().GetResult().EtlLoader.Processes.Single(x => x.Name == etlName);
+
+        return etl.Statistics;
+    }
+
     private static void AddEtlTask(DocumentStore src, DocumentStore dest, string etlName, string connectionStringName, string transformationName, string script, List<string> collections)
     {
         var transformation1 = new Transformation
@@ -290,7 +423,7 @@ public class RavenDB_21192 : RavenTestBase
     
     private class GetEtlTaskErrorsCommand : RavenCommand<object>
     {
-        private List<string> _taskNames;
+        private readonly List<string> _taskNames;
         
         public GetEtlTaskErrorsCommand(List<string> taskNames)
         {

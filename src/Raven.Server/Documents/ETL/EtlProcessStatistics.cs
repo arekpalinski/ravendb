@@ -16,7 +16,7 @@ namespace Raven.Server.Documents.ETL
         private readonly DatabaseNotificationCenter _notificationCenter;
         private readonly EtlErrorsStorage _etlErrorsStorage;
 
-        private readonly EnsureAlerts _alertsGuard;
+        private readonly OnDisposeActions _onDisposeActions;
 
         private bool _preventFromAddingAlertsToNotificationCenter;
 
@@ -34,7 +34,7 @@ namespace Raven.Server.Documents.ETL
             TransformationErrorsInCurrentBatch = new EtlErrorsDetails();
             LastLoadErrorsInCurrentBatch = new EtlErrorsDetails();
             LastSlowSqlWarningsInCurrentBatch = new SlowSqlDetails();
-            _alertsGuard = new EnsureAlerts(this);
+            _onDisposeActions = new OnDisposeActions(this);
             AverageErrorsRatio = new TimeAgnosticEwma();
             HealthStatus = EtlTaskHealthStatus.Healthy;
         }
@@ -47,9 +47,9 @@ namespace Raven.Server.Documents.ETL
 
         public DateTime? LastLoadErrorTime { get; private set; }
 
-        private int TransformationErrors { get; set; }
+        public int TransformationErrors { get; set; }
 
-        private int TransformationSuccesses { get; set; }
+        public int TransformationSuccesses { get; set; }
 
         public int LoadErrors { get; set; }
 
@@ -72,7 +72,7 @@ namespace Raven.Server.Documents.ETL
         public long BatchErrors { get; set; }
         public long BatchSuccesses { get; set; }
         
-        public EtlTaskHealthStatus HealthStatus { get; }
+        public EtlTaskHealthStatus HealthStatus { get; private set; }
 
         public void TransformationSuccess()
         {
@@ -85,12 +85,23 @@ namespace Raven.Server.Documents.ETL
             LastLoadErrorsInCurrentBatch.Errors.Clear();
             LastSlowSqlWarningsInCurrentBatch.Statements.Clear();
             LoadSuccessesInCurrentBatch = 0;
-            
-            AverageErrorsRatio.UpdateOnBatchCompletion(BatchErrors, BatchErrors + BatchSuccesses);
             BatchErrors = 0;
             BatchSuccesses = 0;
+            
+            return _onDisposeActions;
+        }
 
-            return _alertsGuard;
+        internal void UpdateHealthStatusOnBatchCompletion()
+        {
+            var errorsEwma = AverageErrorsRatio.GetRate();
+
+            HealthStatus = errorsEwma switch
+            {
+                > 0.9 => EtlTaskHealthStatus.Failed,
+                > 0.5 => EtlTaskHealthStatus.Disrupted,
+                > 0.1 => EtlTaskHealthStatus.Impaired,
+                _ => EtlTaskHealthStatus.Healthy
+            };
         }
 
         public void RecordTransformationError(Exception e, LazyStringValue documentId)
@@ -119,21 +130,6 @@ namespace Raven.Server.Documents.ETL
                 DocumentId = documentId,
                 Error = e.ToString()
             });
-
-            if (TransformationErrors < 100)
-                return;
-
-            if (TransformationErrors <= TransformationSuccesses)
-                return;
-
-            var message = $"Transformation error ratio is too high (errors: {TransformationErrors}, successes: {TransformationSuccesses}). " +
-                          "Could not tolerate transformation error ratio and stopped current ETL batch. ";
-
-            CreateAlertIfAnyTransformationErrors(message);
-            
-            //AverageErrorsRatio.UpdateOnBatchCompletion(BatchErrors, BatchErrors + BatchSuccesses);
-            
-            throw new InvalidOperationException($"{message}. Current stats: {this}");
         }
 
         public void RecordPartialLoadError(string error, LazyStringValue documentId, int count = 1)
@@ -163,19 +159,6 @@ namespace Raven.Server.Documents.ETL
                 DocumentId = documentId,
                 Error = error
             });
-
-            if (LoadErrors < 100)
-                return;
-
-            if (LoadErrors <= LoadSuccesses)
-                return;
-
-            var message = $"Load error ratio is too high (errors: {LoadErrors}, successes: {LoadSuccesses}). " +
-                          "Could not tolerate load error ratio and stopped current ETL batch. ";
-
-            CreateAlertIfAnyLoadErrors(message);
-
-            throw new InvalidOperationException($"{message}. Current stats: {this}. Error: {error}");
         }
 
         public void ThrowLoadError(string error, int count)
@@ -201,12 +184,6 @@ namespace Raven.Server.Documents.ETL
                 Date = now,
                 Error = error
             });
-
-            var message = $"Current ETL batch with '{count}' items was stopped. ";
-
-            CreateAlertIfAnyLoadErrors(message);
-
-            throw new InvalidOperationException($"{message}. Current stats: {this}");
         }
 
         public void RecordSlowSql(SlowSqlStatementInfo slowSql)
@@ -219,26 +196,6 @@ namespace Raven.Server.Documents.ETL
             WasLatestLoadSuccessful = true;
             LoadSuccesses += items;
             LoadSuccessesInCurrentBatch += items;
-        }
-
-        private void CreateAlertIfAnyTransformationErrors(string preMessage = null)
-        {
-            if (TransformationErrorsInCurrentBatch.Errors.Count == 0 || _preventFromAddingAlertsToNotificationCenter)
-                return;
-
-            LastAlert = _notificationCenter.EtlNotifications.AddTransformationErrors(_processTag, _processName, TransformationErrorsInCurrentBatch.Errors, preMessage);
-
-            TransformationErrorsInCurrentBatch.Errors.Clear();
-        }
-
-        private void CreateAlertIfAnyLoadErrors(string preMessage = null)
-        {
-            if (LastLoadErrorsInCurrentBatch.Errors.Count == 0 || _preventFromAddingAlertsToNotificationCenter)
-                return;
-
-            LastAlert = _notificationCenter.EtlNotifications.AddLoadErrors(_processTag, _processName, LastLoadErrorsInCurrentBatch.Errors, preMessage);
-
-            LastLoadErrorsInCurrentBatch.Errors.Clear();
         }
 
         private void CreateAlertIfAnySlowSqls()
@@ -263,7 +220,8 @@ namespace Raven.Server.Documents.ETL
                 [nameof(TransformationErrors)] = TransformationErrors,
                 [nameof(LoadSuccesses)] = LoadSuccesses,
                 [nameof(LoadErrors)] = LoadErrors,
-                [nameof(AverageErrorsRatio)] = AverageErrorsRatio.GetRate()
+                [nameof(AverageErrorsRatio)] = AverageErrorsRatio.GetRate(),
+                [nameof(HealthStatus)] = HealthStatus
             };
             return json;
         }
@@ -298,20 +256,20 @@ namespace Raven.Server.Documents.ETL
             LastSlowSqlWarningsInCurrentBatch.Statements.Clear();
         }
 
-        private sealed class EnsureAlerts : IDisposable
+        private sealed class OnDisposeActions : IDisposable
         {
             private readonly EtlProcessStatistics _parent;
 
-            public EnsureAlerts(EtlProcessStatistics parent)
+            public OnDisposeActions(EtlProcessStatistics parent)
             {
                 _parent = parent;
             }
 
             public void Dispose()
             {
-                _parent.CreateAlertIfAnyTransformationErrors();
                 _parent.CreateAlertIfAnySlowSqls();
-                _parent.CreateAlertIfAnyLoadErrors();
+                _parent.AverageErrorsRatio.UpdateOnBatchCompletion(_parent.BatchErrors, _parent.BatchErrors + _parent.BatchSuccesses);
+                _parent.UpdateHealthStatusOnBatchCompletion();
             }
         }
 

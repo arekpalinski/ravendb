@@ -16,6 +16,7 @@ namespace Raven.Server.NotificationCenter
             _notificationCenter = notificationCenter;
         }
 
+        /*
         public AlertRaised AddTransformationErrors(string processTag, string processName, Queue<EtlErrorInfo> errors, string preMessage = null)
         {
             var alert = GetOrCreateAlert<EtlErrorsDetails>(processTag,
@@ -37,6 +38,7 @@ namespace Raven.Server.NotificationCenter
 
             return AddErrorAlert(errors, details, alert);
         }
+        */
 
         public void AddSlowSqlWarnings(string processTag, string processName, Queue<SlowSqlStatementInfo> slowSqls)
         {
