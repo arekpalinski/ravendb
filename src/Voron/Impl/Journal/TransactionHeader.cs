@@ -20,6 +20,25 @@ namespace Voron.Impl.Journal
         [FieldOffset(18)]
         public long DiffSize;
     }
+    
+    [StructLayout(LayoutKind.Explicit, Pack = 1)]
+    public struct TransactionSparseRegionInfo
+    {
+        [FieldOffset(0)]
+        public long Marker;
+
+        [FieldOffset(8)]
+        public long Start;
+
+        [FieldOffset(16)]
+        public long Count;
+
+        [FieldOffset(24)]
+        public byte Reserved1;
+        
+        [FieldOffset(25)]
+        public byte Reserved2;
+    }
 
     [StructLayout(LayoutKind.Explicit, Pack = 1)]
     public unsafe struct TransactionHeader
@@ -42,7 +61,7 @@ namespace Voron.Impl.Journal
         public long LastPageNumber;
 
         [FieldOffset(32)]
-        public int PageCount;
+        public int PageCountAndSparseRegions;
 
         [FieldOffset(36)]
         public TransactionPersistenceModeFlags Flags;
@@ -88,7 +107,7 @@ namespace Voron.Impl.Journal
             var validMarker = (HeaderMarker == Constants.TransactionHeaderMarker ? "Valid" : "Invalid");
             var timestamp = new DateTime(TimeStampTicksUtc).ToString("g");
             return $"HeaderMarker: {validMarker}, TransactionId: {TransactionId}, JournalId: {JournalId} NextPageNumber: {NextPageNumber}, LastPageNumber: {LastPageNumber}, " +
-                   $"PageCount: {PageCount}, Hash: {Hash}, Root: {Root}, TxMarker: {TxMarker}, CompressedSize: {CompressedSize}," +
+                   $"PageCount: {PageCountAndSparseRegions}, Hash: {Hash}, Root: {Root}, TxMarker: {TxMarker}, CompressedSize: {CompressedSize}," +
                    $" UncompressedSize: {UncompressedSize}, TimeStamp: {timestamp}";
         }
     }

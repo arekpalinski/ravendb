@@ -127,7 +127,7 @@ namespace FastTests.Voron
             ptr->NextPageNumber = (long)rnd.NextDouble();
             ptr->TxMarker = TransactionMarker.Commit;
             ptr->UncompressedSize = rnd.Next();
-            ptr->PageCount = rnd.Next();
+            ptr->PageCountAndSparseRegions = rnd.Next();
 
             rnd = new Random(seed);
 
@@ -148,7 +148,7 @@ namespace FastTests.Voron
             Assert.Equal(ptr->NextPageNumber, (long)rnd.NextDouble());
             Assert.Equal(ptr->TxMarker, TransactionMarker.Commit);
             Assert.Equal(ptr->UncompressedSize, rnd.Next());
-            Assert.Equal(ptr->PageCount, rnd.Next());
+            Assert.Equal(ptr->PageCountAndSparseRegions, rnd.Next());
         }
     }
 }

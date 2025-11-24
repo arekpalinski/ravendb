@@ -29,6 +29,8 @@ namespace Voron.Global
 
             public const int JournalPageSize = 4 * Size.Kilobyte;
 
+            public const long SparseRegionInfoMarker = -0x2AF717AC9A83;
+            
             static Storage()
             {
                 GC.KeepAlive(new int[
@@ -38,6 +40,13 @@ namespace Voron.Global
                         ? -1
                         : 0
                     ]);
+                
+                GC.KeepAlive(new int[
+                    // this is a way to have static assert
+                    SparseRegionInfoMarker > 0
+                        ? -1
+                        : 0
+                ]);
             }
         }
 

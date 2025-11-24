@@ -145,11 +145,11 @@ namespace Voron.Impl.Journal
                 pageInfoPtr = (TransactionHeaderPageInfo*)outputPage;
             }
 
-            long totalRead = sizeof(TransactionHeaderPageInfo) * current->PageCount;
+            long totalRead = sizeof(TransactionHeaderPageInfo) * current->PageCountAndSparseRegions;
             if (totalRead > current->UncompressedSize)
                 throw new InvalidDataException($"Attempted to read position {totalRead} from transaction data while the transaction is size {current->UncompressedSize}");
 
-            for (var i = 0; i < current->PageCount; i++)
+            for (var i = 0; i < current->PageCountAndSparseRegions; i++)
             {
                 if (pageInfoPtr[i].PageNumber > current->LastPageNumber)
                     throw new InvalidDataException(
@@ -160,7 +160,7 @@ namespace Voron.Impl.Journal
             byte* currentBuffer = null;
             try
             {
-                for (var i = 0; i < current->PageCount; i++)
+                for (var i = 0; i < current->PageCountAndSparseRegions; i++)
                 {
                     if (totalRead > current->UncompressedSize)
                         throw new InvalidDataException(
@@ -168,6 +168,22 @@ namespace Voron.Impl.Journal
 
                     Debug.Assert(_journalPagerState.Disposed == false);
                     Debug.Assert(performDecompression == false || recoveryPagerState.Disposed == false);
+
+                    if (pageInfoPtr[i].PageNumber == Constants.Storage.SparseRegionInfoMarker) // backward-compatible way to find sparse regions marked in a given transaction
+                    {
+                        var sparseRegion = *(TransactionSparseRegionInfo*)(pageInfoPtr + i);
+                        
+                        var start = sparseRegion.Start;
+                        
+                        for (int j = 0; j < sparseRegion.Count; j++)
+                        {
+                            // do not track sparse region pages as modified, so we won't validate them after processing all journals
+                            long item = start + j;
+                            _modifiedPages.Remove(item);
+                        }
+                        
+                        continue;
+                    }
 
                     var numberOfPagesOnDestination = GetNumberOfPagesFor(pageInfoPtr[i].Size);
                     _dataPager.EnsureContinuous(ref dataPagerState, pageInfoPtr[i].PageNumber, numberOfPagesOnDestination);
@@ -188,6 +204,7 @@ namespace Voron.Impl.Journal
                     if (pageSize > bufferSize)
                     {
                         currentBuffer = (byte*)NativeMemory.Realloc(currentBuffer, (nuint)pageSize);
+                        bufferSize = pageSize;
                     }
 
                     if (pageInfoPtr[i].DiffSize == 0)
@@ -625,7 +642,7 @@ namespace Voron.Impl.Journal
             }
 
             ReadOnlySpan<byte> buffer = new(current + 1, checked((int)current->UncompressedSize));
-            int numberOfLinks = current->PageCount;
+            int numberOfLinks = current->PageCountAndSparseRegions;
             for (int i = 0; i < numberOfLinks; i++)
             {
                 var journalId = new Guid(buffer[..sizeof(Guid)]);

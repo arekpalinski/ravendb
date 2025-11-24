@@ -397,7 +397,7 @@ namespace Voron.Impl
         {
             HeaderMarker = Constants.TransactionHeaderMarker,
             LastPageNumber = -1,
-            PageCount = -1,
+            PageCountAndSparseRegions = -1,
             TxMarker = TransactionMarker.None,
             CompressedSize = 0,
             UncompressedSize = 0
