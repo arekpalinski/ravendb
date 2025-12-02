@@ -58,6 +58,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
                 
                 var id = context.GetLazyString(error.Id);
                 var etlTaskName = context.GetLazyString(error.EtlTaskName);
+                var message = context.GetLazyString(error.Message);
                 
                 using (table.Allocate(out TableValueBuilder tvb))
                 {
@@ -67,6 +68,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
                     tvb.Add((byte*)&affectedDocumentsCountSwapped, sizeof(long));
                     tvb.Add((byte*)&etlErrorTypeSwapped, sizeof(long));
                     tvb.Add((byte*)&severitySwapped, sizeof(long));
+                    tvb.Add(message.Buffer, message.Size);
 
                     table.Set(tvb);
                 }
@@ -176,6 +178,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         var affectedDocumentsCount = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlErrors.EtlErrorsTable.AffectedDocumentsCountIndex, out _));
         var step = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlErrors.EtlErrorsTable.StepIndex, out _));
         var severity = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlErrors.EtlErrorsTable.SeverityIndex, out _));
+        var message = reader.ReadString(Schemas.EtlErrors.EtlErrorsTable.MessageIndex);
         
         return new EtlErrorTableValue
         {
@@ -183,7 +186,8 @@ public unsafe class EtlErrorsStorage(string databaseName)
             EtlTaskName = etlTaskName,
             AffectedDocumentsCount = affectedDocumentsCount,
             Step = step,
-            Severity = severity
+            Severity = severity,
+            Message = message
         };
     }
     

@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics;
 using Raven.Client.Documents.Conventions;
+using Raven.Server.Documents.ETL;
 using Raven.Server.NotificationCenter.Notifications;
 using Raven.Server.NotificationCenter.Notifications.Details;
 using Sparrow.Json;
@@ -56,6 +57,27 @@ namespace Raven.Server.NotificationCenter
             _notificationCenter.Add(alert);
         }
 
+        public void AddTaskHealthChangeNotification(string processTag, string processName, EtlTaskHealthStatus status)
+        {
+            var alert = GetOrCreateAlert<EtlErrorsDetails>(processTag,
+                processName,
+                AlertType.Etl_HealthStatusChange,
+                $"ETL task health status was changed to {status}.",
+                out _);
+            
+            _notificationCenter.Add(alert);
+        }
+
+        public void ClearTaskHealthChangeNotification(string processTag, string processName)
+        {
+            var key = $"{processTag}/{processName}";
+            const AlertType alertType = AlertType.Etl_HealthStatusChange;
+
+            var id = AlertRaised.GetKey(alertType, key);
+
+            _notificationCenter.Storage.Delete(id);
+        }
+
         private AlertRaised AddErrorAlert(Queue<EtlErrorInfo> errors, EtlErrorsDetails details, AlertRaised alert)
         {
             details.Update(errors);
@@ -67,7 +89,7 @@ namespace Raven.Server.NotificationCenter
 
         private AlertRaised GetOrCreateAlert<T>(string processTag, string processName, AlertType etlAlertType, string message, out T details) where T : INotificationDetails, new()
         {
-            Debug.Assert(etlAlertType == AlertType.Etl_LoadError || etlAlertType == AlertType.Etl_TransformationError);
+            Debug.Assert(etlAlertType == AlertType.Etl_LoadError || etlAlertType == AlertType.Etl_TransformationError || etlAlertType == AlertType.Etl_HealthStatusChange);
 
             var key = $"{processTag}/{processName}";
 
@@ -94,7 +116,7 @@ namespace Raven.Server.NotificationCenter
         public AlertRaised GetAlert<T>(string processTag, string processName, AlertType etlAlertType)
             where T : INotificationDetails, new()
         {
-            Debug.Assert(etlAlertType == AlertType.Etl_LoadError || etlAlertType == AlertType.Etl_TransformationError);
+            Debug.Assert(etlAlertType == AlertType.Etl_LoadError || etlAlertType == AlertType.Etl_TransformationError || etlAlertType == AlertType.Etl_HealthStatusChange);
 
             var key = $"{processTag}/{processName}";
 

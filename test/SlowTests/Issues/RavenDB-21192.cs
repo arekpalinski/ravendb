@@ -12,6 +12,8 @@ using Raven.Client.ServerWide.Operations;
 using Raven.Server.Documents.ETL;
 using Raven.Server.Documents.ETL.Handlers.Processors;
 using Raven.Server.Documents.ETL.Stats;
+using Raven.Server.NotificationCenter.Notifications;
+using Raven.Server.NotificationCenter.Notifications.Details;
 using Sparrow.Json;
 using Tests.Infrastructure;
 using Xunit;
@@ -366,6 +368,190 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(1020, etlStats.TransformationErrors);
 
             Assert.Equal(EtlTaskHealthStatus.Healthy, etlStats.HealthStatus);
+        }
+    }
+    
+    [RavenFact(RavenTestCategory.Etl)]
+    public void InvalidScriptShouldThrow()
+    {
+        using (var src = GetDocumentStore())
+        using (var dest =  GetDocumentStore())
+        {
+            const string connectionStringName1 = "ConnectionString1";
+            const string etlName1 = "ETL1";
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   var x = ;
+                                   
+                                   throw new Error("dummy error");
+                                   
+                                   loadToUsers(this);
+                                   """;
+            var collections1 = new List<string>() { "Users" };
+            
+            AddEtlTask(src, dest, etlName1, connectionStringName1, transformationName1, script1, collections1);
+            
+            WaitForUserToContinueTheTest(src);
+        }
+    }
+
+    [RavenFact(RavenTestCategory.Etl)]
+    public void EtlTaskHealthStatusChangeNotificationsShouldBeAddedAndRemoved()
+    {
+        using (var src = GetDocumentStore())
+        using (var dest = GetDocumentStore())
+        {
+            const string processTag = "Raven ETL";
+            const string connectionStringName1 = "ConnectionString1";
+            const string etlName1 = "ETL1";
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   if (this.Name == "James Doe")
+                                   {
+                                        throw new Error("dummy error");
+                                   }                   
+                                   loadToUsers(this);
+                                   """;
+            var collections1 = new List<string>() { "Users" };
+            
+            var etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 10);
+
+            AddEtlTask(src, dest, etlName1, connectionStringName1, transformationName1, script1, collections1);
+
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 10; i++)
+                    bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
+            }
+            
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            var etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            Assert.Equal(0, etlStats.LoadSuccesses);
+            Assert.Equal(10, etlStats.TransformationErrors);
+
+            AssertHealthStatusNotification(src, processTag, $"{etlName1}/{transformationName1}", EtlTaskHealthStatus.Failed);
+            
+            etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 50);
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 50; i++)
+                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
+            }
+            
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+
+            etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            Assert.Equal(50, etlStats.LoadSuccesses);
+            Assert.Equal(20, etlStats.TransformationErrors);
+            
+            AssertHealthStatusNotification(src, processTag, $"{etlName1}/{transformationName1}", EtlTaskHealthStatus.Disrupted);
+            
+            etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 1050);
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 1000; i++)
+                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
+            }
+            
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+
+            etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            Assert.Equal(1050, etlStats.LoadSuccesses);
+            
+            AssertHealthStatusNotificationDoesNotExist(src, processTag, $"{etlName1}/{transformationName1}");
+        }
+    }
+    
+    private void AssertHealthStatusNotification(IDocumentStore store, string processTag, string processName, EtlTaskHealthStatus healthStatus)
+    {
+        var db = GetDatabase(store.Database).GetAwaiter().GetResult();
+
+        var alert = db.NotificationCenter.EtlNotifications.GetAlert<EtlErrorsDetails>(processTag, processName, AlertType.Etl_HealthStatusChange);
+        
+        Assert.NotNull(alert);
+        Assert.Equal($"ETL task health status was changed to {healthStatus}.", alert.Message);
+    }
+
+    private void AssertHealthStatusNotificationDoesNotExist(IDocumentStore store, string processTag, string processName)
+    {
+        var db = GetDatabase(store.Database).GetAwaiter().GetResult();
+
+        var alert = db.NotificationCenter.EtlNotifications.GetAlert<EtlErrorsDetails>(processTag, processName, AlertType.Etl_HealthStatusChange);
+        
+        Assert.Null(alert);
+    }
+
+    [RavenFact(RavenTestCategory.Etl)]
+    public void Test()
+    {
+        using (var src = GetDocumentStore())
+        using (var dest = GetDocumentStore())
+        {
+            const string connectionStringName1 = "ConnectionString1";
+            const string etlName1 = "ETL1";
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   if (this.Name == "James Doe")
+                                   {
+                                        throw new Error("dummy error");
+                                   }                   
+                                   loadToUsers(this);
+                                   """;
+            var collections1 = new List<string>() { "Users" };
+            
+            AddEtlTask(src, dest, etlName1, connectionStringName1, transformationName1, script1, collections1);
+            
+            using (var session = src.OpenSession())
+            {
+                for (int i = 0; i < 5; i++)
+                    session.Store(new User { Name = "James Doe", Value = 1 });
+                
+                session.SaveChanges();
+            }
+            
+            WaitForUserToContinueTheTest(src);
+            
+            var etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+
+            using (var session = src.OpenSession())
+            {
+                for (int i = 0; i < 5; i++)
+                    session.Store(new User { Name = "James Doe", Value = 0 });
+                
+                session.SaveChanges();
+            }
+            
+            WaitForUserToContinueTheTest(src);
+            
+            etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            /*
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 10; i++)
+                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
+            }
+            
+            WaitForUserToContinueTheTest(src);
+            
+            etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 10; i++)
+                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 1 });
+            }
+            
+            WaitForUserToContinueTheTest(src);
+            
+            etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+            */
         }
     }
 

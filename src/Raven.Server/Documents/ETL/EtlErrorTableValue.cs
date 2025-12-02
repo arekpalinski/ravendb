@@ -10,6 +10,7 @@ public class EtlErrorTableValue
     public long AffectedDocumentsCount;
     public long Step;
     public long Severity;
+    public string Message;
 
     public EtlError ToEtlError()
     {
@@ -19,7 +20,8 @@ public class EtlErrorTableValue
             EtlTaskName = EtlTaskName,
             AffectedDocumentsCount = AffectedDocumentsCount,
             Step = (EtlErrorStep)Step,
-            Severity = (EtlErrorSeverity)Severity
+            Severity = (EtlErrorSeverity)Severity,
+            Message = Message
         };
     }
 }

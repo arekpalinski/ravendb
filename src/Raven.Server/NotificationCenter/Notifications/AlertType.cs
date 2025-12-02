@@ -7,6 +7,7 @@ namespace Raven.Server.NotificationCenter.Notifications
         Etl_Warning,
         Etl_TransformationError,
         Etl_LoadError,
+        Etl_HealthStatusChange,
         
         QueueSink_Error,
         QueueSink_Warning,

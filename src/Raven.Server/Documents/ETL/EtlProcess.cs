@@ -444,22 +444,8 @@ namespace Raven.Server.Documents.ETL
             if (Logger.IsOperationsEnabled)
                 Logger.Operations(message, e);
 
-            var key = $"{Tag}/{Name}";
-            var details = new EtlErrorsDetails();
-
-            details.Errors.Enqueue(new EtlErrorInfo { Date = SystemTime.UtcNow, Error = e.ToString() });
-
-            var alert = AlertRaised.Create(
-                Database.Name,
-                Tag,
-                message,
-                AlertType.Etl_TransformationError,
-                NotificationSeverity.Error,
-                key: key,
-                details: details);
-
-            Database.NotificationCenter.Add(alert);
-
+            Statistics.SetExplicitFail(message);
+            
             stats.RecordBatchTransformationCompleteReason(message);
             stats.RecordTransformationError();
 
@@ -501,7 +487,6 @@ namespace Raven.Server.Documents.ETL
 
                         var count = stats.NumberOfExtractedItems.Sum(x => x.Value);
                         Statistics.ThrowLoadError(e.ToString(), count);
-                        //Statistics.BatchErrors = count;
                     }
 
                     return false;
@@ -511,15 +496,19 @@ namespace Raven.Server.Documents.ETL
 
         private void EnterFallbackMode(DateTime? lastErrorTime)
         {
+            var now = Database.Time.GetUtcNow();
+            
             if (lastErrorTime == null)
                 FallbackTime = TimeSpan.FromSeconds(5);
             else
             {
                 // double the fallback time (but don't cross Etl.MaxFallbackTime)
-                var secondsSinceLastError = (Database.Time.GetUtcNow() - lastErrorTime.Value).TotalSeconds;
+                var secondsSinceLastError = (now - lastErrorTime.Value).TotalSeconds;
 
                 FallbackTime = TimeSpan.FromSeconds(Math.Min(Database.Configuration.Etl.MaxFallbackTime.AsTimeSpan.TotalSeconds, Math.Max(5, secondsSinceLastError * 2)));
             }
+            
+            Statistics.NextBatchRetryTime = now + FallbackTime;
         }
 
         protected abstract int LoadInternal(IEnumerable<TTransformed> items, DocumentsOperationContext context, TStatsScope scope);

@@ -24,6 +24,7 @@ public static class EtlErrors
         public const int AffectedDocumentsCountIndex = 3;
         public const int StepIndex = 4;
         public const int SeverityIndex = 5;
+        public const int MessageIndex = 6;
     }
 
     static EtlErrors()

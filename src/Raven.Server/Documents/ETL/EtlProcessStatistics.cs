@@ -73,6 +73,8 @@ namespace Raven.Server.Documents.ETL
         public long BatchSuccesses { get; set; }
         
         public EtlTaskHealthStatus HealthStatus { get; private set; }
+        private bool ExplicitFail { get; set; }
+        public DateTime? NextBatchRetryTime { get; set; }
 
         public void TransformationSuccess()
         {
@@ -93,15 +95,41 @@ namespace Raven.Server.Documents.ETL
 
         internal void UpdateHealthStatusOnBatchCompletion()
         {
-            var errorsEwma = AverageErrorsRatio.GetRate();
-
-            HealthStatus = errorsEwma switch
+            var previousStatus = HealthStatus;
+            
+            if (ExplicitFail)
             {
-                > 0.9 => EtlTaskHealthStatus.Failed,
-                > 0.5 => EtlTaskHealthStatus.Disrupted,
-                > 0.1 => EtlTaskHealthStatus.Impaired,
-                _ => EtlTaskHealthStatus.Healthy
-            };
+                HealthStatus = EtlTaskHealthStatus.Failed;
+            }
+
+            else
+            {
+                var errorsEwma = AverageErrorsRatio.GetRate();
+            
+                HealthStatus = errorsEwma switch
+                {
+                    > 0.9 => EtlTaskHealthStatus.Failed,
+                    > 0.5 => EtlTaskHealthStatus.Disrupted,
+                    > 0.1 => EtlTaskHealthStatus.Impaired,
+                    _ => EtlTaskHealthStatus.Healthy
+                };
+            }
+
+            if (HealthStatus == EtlTaskHealthStatus.Healthy)
+            {
+                _notificationCenter.EtlNotifications.ClearTaskHealthChangeNotification(_processTag, _processName);
+                return;
+            }
+            
+            if (HealthStatus != previousStatus)
+                _notificationCenter.EtlNotifications.AddTaskHealthChangeNotification(_processTag, _processName, HealthStatus);
+        }
+
+        internal void SetExplicitFail(string message)
+        {
+            ExplicitFail = true;
+
+            RecordConfigurationError(message);
         }
 
         public void RecordTransformationError(Exception e, LazyStringValue documentId)
@@ -159,6 +187,23 @@ namespace Raven.Server.Documents.ETL
                 DocumentId = documentId,
                 Error = error
             });
+        }
+
+        private void RecordConfigurationError(string message)
+        {
+            var now = SystemTime.UtcNow;
+
+            var etlError = new EtlError()
+            {
+                CreatedAt = now,
+                EtlTaskName = _processName,
+                AffectedDocumentsCount = 0,
+                Step = EtlErrorStep.ConfigurationError,
+                Severity = EtlErrorSeverity.High,
+                Message = message
+            };
+            
+            _etlErrorsStorage.StoreError(etlError);
         }
 
         public void ThrowLoadError(string error, int count)
@@ -221,7 +266,8 @@ namespace Raven.Server.Documents.ETL
                 [nameof(LoadSuccesses)] = LoadSuccesses,
                 [nameof(LoadErrors)] = LoadErrors,
                 [nameof(AverageErrorsRatio)] = AverageErrorsRatio.GetRate(),
-                [nameof(HealthStatus)] = HealthStatus
+                [nameof(HealthStatus)] = HealthStatus,
+                [nameof(NextBatchRetryTime)] =  NextBatchRetryTime
             };
             return json;
         }
