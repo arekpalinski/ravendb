@@ -29,6 +29,7 @@ public sealed unsafe class FastPForEncoder  : IDisposable
     private int _metadataPos;
     private ByteStringContext<ByteStringMemoryCache>.InternalScope _entriesOutputScope;
 
+    public const int MaxOutputBufferSize = ushort.MaxValue - 1;
 
     public FastPForEncoder(ByteStringContext allocator)
     {

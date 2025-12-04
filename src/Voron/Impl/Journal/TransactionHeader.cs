@@ -92,4 +92,21 @@ namespace Voron.Impl.Journal
                    $" UncompressedSize: {UncompressedSize}, TimeStamp: {timestamp}";
         }
     }
+    
+    [StructLayout(LayoutKind.Explicit)]
+    public struct FreePagesHeader
+    {
+        [FieldOffset(0)]
+        public int NumberOfPages;
+        
+        [FieldOffset(4)]
+        public int EncodedSectionsCount;
+    }
+    
+    [StructLayout(LayoutKind.Explicit)]
+    public struct FreePagesSectionHeader
+    {
+        [FieldOffset(0)]
+        public int Size;
+    }
 }
