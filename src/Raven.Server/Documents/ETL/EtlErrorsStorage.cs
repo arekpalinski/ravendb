@@ -14,19 +14,20 @@ namespace Raven.Server.Documents.ETL;
 
 public unsafe class EtlErrorsStorage(string databaseName)
 {
+    private const int ErrorsLimitPerEtl = 100;
+
     private readonly string _errorsTableName = GetErrorsTableName(databaseName);
     private readonly string _partialErrorsTableName = GetPartialErrorsTableName(databaseName);
     
     private readonly Logger _logger = LoggingSource.Instance.GetLogger<NotificationsStorage>(databaseName);
 
     protected StorageEnvironment Environment;
-
-    protected TransactionContextPool ContextPool;
+    private TransactionContextPool _contextPool;
     
     public void Initialize(StorageEnvironment environment, TransactionContextPool contextPool)
     {
         Environment = environment;
-        ContextPool = contextPool;
+        _contextPool = contextPool;
 
         using (contextPool.AllocateOperationContext(out TransactionOperationContext context))
         using (var tx = context.OpenWriteTransaction())
@@ -45,7 +46,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
     
     internal void StoreError(EtlError error)
     {
-        using (ContextPool.AllocateOperationContext(out TransactionOperationContext context))
+        using (_contextPool.AllocateOperationContext(out TransactionOperationContext context))
         {
             using (var tx = context.OpenWriteTransaction())
             {
@@ -59,6 +60,14 @@ public unsafe class EtlErrorsStorage(string databaseName)
                 var id = context.GetLazyString(error.Id);
                 var etlTaskName = context.GetLazyString(error.EtlTaskName);
                 var message = context.GetLazyString(error.Message);
+                
+                using (Slice.From(tx.InnerTransaction.Allocator, etlTaskName, out Slice etlTaskNameSlice))
+                {
+                    if (table.GetCountOfMatchesFor(Schemas.EtlErrors.Current.Indexes[Schemas.EtlErrors.ByEtlTaskName], etlTaskNameSlice) >= ErrorsLimitPerEtl)
+                    {
+                        DeleteOldestErrorOfTask(error.EtlTaskName);
+                    }
+                }
                 
                 using (table.Allocate(out TableValueBuilder tvb))
                 {
@@ -80,7 +89,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
     
     internal void StorePartialError(PartialEtlError error)
     {
-        using (ContextPool.AllocateOperationContext(out TransactionOperationContext context))
+        using (_contextPool.AllocateOperationContext(out TransactionOperationContext context))
         {
             using (var tx = context.OpenWriteTransaction())
             {
@@ -93,7 +102,15 @@ public unsafe class EtlErrorsStorage(string databaseName)
                 var id = context.GetLazyString(error.Id);
                 var etlTaskName = context.GetLazyString(error.EtlTaskName);
                 var documentId = context.GetLazyString(error.DocumentId);
-                
+
+                using (Slice.From(tx.InnerTransaction.Allocator, etlTaskName, out Slice etlTaskNameSlice))
+                {
+                    if (table.GetCountOfMatchesFor(Schemas.PartialEtlErrors.Current.Indexes[Schemas.PartialEtlErrors.ByEtlTaskName], etlTaskNameSlice) >= ErrorsLimitPerEtl)
+                    {
+                        DeleteOldestPartialErrorOfTask(error.EtlTaskName);
+                    }
+                }
+
                 using (table.Allocate(out TableValueBuilder tvb))
                 {
                     tvb.Add(id.Buffer, id.Size);
@@ -117,7 +134,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         {
             RavenTransaction tx;
 
-            scope.EnsureDispose(ContextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
             scope.EnsureDispose(tx = context.OpenReadTransaction());
 
             value = GetError(id, tx);
@@ -132,7 +149,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         {
             RavenTransaction tx;
 
-            scope.EnsureDispose(ContextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
             scope.EnsureDispose(tx = context.OpenReadTransaction());
 
             value = GetPartialError(id, tx);
@@ -237,7 +254,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
     {
         using (var scope = new DisposableScope())
         {
-            scope.EnsureDispose(ContextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
             scope.EnsureDispose(context.OpenReadTransaction());
 
             errors = ReadErrorsByCreatedAtIndex(context);
@@ -250,7 +267,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
     {
         using (var scope = new DisposableScope())
         {
-            scope.EnsureDispose(ContextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
             scope.EnsureDispose(context.OpenReadTransaction());
 
             errors = ReadPartialErrorsByCreatedAtIndex(context);
@@ -263,7 +280,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
     {
         using (var scope = new DisposableScope())
         {
-            scope.EnsureDispose(ContextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
             scope.EnsureDispose(context.OpenReadTransaction());
 
             errors = ReadErrorsOfTask(context, etlTaskName);
@@ -276,7 +293,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
     {
         using (var scope = new DisposableScope())
         {
-            scope.EnsureDispose(ContextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
             scope.EnsureDispose(context.OpenReadTransaction());
 
             errors = ReadPartialErrorsOfTask(context, etlTaskName);
@@ -325,6 +342,144 @@ public unsafe class EtlErrorsStorage(string databaseName)
         }
     }
     
+    public void DeleteErrorsOfTask(string etlTaskName)
+    {
+        using (var scope = new DisposableScope())
+        {
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(context.OpenWriteTransaction());
+
+            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlErrors.Current, _errorsTableName);
+            if (table == null)
+                return;
+
+            var idsToDelete = new List<string>();
+            
+            using (Slice.From(context.Transaction.InnerTransaction.Allocator, etlTaskName, out Slice taskNameSlice))
+            {
+                foreach (var tvr in table.SeekForwardFrom(Schemas.EtlErrors.Current.Indexes[Schemas.EtlErrors.ByEtlTaskName], taskNameSlice, 0))
+                {
+                    var error = ReadError(ref tvr.Result.Reader);
+
+                    if (error.EtlTaskName != etlTaskName)
+                        break;
+
+                    idsToDelete.Add(error.Id);
+                }
+            }
+
+            foreach (var id in idsToDelete)
+            {
+                using (Slice.From(context.Transaction.InnerTransaction.Allocator, id, out Slice errorId))
+                {
+                    table.DeleteByKey(errorId);
+                }
+            }
+            
+            context.Transaction.Commit();
+        }
+    }
+
+    public void DeletePartialErrorsOfTask(string etlTaskName)
+    {
+        using (var scope = new DisposableScope())
+        {
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(context.OpenWriteTransaction());
+
+            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.PartialEtlErrors.Current, _partialErrorsTableName);
+            if (table == null)
+                return;
+
+            var idsToDelete = new List<string>();
+            
+            using (Slice.From(context.Transaction.InnerTransaction.Allocator, etlTaskName, out Slice taskNameSlice))
+            {
+                foreach (var tvr in table.SeekForwardFrom(Schemas.PartialEtlErrors.Current.Indexes[Schemas.PartialEtlErrors.ByEtlTaskName], taskNameSlice, 0))
+                {
+                    var error = ReadPartialError(ref tvr.Result.Reader);
+
+                    if (error.EtlTaskName != etlTaskName)
+                        break;
+
+                    idsToDelete.Add(error.Id);
+                }
+            }
+
+            foreach (var id in idsToDelete)
+            {
+                using (Slice.From(context.Transaction.InnerTransaction.Allocator, id, out Slice errorId))
+                {
+                    table.DeleteByKey(errorId);
+                }
+            }
+            
+            context.Transaction.Commit();
+        }
+    }
+
+    private void DeleteOldestErrorOfTask(string etlTaskName)
+    {
+        using (var scope = new DisposableScope())
+        {
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(context.OpenWriteTransaction());
+
+            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlErrors.Current, _errorsTableName);
+            if (table == null)
+                return;
+            
+            using (Slice.From(context.Transaction.InnerTransaction.Allocator, etlTaskName, out Slice taskNameSlice))
+            {
+                foreach (var tvr in table.SeekForwardFrom(Schemas.EtlErrors.Current.Indexes[Schemas.EtlErrors.ByEtlTaskName], taskNameSlice, 0))
+                {
+                    var error = ReadError(ref tvr.Result.Reader);
+
+                    if (error.EtlTaskName != etlTaskName)
+                        break;
+
+                    using (Slice.From(context.Transaction.InnerTransaction.Allocator, error.Id, out Slice errorId))
+                    {
+                        table.DeleteByKey(errorId);
+                        context.Transaction.Commit();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    private void DeleteOldestPartialErrorOfTask(string etlTaskName)
+    {
+        using (var scope = new DisposableScope())
+        {
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
+            scope.EnsureDispose(context.OpenWriteTransaction());
+
+            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.PartialEtlErrors.Current, _partialErrorsTableName);
+            if (table == null)
+                return;
+            
+            using (Slice.From(context.Transaction.InnerTransaction.Allocator, etlTaskName, out Slice taskNameSlice))
+            {
+                foreach (var tvr in table.SeekForwardFrom(Schemas.PartialEtlErrors.Current.Indexes[Schemas.PartialEtlErrors.ByEtlTaskName], taskNameSlice, 0))
+                {
+                    var error = ReadPartialError(ref tvr.Result.Reader);
+
+                    if (error.EtlTaskName != etlTaskName)
+                        break;
+
+                    using (Slice.From(context.Transaction.InnerTransaction.Allocator, error.Id, out Slice errorId))
+                    {
+                        table.DeleteByKey(errorId);
+                        context.Transaction.Commit();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     private static string GetErrorsTableName(string databaseName)
     {
         return $"{Schemas.EtlErrors.EtlErrorsTree}.{databaseName.ToLowerInvariant()}";

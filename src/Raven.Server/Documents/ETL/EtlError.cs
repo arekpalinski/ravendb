@@ -16,7 +16,7 @@ public class EtlError
     
     private string GetId()
     {
-        return $"{CreatedAt.Ticks}";
+        return $"{EtlTaskName}/{CreatedAt.Ticks}";
     }
 
     public DynamicJsonValue ToJson()

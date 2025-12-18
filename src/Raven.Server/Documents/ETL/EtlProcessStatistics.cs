@@ -114,12 +114,10 @@ namespace Raven.Server.Documents.ETL
                     _ => EtlTaskHealthStatus.Healthy
                 };
             }
-
+            
+            // We don't want to create notification about task returning to healthy state
             if (HealthStatus == EtlTaskHealthStatus.Healthy)
-            {
-                _notificationCenter.EtlNotifications.ClearTaskHealthChangeNotification(_processTag, _processName);
                 return;
-            }
             
             if (HealthStatus != previousStatus)
                 _notificationCenter.EtlNotifications.AddTaskHealthChangeNotification(_processTag, _processName, HealthStatus);
@@ -216,7 +214,8 @@ namespace Raven.Server.Documents.ETL
                 EtlTaskName = _processName,
                 AffectedDocumentsCount = count,
                 Step = EtlErrorStep.LoadError,
-                Severity = EtlErrorSeverity.Low
+                Severity = EtlErrorSeverity.Low,
+                Message = error
             };
             
             _etlErrorsStorage.StoreError(etlError);

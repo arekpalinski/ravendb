@@ -1,9 +1,7 @@
-using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Primitives;
 using Raven.Server.Documents.ETL.Stats;
 using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Context;
@@ -31,19 +29,22 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
 
         foreach (var etlKvp in etlsToReportOn)
         {
-            // todo fix
-            var taskName = etlKvp.Value.First().Name;
-            using (storage.ReadErrorsOfTask(taskName, out var errors))
-            using (storage.ReadPartialErrorsOfTask(taskName, out var partialErrors))
+            foreach (var transformation in etlKvp.Value)
             {
-                var taskErrors = new EtlTaskErrors()
-                {
-                    TaskName = taskName,
-                    Errors = errors.Select(x => x.ToEtlError()).ToArray(),
-                    PartialErrors = partialErrors.Select(x => x.ToPartialEtlError()).ToArray()
-                };
+                var taskName = transformation.Name;
                 
-                response.Results.Add(taskErrors);
+                using (storage.ReadErrorsOfTask(taskName, out var errors))
+                using (storage.ReadPartialErrorsOfTask(taskName, out var partialErrors))
+                {
+                    var taskErrors = new EtlTaskErrors()
+                    {
+                        TaskName = taskName,
+                        Errors = errors.Select(x => x.ToEtlError()).ToArray(),
+                        PartialErrors = partialErrors.Select(x => x.ToPartialEtlError()).ToArray()
+                    };
+                
+                    response.Results.Add(taskErrors);
+                }
             }
         }
 
@@ -52,7 +53,7 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
             await using (var writer = new AsyncBlittableJsonTextWriter(context, RequestHandler.ResponseBodyStream()))
             {
                 writer.WriteStartObject();
-                writer.WriteArray(context, "Results", response.Results, (w, c, stats) => w.WriteObject(c.ReadObject(stats.ToJson(), "etl/errors")));
+                writer.WriteArray(context, nameof(Response.Results), response.Results, (w, c, stats) => w.WriteObject(c.ReadObject(stats.ToJson(), "etl/errors")));
                 writer.WriteEndObject();
             }
         }

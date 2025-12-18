@@ -5,12 +5,18 @@ namespace Raven.Server.Documents.ETL;
 
 public class EtlErrorTableValue
 {
+    public string Id => GetId();
     public DateTime CreatedAt;
     public string EtlTaskName;
     public long AffectedDocumentsCount;
     public long Step;
     public long Severity;
     public string Message;
+    
+    private string GetId()
+    {
+        return $"{EtlTaskName}/{CreatedAt.Ticks}";
+    }
 
     public EtlError ToEtlError()
     {

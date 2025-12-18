@@ -15,7 +15,7 @@ public class PartialEtlError
     
     private string GetId()
     {
-        return $"{CreatedAt.Ticks}";
+        return $"{EtlTaskName}/{DocumentId}";
     }
 
     public DynamicJsonValue ToJson()

@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 using Raven.Client.Documents;
 using Raven.Client.Documents.Operations.ConnectionStrings;
 using Raven.Client.Documents.Operations.ETL;
+using Raven.Client.Documents.Operations.OngoingTasks;
 using Raven.Client.Http;
 using Raven.Client.ServerWide.Operations;
 using Raven.Server.Documents.ETL;
@@ -42,7 +43,8 @@ public class RavenDB_21192 : RavenTestBase
                 EtlTaskName = "ETL1",
                 AffectedDocumentsCount = 1,
                 Step = EtlErrorStep.TransformationError,
-                Severity = EtlErrorSeverity.Low
+                Severity = EtlErrorSeverity.Low,
+                Message = "Test message"
             };
 
             var error2 = new EtlError()
@@ -51,7 +53,8 @@ public class RavenDB_21192 : RavenTestBase
                 EtlTaskName = "ETL2",
                 AffectedDocumentsCount = 21,
                 Step = EtlErrorStep.LoadError,
-                Severity = EtlErrorSeverity.High
+                Severity = EtlErrorSeverity.High,
+                Message = "Test message"
             };
                 
             database.EtlErrorsStorage.StoreError(error1);
@@ -68,12 +71,14 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(error1.AffectedDocumentsCount, errors[0].AffectedDocumentsCount);
                 Assert.Equal((long)error1.Step, errors[0].Step);
                 Assert.Equal((long)error1.Severity, errors[0].Severity);
+                Assert.Equal(error1.Message, errors[0].Message);
                 
                 Assert.Equal(error2.CreatedAt, errors[1].CreatedAt);
                 Assert.Equal(error2.EtlTaskName, errors[1].EtlTaskName);
                 Assert.Equal(error2.AffectedDocumentsCount, errors[1].AffectedDocumentsCount);
                 Assert.Equal((long)error2.Step, errors[1].Step);
                 Assert.Equal((long)error2.Severity, errors[1].Severity);
+                Assert.Equal(error2.Message, errors[1].Message);
             }
                 
             var partialError1 = new PartialEtlError()
@@ -111,6 +116,7 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(error1.AffectedDocumentsCount, errors[0].AffectedDocumentsCount);
                 Assert.Equal((long)error1.Step, errors[0].Step);
                 Assert.Equal((long)error1.Severity, errors[0].Severity);
+                Assert.Equal(error1.Message, errors[0].Message);
             }
         }
     }
@@ -135,7 +141,7 @@ public class RavenDB_21192 : RavenTestBase
             
             var etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 10);
 
-            AddEtlTask(src, dest, etlName1, connectionStringName1, transformationName1, script1, collections1);
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1], [script1], collections1);
 
             using (var bulkInsert = src.BulkInsert())
             {
@@ -228,9 +234,18 @@ public class RavenDB_21192 : RavenTestBase
                                    this.Name = 'Cool Company';
                                    loadToCompanies(this);
                                    """;
+            const string transformationName3 = "Transformation3";
+            const string script3 = """
+                                   this.Name = 'Other Company Name';
+                                   loadToCompanies(this);
+                                   """;
             var collections2 = new List<string>() { "Companies" };
             
-            AddEtlTask(src, dest, etlName1, connectionStringName1, transformationName1, script1, collections1);
+            var etlDone1 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName1}/{transformationName1}" && statistics.LoadErrors >= 5);
+            var etlDone2 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName2}/{transformationName2}" && statistics.LoadErrors >= 5);
+            var etlDone3 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName2}/{transformationName3}" && statistics.LoadErrors >= 5);
+            
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1], [script1], collections1);
             
             using (var bulkInsert = src.BulkInsert())
             {
@@ -238,9 +253,9 @@ public class RavenDB_21192 : RavenTestBase
                     bulkInsert.Store(new User { Name = "Joe Doe" });
             }
             
-            var etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadErrors >= 1);
+            etlDone1.Wait(TimeSpan.FromSeconds(10));
             
-            AddEtlTask(src, dest, etlName2, connectionStringName2, transformationName2, script2, collections2);
+            AddEtlTask(src, dest, etlName2, connectionStringName2, [transformationName2, transformationName3], [script2, script3], collections2);
             
             var result = dest.Maintenance.Server.SendAsync(new ToggleDatabasesStateOperation(dest.Database, disable: true)).GetAwaiter().GetResult();
             
@@ -252,7 +267,8 @@ public class RavenDB_21192 : RavenTestBase
                     bulkInsert.Store(new Company() { Name = "Some Company" });
             }
             
-            etlDone.Wait(TimeSpan.FromSeconds(10));
+            etlDone2.Wait(TimeSpan.FromSeconds(10));
+            etlDone3.Wait(TimeSpan.FromSeconds(10));
 
             using (var commands = src.Commands())
             {
@@ -266,18 +282,21 @@ public class RavenDB_21192 : RavenTestBase
                 res.TryGet(nameof(EtlHandlerProcessorForErrors.Response.Results), out BlittableJsonReaderArray results);
                 var resultsObjectList = JsonConvert.DeserializeObject<List<EtlTaskErrors>>(results.ToString());
 
-                var firstTaskErrors = resultsObjectList.Single(x => x.TaskName == "ETL1/Transformation1");
+                var firstTaskErrors = resultsObjectList.Single(x => x.TaskName == $"{etlName1}/{transformationName1}");
                 
                 Assert.Empty(firstTaskErrors.Errors);
                 Assert.Equal(5, firstTaskErrors.PartialErrors.Length);
                 
-                var secondTaskErrors = resultsObjectList.Single(x => x.TaskName == "ETL2/Transformation2");
+                var secondTaskErrors = resultsObjectList.Single(x => x.TaskName == $"{etlName2}/{transformationName2}");
                 
-                Assert.True(secondTaskErrors.Errors.Any(x => x.AffectedDocumentsCount == 5));
-                Assert.Empty(secondTaskErrors.PartialErrors);                
+                Assert.Contains(secondTaskErrors.Errors, x => x.AffectedDocumentsCount == 5);
+                Assert.Empty(secondTaskErrors.PartialErrors);
+                
+                var thirdTaskErrors = resultsObjectList.Single(x => x.TaskName == $"{etlName2}/{transformationName3}");
+                
+                Assert.Contains(thirdTaskErrors.Errors, x => x.AffectedDocumentsCount == 5);
+                Assert.Empty(thirdTaskErrors.PartialErrors);
             }
-            
-            WaitForUserToContinueTheTest(src);
         }
     }
 
@@ -301,7 +320,7 @@ public class RavenDB_21192 : RavenTestBase
             
             var etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 10);
 
-            AddEtlTask(src, dest, etlName1, connectionStringName1, transformationName1, script1, collections1);
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1], [script1], collections1);
 
             using (var bulkInsert = src.BulkInsert())
             {
@@ -372,26 +391,38 @@ public class RavenDB_21192 : RavenTestBase
     }
     
     [RavenFact(RavenTestCategory.Etl)]
-    public void InvalidScriptShouldThrow()
+    public void InvalidScriptShouldSetTaskHealthToFailed()
     {
         using (var src = GetDocumentStore())
         using (var dest =  GetDocumentStore())
         {
+            const string processTag = "Raven ETL";
             const string connectionStringName1 = "ConnectionString1";
             const string etlName1 = "ETL1";
             const string transformationName1 = "Transformation1";
             const string script1 = """
                                    var x = ;
-                                   
-                                   throw new Error("dummy error");
-                                   
+
                                    loadToUsers(this);
                                    """;
             var collections1 = new List<string>() { "Users" };
             
-            AddEtlTask(src, dest, etlName1, connectionStringName1, transformationName1, script1, collections1);
+            var etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 10);
             
-            WaitForUserToContinueTheTest(src);
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1], [script1], collections1);
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 10; i++)
+                    bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
+            }
+                        
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            var etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+
+            Assert.Equal(EtlTaskHealthStatus.Failed, etlStats.HealthStatus);
+            AssertHealthStatusNotification(src, processTag, $"{etlName1}/{transformationName1}", EtlTaskHealthStatus.Failed);
         }
     }
 
@@ -416,7 +447,7 @@ public class RavenDB_21192 : RavenTestBase
             
             var etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 10);
 
-            AddEtlTask(src, dest, etlName1, connectionStringName1, transformationName1, script1, collections1);
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1], [script1], collections1);
 
             using (var bulkInsert = src.BulkInsert())
             {
@@ -488,6 +519,207 @@ public class RavenDB_21192 : RavenTestBase
     }
 
     [RavenFact(RavenTestCategory.Etl)]
+    public void AssertTableRecordsAreDeletedOnConfigurationUpdate()
+    {
+        using (var src = GetDocumentStore())
+        using (var dest = GetDocumentStore())
+        {
+            const string connectionStringName1 = "ConnectionString1";
+            const string etlName1 = "ETL1";
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   throw new Error("dummy error");
+                                   loadToUsers(this);
+                                   """;
+            const string transformationName2 = "Transformation2";
+            const string script2 = """
+                                   throw new Error("dummy error");
+                                   loadToUsers(this);
+                                   """;
+            var collections1 = new List<string>() { "Users" };
+
+            var etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 10);
+            
+            var taskId1 = AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1, transformationName2], [script1, script2], collections1);
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 10; i++)
+                    bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
+            }
+            
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            var database = GetDatabase(src.Database).Result;
+            using (database.EtlErrorsStorage.ReadPartialErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            {
+                var partialErrors = partialErrorTableValues.ToList();
+
+                Assert.Equal(20, partialErrors.Count);
+            }
+            
+            var updatedConfig = new RavenEtlConfiguration
+            {
+                Name = etlName1,
+                ConnectionStringName = connectionStringName1,
+                MentorNode = null,
+                Transforms = [
+                    new Transformation()
+                    {
+                        Name = transformationName1,
+                        Collections = collections1,
+                        Script = script1,
+                        ApplyToAllDocuments = false,
+                        Disabled = false
+                    }
+                ],
+                PinToMentorNode = false
+            };
+
+            etlDone.Reset();
+            
+            UpdateRavenEtlTask(src, taskId1, updatedConfig);
+            
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            using (database.EtlErrorsStorage.ReadPartialErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            {
+                var partialErrors = partialErrorTableValues.ToList();
+
+                Assert.Equal(10, partialErrors.Count);
+
+                foreach (var partialError in partialErrors)
+                {
+                    Assert.StartsWith($"{etlName1}/{transformationName1}", partialError.Id);
+                }
+            }
+        }
+    }
+    
+    [RavenFact(RavenTestCategory.Etl)]
+    public void AssertTableRecordsAreDeletedOnTaskDeletion()
+    {
+        using (var src = GetDocumentStore())
+        using (var dest = GetDocumentStore())
+        {
+            const string connectionStringName1 = "ConnectionString1";
+            var collections1 = new List<string>() { "Users" };
+            
+            const string etlName1 = "ETL1";
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   throw new Error("dummy error");
+                                   loadToUsers(this);
+                                   """;
+            
+            const string etlName2 = "ETL2";
+            const string transformationName2 = "Transformation2";
+            const string script2 = """
+                                   throw new Error("dummy error");
+                                   loadToUsers(this);
+                                   """;
+
+            var etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 10);
+            
+            var taskId1 = AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1], [script1], collections1);
+            _ = AddEtlTask(src, dest, etlName2, connectionStringName1, [transformationName2], [script2], collections1);
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 10; i++)
+                    bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
+            }
+            
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            var database = GetDatabase(src.Database).Result;
+            using (database.EtlErrorsStorage.ReadPartialErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            {
+                var partialErrors = partialErrorTableValues.ToList();
+
+                Assert.Equal(20, partialErrors.Count);
+            }
+            
+            var deleteOp = new DeleteOngoingTaskOperation(taskId1, OngoingTaskType.RavenEtl);
+            src.Maintenance.Send(deleteOp);
+            
+            using (database.EtlErrorsStorage.ReadPartialErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            {
+                var partialErrors = partialErrorTableValues.ToList();
+
+                Assert.Equal(10, partialErrors.Count);
+
+                foreach (var partialError in partialErrors)
+                {
+                    Assert.StartsWith($"{etlName2}/{transformationName2}", partialError.Id);
+                }
+            }
+        }
+    }
+
+    [RavenFact(RavenTestCategory.Etl)]
+    public void ErrorsLimitInStorageShouldBeRespected()
+    {
+        using (var src = GetDocumentStore())
+        using (var dest = GetDocumentStore())
+        {
+            const string connectionStringName1 = "ConnectionString1";
+            const string etlName1 = "ETL1";
+            
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   if (this.Name == "James Doe")
+                                   {
+                                        throw new Error("dummy error");
+                                   }                   
+                                   loadToUsers(this);
+                                   """;
+            
+            const string transformationName2 = "Transformation2";
+            const string script2 = """
+                                   if (this.Value == 1)
+                                   {
+                                        throw new Error("dummy error");
+                                   }                   
+                                   loadToUsers(this);
+                                   """;
+            
+            var collections1 = new List<string>() { "Users" };
+            
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1, transformationName2], [script1, script2], collections1);
+            
+            var etlDone1 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName1}/{transformationName1}" && statistics.TransformationErrors >= 700);
+            var etlDone2 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName1}/{transformationName2}" && statistics.TransformationErrors >= 50);
+            
+            using (var session = src.OpenSession())
+            {
+                for (int i = 0; i < 650; i++)
+                    session.Store(new User { Name = "James Doe", Value = 0 });
+                
+                for (int i = 0; i < 50; i++)
+                    session.Store(new User { Name = "James Doe", Value = 1 });
+                
+                session.SaveChanges();
+            }
+            
+            etlDone1.Wait(TimeSpan.FromSeconds(15));
+            etlDone2.Wait(TimeSpan.FromSeconds(15));
+            
+            var database = GetDatabase(src.Database).Result;
+            using (database.EtlErrorsStorage.ReadPartialErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            {
+                var partialErrors = partialErrorTableValues.ToList();
+
+                var firstTransformationErrors = partialErrors.Where(x => x.EtlTaskName == $"{etlName1}/{transformationName1}");
+                var secondTransformationErrors = partialErrors.Where(x => x.EtlTaskName == $"{etlName1}/{transformationName2}");
+
+                Assert.Equal(100, firstTransformationErrors.Count());
+                Assert.Equal(50, secondTransformationErrors.Count());
+            }
+        }
+    }
+
+    [RavenFact(RavenTestCategory.Etl)]
     public void Test()
     {
         using (var src = GetDocumentStore())
@@ -505,7 +737,7 @@ public class RavenDB_21192 : RavenTestBase
                                    """;
             var collections1 = new List<string>() { "Users" };
             
-            AddEtlTask(src, dest, etlName1, connectionStringName1, transformationName1, script1, collections1);
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1], [script1], collections1);
             
             using (var session = src.OpenSession())
             {
@@ -562,38 +794,47 @@ public class RavenDB_21192 : RavenTestBase
         return etl.Statistics;
     }
 
-    private static void AddEtlTask(DocumentStore src, DocumentStore dest, string etlName, string connectionStringName, string transformationName, string script, List<string> collections)
+    private static long AddEtlTask(DocumentStore src, DocumentStore dest, string etlName, string connectionStringName, List<string> transformationNames, List<string> transformationScripts, List<string> collections)
     {
-        var transformation1 = new Transformation
-        {
-            Name = transformationName,
-            Collections = collections,
-            Script = script,
-            ApplyToAllDocuments = false,
-            Disabled = false
-        };
-
-        var configuration1 = new RavenEtlConfiguration
+        var configuration = new RavenEtlConfiguration
         {
             Name = etlName,
             ConnectionStringName = connectionStringName,
-            Transforms =
-            {
-                transformation1
-            },
             MentorNode = null,
+            Transforms = [],
             PinToMentorNode = false
         };
 
-        var connectionString1 = new RavenConnectionString
+        foreach ((string transformationName, string transformationScript) in transformationNames.Zip(transformationScripts))
+        {
+            var transformation = new Transformation
+            {
+                Name = transformationName,
+                Collections = collections,
+                Script = transformationScript,
+                ApplyToAllDocuments = false,
+                Disabled = false
+            };
+            
+            configuration.Transforms.Add(transformation);
+        }
+
+        var connectionString = new RavenConnectionString
         {
             Name = connectionStringName,
             Database = dest.Database,
             TopologyDiscoveryUrls = dest.Urls
         };
 
-        src.Maintenance.Send(new PutConnectionStringOperation<RavenConnectionString>(connectionString1));
-        src.Maintenance.Send(new AddEtlOperation<RavenConnectionString>(configuration1));
+        src.Maintenance.Send(new PutConnectionStringOperation<RavenConnectionString>(connectionString));
+        var result = src.Maintenance.Send(new AddEtlOperation<RavenConnectionString>(configuration));
+        
+        return result.TaskId;
+    }
+
+    private static void UpdateRavenEtlTask(IDocumentStore store, long taskId, RavenEtlConfiguration configuration)
+    {
+        store.Maintenance.Send(new UpdateEtlOperation<RavenConnectionString>(taskId, configuration));
     }
 
     private class User

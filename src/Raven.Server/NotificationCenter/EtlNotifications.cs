@@ -17,30 +17,6 @@ namespace Raven.Server.NotificationCenter
             _notificationCenter = notificationCenter;
         }
 
-        /*
-        public AlertRaised AddTransformationErrors(string processTag, string processName, Queue<EtlErrorInfo> errors, string preMessage = null)
-        {
-            var alert = GetOrCreateAlert<EtlErrorsDetails>(processTag,
-                processName,
-                AlertType.Etl_TransformationError,
-                $"{preMessage}Transformation has failed for the following documents (last {EtlErrorsDetails.MaxNumberOfErrors} errors are shown)",
-                out var details);
-
-            return AddErrorAlert(errors, details, alert);
-        }
-
-        public AlertRaised AddLoadErrors(string processTag, string processName, Queue<EtlErrorInfo> errors, string preMessage = null)
-        {
-            var alert = GetOrCreateAlert<EtlErrorsDetails>(processTag,
-                processName,
-                AlertType.Etl_LoadError,
-                $"{preMessage}Loading transformed data to the destination has failed (last {EtlErrorsDetails.MaxNumberOfErrors} errors are shown)",
-                out var details);
-
-            return AddErrorAlert(errors, details, alert);
-        }
-        */
-
         public void AddSlowSqlWarnings(string processTag, string processName, Queue<SlowSqlStatementInfo> slowSqls)
         {
             var alert = GetOrCreatePerformanceHint<SlowSqlDetails>(processTag,
@@ -66,16 +42,6 @@ namespace Raven.Server.NotificationCenter
                 out _);
             
             _notificationCenter.Add(alert);
-        }
-
-        public void ClearTaskHealthChangeNotification(string processTag, string processName)
-        {
-            var key = $"{processTag}/{processName}";
-            const AlertType alertType = AlertType.Etl_HealthStatusChange;
-
-            var id = AlertRaised.GetKey(alertType, key);
-
-            _notificationCenter.Storage.Delete(id);
         }
 
         private AlertRaised AddErrorAlert(Queue<EtlErrorInfo> errors, EtlErrorsDetails details, AlertRaised alert)
