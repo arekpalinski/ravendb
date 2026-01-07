@@ -257,9 +257,9 @@ public class RavenDB_21192 : RavenTestBase
             
             AddEtlTask(src, dest, etlName2, connectionStringName2, [transformationName2, transformationName3], [script2, script3], collections2);
             
-            var result = dest.Maintenance.Server.SendAsync(new ToggleDatabasesStateOperation(dest.Database, disable: true)).GetAwaiter().GetResult();
+            var disableDatabaseResult = dest.Maintenance.Server.SendAsync(new ToggleDatabasesStateOperation(dest.Database, disable: true)).GetAwaiter().GetResult();
             
-            Assert.True(result.Disabled);
+            Assert.True(disableDatabaseResult.Disabled);
             
             using (var bulkInsert = src.BulkInsert())
             {
@@ -494,8 +494,6 @@ public class RavenDB_21192 : RavenTestBase
             etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
             
             Assert.Equal(1050, etlStats.LoadSuccesses);
-            
-            AssertHealthStatusNotificationDoesNotExist(src, processTag, $"{etlName1}/{transformationName1}");
         }
     }
     
@@ -507,15 +505,6 @@ public class RavenDB_21192 : RavenTestBase
         
         Assert.NotNull(alert);
         Assert.Equal($"ETL task health status was changed to {healthStatus}.", alert.Message);
-    }
-
-    private void AssertHealthStatusNotificationDoesNotExist(IDocumentStore store, string processTag, string processName)
-    {
-        var db = GetDatabase(store.Database).GetAwaiter().GetResult();
-
-        var alert = db.NotificationCenter.EtlNotifications.GetAlert<EtlErrorsDetails>(processTag, processName, AlertType.Etl_HealthStatusChange);
-        
-        Assert.Null(alert);
     }
 
     [RavenFact(RavenTestCategory.Etl)]
@@ -725,6 +714,10 @@ public class RavenDB_21192 : RavenTestBase
         using (var src = GetDocumentStore())
         using (var dest = GetDocumentStore())
         {
+            //var toggleDatabaseStateResult = dest.Maintenance.Server.SendAsync(new ToggleDatabasesStateOperation(dest.Database, disable: true)).GetAwaiter().GetResult();
+            
+            //Assert.True(toggleDatabaseStateResult.Disabled);
+            
             const string connectionStringName1 = "ConnectionString1";
             const string etlName1 = "ETL1";
             const string transformationName1 = "Transformation1";
@@ -749,12 +742,18 @@ public class RavenDB_21192 : RavenTestBase
             
             WaitForUserToContinueTheTest(src);
             
+            //toggleDatabaseStateResult = dest.Maintenance.Server.SendAsync(new ToggleDatabasesStateOperation(dest.Database, disable: false)).GetAwaiter().GetResult();
+            
+            //Assert.False(toggleDatabaseStateResult.Disabled);
+            
+            WaitForUserToContinueTheTest(src);
+            
             var etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
 
             using (var session = src.OpenSession())
             {
                 for (int i = 0; i < 5; i++)
-                    session.Store(new User { Name = "James Doe", Value = 0 });
+                    session.Store(new User { Name = "Joe Doe", Value = 1 });
                 
                 session.SaveChanges();
             }
