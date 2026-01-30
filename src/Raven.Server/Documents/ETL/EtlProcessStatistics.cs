@@ -47,9 +47,9 @@ namespace Raven.Server.Documents.ETL
 
         public DateTime? LastLoadErrorTime { get; private set; }
 
-        public int TransformationErrors { get; set; }
+        public int TransformationErrors { get; private set; }
 
-        public int TransformationSuccesses { get; set; }
+        public int TransformationSuccesses { get; private set; }
 
         public int LoadErrors { get; set; }
 
@@ -130,20 +130,20 @@ namespace Raven.Server.Documents.ETL
             RecordConfigurationError(message);
         }
 
-        public void RecordTransformationError(Exception e, LazyStringValue documentId)
+        public void RecordItemTransformationError(Exception e, LazyStringValue documentId)
         {
             var now = SystemTime.UtcNow;
 
-            var partialError = new PartialEtlError()
+            var itemError = new EtlItemError()
             {
                 CreatedAt = now,
-                EtlTaskName = _processName,
+                EtlProcessName = _processName,
                 DocumentId = documentId,
-                Step = EtlErrorStep.TransformationError,
+                Step = EtlErrorStep.Transformation,
                 Severity = EtlErrorSeverity.Low
             };
             
-            _etlErrorsStorage.StorePartialError(partialError);
+            _etlErrorsStorage.StoreItemError(itemError);
             
             TransformationErrors++;
             BatchErrors++;
@@ -158,20 +158,20 @@ namespace Raven.Server.Documents.ETL
             });
         }
 
-        public void RecordPartialLoadError(string error, LazyStringValue documentId, int count = 1)
+        public void RecordItemLoadError(string error, LazyStringValue documentId, int count = 1)
         {
             var now = SystemTime.UtcNow;
             
-            var partialError = new PartialEtlError()
+            var itemError = new EtlItemError()
             {
                 CreatedAt = now,
-                EtlTaskName = _processName,
+                EtlProcessName = _processName,
                 DocumentId = documentId,
-                Step = EtlErrorStep.TransformationError,
+                Step = EtlErrorStep.Load,
                 Severity = EtlErrorSeverity.Low
             };
             
-            _etlErrorsStorage.StorePartialError(partialError);
+            _etlErrorsStorage.StoreItemError(itemError);
             WasLatestLoadSuccessful = false;
 
             LoadErrors += count; 
@@ -187,38 +187,38 @@ namespace Raven.Server.Documents.ETL
             });
         }
 
-        private void RecordConfigurationError(string message)
+        private void RecordConfigurationError(string error)
         {
             var now = SystemTime.UtcNow;
 
-            var etlError = new EtlError()
+            var etlError = new EtlProcessError()
             {
                 CreatedAt = now,
-                EtlTaskName = _processName,
+                EtlProcessName = _processName,
                 AffectedDocumentsCount = 0,
-                Step = EtlErrorStep.ConfigurationError,
+                Step = EtlErrorStep.Configuration,
                 Severity = EtlErrorSeverity.High,
-                Message = message
+                Error = error
             };
             
-            _etlErrorsStorage.StoreError(etlError);
+            _etlErrorsStorage.StoreProcessError(etlError);
         }
 
-        public void ThrowLoadError(string error, int count)
+        public void RecordLoadError(string error, int count)
         {
             var now = SystemTime.UtcNow;
 
-            var etlError = new EtlError()
+            var etlError = new EtlProcessError()
             {
                 CreatedAt = now,
-                EtlTaskName = _processName,
+                EtlProcessName = _processName,
                 AffectedDocumentsCount = count,
-                Step = EtlErrorStep.LoadError,
+                Step = EtlErrorStep.Load,
                 Severity = EtlErrorSeverity.Low,
-                Message = error
+                Error = error
             };
             
-            _etlErrorsStorage.StoreError(etlError);
+            _etlErrorsStorage.StoreProcessError(etlError);
             
             LastLoadErrorTime = now;
             BatchErrors += count;

@@ -29,21 +29,21 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
 
         foreach (var etlKvp in etlsToReportOn)
         {
-            foreach (var transformation in etlKvp.Value)
+            foreach (var process in etlKvp.Value)
             {
-                var taskName = transformation.Name;
+                var processName = process.Name;
                 
-                using (storage.ReadErrorsOfTask(taskName, out var errors))
-                using (storage.ReadPartialErrorsOfTask(taskName, out var partialErrors))
+                using (storage.ReadProcessErrorsOfTask(processName, out var processErrors))
+                using (storage.ReadItemErrorsOfTask(processName, out var itemErrors))
                 {
-                    var taskErrors = new EtlTaskErrors()
+                    var etlProcessErrors = new EtlProcessErrors()
                     {
-                        TaskName = taskName,
-                        Errors = errors.Select(x => x.ToEtlError()).ToArray(),
-                        PartialErrors = partialErrors.Select(x => x.ToPartialEtlError()).ToArray()
+                        ProcessName = processName,
+                        ProcessErrors = processErrors.Select(x => x.ToEtlProcessError()).ToArray(),
+                        ItemErrors = itemErrors.Select(x => x.ToEtlItemError()).ToArray()
                     };
                 
-                    response.Results.Add(taskErrors);
+                    response.Results.Add(etlProcessErrors);
                 }
             }
         }
@@ -59,11 +59,11 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
         }
     }
 
-    protected override Task HandleRemoteNodeAsync(ProxyCommand<EtlTaskErrors[]> command, OperationCancelToken token) => RequestHandler.ExecuteRemoteAsync(command, token.Token);
+    protected override Task HandleRemoteNodeAsync(ProxyCommand<EtlProcessErrors[]> command, OperationCancelToken token) => RequestHandler.ExecuteRemoteAsync(command, token.Token);
 
     internal class Response
     {
-        public List<EtlTaskErrors> Results { get; set; } = new List<EtlTaskErrors>();        
+        public List<EtlProcessErrors> Results { get; set; } = new List<EtlProcessErrors>();        
     }
 }
 

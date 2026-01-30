@@ -157,7 +157,7 @@ namespace Raven.Server.Documents.ETL.Providers.SQL
                 }
                 catch (Exception e)
                 {
-                    Statistics.RecordPartialLoadError(e.ToString(), documentId: null, count: 1);
+                    Statistics.RecordItemLoadError(e.ToString(), documentId: null, count: 1);
                 }
             }
             else

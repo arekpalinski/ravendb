@@ -416,7 +416,7 @@ namespace Raven.Server.Documents.ETL
                         }
                         catch (Exception e)
                         {
-                            Statistics.RecordTransformationError(e, item.DocumentId);
+                            Statistics.RecordItemTransformationError(e, item.DocumentId);
 
                             stats.RecordTransformationError();
 
@@ -486,7 +486,7 @@ namespace Raven.Server.Documents.ETL
                         EnterFallbackMode(Statistics.LastLoadErrorTime);
 
                         var count = stats.NumberOfExtractedItems.Sum(x => x.Value);
-                        Statistics.ThrowLoadError(e.ToString(), count);
+                        Statistics.RecordLoadError(e.ToString(), count);
                     }
 
                     return false;

@@ -37,86 +37,86 @@ public class RavenDB_21192 : RavenTestBase
 
             var now = DateTime.Now;
 
-            var error1 = new EtlError()
+            var error1 = new EtlProcessError()
             {
                 CreatedAt = now,
-                EtlTaskName = "ETL1",
+                EtlProcessName = "ETL1",
                 AffectedDocumentsCount = 1,
-                Step = EtlErrorStep.TransformationError,
+                Step = EtlErrorStep.Transformation,
                 Severity = EtlErrorSeverity.Low,
-                Message = "Test message"
+                Error = "Test message"
             };
 
-            var error2 = new EtlError()
+            var error2 = new EtlProcessError()
             {
                 CreatedAt = now.AddDays(1),
-                EtlTaskName = "ETL2",
+                EtlProcessName = "ETL2",
                 AffectedDocumentsCount = 21,
-                Step = EtlErrorStep.LoadError,
+                Step = EtlErrorStep.Load,
                 Severity = EtlErrorSeverity.High,
-                Message = "Test message"
+                Error = "Test message"
             };
                 
-            database.EtlErrorsStorage.StoreError(error1);
-            database.EtlErrorsStorage.StoreError(error2);
+            database.EtlErrorsStorage.StoreProcessError(error1);
+            database.EtlErrorsStorage.StoreProcessError(error2);
 
-            using (database.EtlErrorsStorage.ReadErrorsOrderedByCreationDate(out var errorTableValues))
+            using (database.EtlErrorsStorage.ReadProcessErrorsOrderedByCreationDate(out var errorTableValues))
             {
                 var errors = errorTableValues.ToList();
                 
                 Assert.Equal(2, errors.Count);
                 
                 Assert.Equal(error1.CreatedAt, errors[0].CreatedAt);
-                Assert.Equal(error1.EtlTaskName, errors[0].EtlTaskName);
+                Assert.Equal(error1.EtlProcessName, errors[0].EtlProcessName);
                 Assert.Equal(error1.AffectedDocumentsCount, errors[0].AffectedDocumentsCount);
                 Assert.Equal((long)error1.Step, errors[0].Step);
                 Assert.Equal((long)error1.Severity, errors[0].Severity);
-                Assert.Equal(error1.Message, errors[0].Message);
+                Assert.Equal(error1.Error, errors[0].Error);
                 
                 Assert.Equal(error2.CreatedAt, errors[1].CreatedAt);
-                Assert.Equal(error2.EtlTaskName, errors[1].EtlTaskName);
+                Assert.Equal(error2.EtlProcessName, errors[1].EtlProcessName);
                 Assert.Equal(error2.AffectedDocumentsCount, errors[1].AffectedDocumentsCount);
                 Assert.Equal((long)error2.Step, errors[1].Step);
                 Assert.Equal((long)error2.Severity, errors[1].Severity);
-                Assert.Equal(error2.Message, errors[1].Message);
+                Assert.Equal(error2.Error, errors[1].Error);
             }
                 
-            var partialError1 = new PartialEtlError()
+            var partialError1 = new EtlItemError()
             {
                 DocumentId = "doc/1", 
-                EtlTaskName = "ETL1",
+                EtlProcessName = "ETL1",
                 CreatedAt = now,
-                Step = EtlErrorStep.LoadError,
+                Step = EtlErrorStep.Load,
                 Severity = EtlErrorSeverity.Low
             };
             
-            database.EtlErrorsStorage.StorePartialError(partialError1);
+            database.EtlErrorsStorage.StoreItemError(partialError1);
             
-            using (database.EtlErrorsStorage.ReadPartialErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
             {
                 var partialErrors = partialErrorTableValues.ToList();
 
                 Assert.Single(partialErrors);
                 
                 Assert.Equal(partialError1.CreatedAt, partialErrors[0].CreatedAt);
-                Assert.Equal(partialError1.EtlTaskName, partialErrors[0].EtlTaskName);
+                Assert.Equal(partialError1.EtlProcessName, partialErrors[0].EtlProcessName);
                 Assert.Equal(partialError1.DocumentId, partialErrors[0].DocumentId);
                 Assert.Equal((long)partialError1.Step, partialErrors[0].Step);
                 Assert.Equal((long)partialError1.Severity, partialErrors[0].Severity);
             }
 
-            using (database.EtlErrorsStorage.ReadErrorsOfTask("ETL1", out var firstTaskErrors))
+            using (database.EtlErrorsStorage.ReadProcessErrorsOfTask("ETL1", out var firstTaskErrors))
             {
                 var errors = firstTaskErrors.ToList();
                 
                 Assert.Single(errors);
                 
                 Assert.Equal(error1.CreatedAt, errors[0].CreatedAt);
-                Assert.Equal(error1.EtlTaskName, errors[0].EtlTaskName);
+                Assert.Equal(error1.EtlProcessName, errors[0].EtlProcessName);
                 Assert.Equal(error1.AffectedDocumentsCount, errors[0].AffectedDocumentsCount);
                 Assert.Equal((long)error1.Step, errors[0].Step);
                 Assert.Equal((long)error1.Severity, errors[0].Severity);
-                Assert.Equal(error1.Message, errors[0].Message);
+                Assert.Equal(error1.Error, errors[0].Error);
             }
         }
     }
@@ -150,6 +150,8 @@ public class RavenDB_21192 : RavenTestBase
             }
             
             etlDone.Wait(TimeSpan.FromSeconds(10));
+            
+            WaitForUserToContinueTheTest(src);
 
             var etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
             
@@ -280,22 +282,22 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.NotNull(res);
                 
                 res.TryGet(nameof(EtlHandlerProcessorForErrors.Response.Results), out BlittableJsonReaderArray results);
-                var resultsObjectList = JsonConvert.DeserializeObject<List<EtlTaskErrors>>(results.ToString());
+                var resultsObjectList = JsonConvert.DeserializeObject<List<EtlProcessErrors>>(results.ToString());
 
-                var firstTaskErrors = resultsObjectList.Single(x => x.TaskName == $"{etlName1}/{transformationName1}");
+                var firstTaskErrors = resultsObjectList.Single(x => x.ProcessName == $"{etlName1}/{transformationName1}");
                 
-                Assert.Empty(firstTaskErrors.Errors);
-                Assert.Equal(5, firstTaskErrors.PartialErrors.Length);
+                Assert.Empty(firstTaskErrors.ProcessErrors);
+                Assert.Equal(5, firstTaskErrors.ItemErrors.Length);
                 
-                var secondTaskErrors = resultsObjectList.Single(x => x.TaskName == $"{etlName2}/{transformationName2}");
+                var secondTaskErrors = resultsObjectList.Single(x => x.ProcessName == $"{etlName2}/{transformationName2}");
                 
-                Assert.Contains(secondTaskErrors.Errors, x => x.AffectedDocumentsCount == 5);
-                Assert.Empty(secondTaskErrors.PartialErrors);
+                Assert.Contains(secondTaskErrors.ProcessErrors, x => x.AffectedDocumentsCount == 5);
+                Assert.Empty(secondTaskErrors.ItemErrors);
                 
-                var thirdTaskErrors = resultsObjectList.Single(x => x.TaskName == $"{etlName2}/{transformationName3}");
+                var thirdTaskErrors = resultsObjectList.Single(x => x.ProcessName == $"{etlName2}/{transformationName3}");
                 
-                Assert.Contains(thirdTaskErrors.Errors, x => x.AffectedDocumentsCount == 5);
-                Assert.Empty(thirdTaskErrors.PartialErrors);
+                Assert.Contains(thirdTaskErrors.ProcessErrors, x => x.AffectedDocumentsCount == 5);
+                Assert.Empty(thirdTaskErrors.ItemErrors);
             }
         }
     }
@@ -540,7 +542,7 @@ public class RavenDB_21192 : RavenTestBase
             etlDone.Wait(TimeSpan.FromSeconds(10));
             
             var database = GetDatabase(src.Database).Result;
-            using (database.EtlErrorsStorage.ReadPartialErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
             {
                 var partialErrors = partialErrorTableValues.ToList();
 
@@ -571,7 +573,7 @@ public class RavenDB_21192 : RavenTestBase
             
             etlDone.Wait(TimeSpan.FromSeconds(10));
             
-            using (database.EtlErrorsStorage.ReadPartialErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
             {
                 var partialErrors = partialErrorTableValues.ToList();
 
@@ -622,7 +624,7 @@ public class RavenDB_21192 : RavenTestBase
             etlDone.Wait(TimeSpan.FromSeconds(10));
             
             var database = GetDatabase(src.Database).Result;
-            using (database.EtlErrorsStorage.ReadPartialErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
             {
                 var partialErrors = partialErrorTableValues.ToList();
 
@@ -632,7 +634,7 @@ public class RavenDB_21192 : RavenTestBase
             var deleteOp = new DeleteOngoingTaskOperation(taskId1, OngoingTaskType.RavenEtl);
             src.Maintenance.Send(deleteOp);
             
-            using (database.EtlErrorsStorage.ReadPartialErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
             {
                 var partialErrors = partialErrorTableValues.ToList();
 
@@ -695,12 +697,12 @@ public class RavenDB_21192 : RavenTestBase
             etlDone2.Wait(TimeSpan.FromSeconds(15));
             
             var database = GetDatabase(src.Database).Result;
-            using (database.EtlErrorsStorage.ReadPartialErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
             {
                 var partialErrors = partialErrorTableValues.ToList();
 
-                var firstTransformationErrors = partialErrors.Where(x => x.EtlTaskName == $"{etlName1}/{transformationName1}");
-                var secondTransformationErrors = partialErrors.Where(x => x.EtlTaskName == $"{etlName1}/{transformationName2}");
+                var firstTransformationErrors = partialErrors.Where(x => x.EtlProcessName == $"{etlName1}/{transformationName1}");
+                var secondTransformationErrors = partialErrors.Where(x => x.EtlProcessName == $"{etlName1}/{transformationName2}");
 
                 Assert.Equal(100, firstTransformationErrors.Count());
                 Assert.Equal(50, secondTransformationErrors.Count());

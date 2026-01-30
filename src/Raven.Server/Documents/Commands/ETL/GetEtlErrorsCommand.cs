@@ -7,7 +7,7 @@ using Sparrow.Json;
 
 namespace Raven.Server.Documents.Commands.ETL;
 
-internal sealed class GetEtlErrorsCommand : RavenCommand<EtlTaskErrors[]>
+internal sealed class GetEtlErrorsCommand : RavenCommand<EtlProcessErrors[]>
 {
     private readonly string[] _names;
 
@@ -21,7 +21,7 @@ internal sealed class GetEtlErrorsCommand : RavenCommand<EtlTaskErrors[]>
 
     public override HttpRequestMessage CreateRequest(JsonOperationContext ctx, ServerNode node, out string url)
     {
-        url = $"{node.Url}/databases/{node.Database}/etl/debug/stats";
+        url = $"{node.Url}/databases/{node.Database}/etl/errors";
 
         if (_names is { Length: > 0 })
         {
@@ -45,6 +45,6 @@ internal sealed class GetEtlErrorsCommand : RavenCommand<EtlTaskErrors[]>
     // ReSharper disable once ClassNeverInstantiated.Local
     private sealed class EtlTaskErrorsResponse
     {
-        public EtlTaskErrors[] Results { get; set; }
+        public EtlProcessErrors[] Results { get; set; }
     }
 }
