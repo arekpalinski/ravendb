@@ -1,6 +1,6 @@
 namespace Raven.Server.Documents.ETL;
 
-public enum EtlTaskHealthStatus
+public enum EtlProcessHealthStatus
 {
     Healthy,
     Impaired,

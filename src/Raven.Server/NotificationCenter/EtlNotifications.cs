@@ -33,7 +33,7 @@ namespace Raven.Server.NotificationCenter
             _notificationCenter.Add(alert);
         }
 
-        public void AddTaskHealthChangeNotification(string processTag, string processName, EtlTaskHealthStatus status)
+        public void AddTaskHealthChangeNotification(string processTag, string processName, EtlProcessHealthStatus status)
         {
             var alert = GetOrCreateAlert<EtlErrorsDetails>(processTag,
                 processName,

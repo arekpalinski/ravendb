@@ -410,7 +410,7 @@ namespace Raven.Server.Documents
                 _addToInitLog(LogMode.Information, "Initializing ConfigurationStorage");
                 ConfigurationStorage.Initialize();
                 
-                EtlErrorsStorage.Initialize(ConfigurationStorage.Environment, _serverStore.ContextPool);
+                EtlErrorsStorage.Initialize(ConfigurationStorage.Environment, _serverStore.ContextPool, ServerStore.Engine.TxMerger);
 
                 _clusterTransactionErrorNotifier.Initialize();
 

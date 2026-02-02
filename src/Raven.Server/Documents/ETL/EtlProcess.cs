@@ -439,7 +439,7 @@ namespace Raven.Server.Documents.ETL
 
         private void HandleTransformationScriptParseException(TStatsScope stats, Exception e)
         {
-            var message = $"[{Name}] Could not parse transformation script. Stopping ETL process.";
+            var message = $"[{Name}] Could not parse transformation script. Stopping ETL process. {e}";
 
             if (Logger.IsOperationsEnabled)
                 Logger.Operations(message, e);
@@ -829,17 +829,15 @@ namespace Raven.Server.Documents.ETL
                                     Logger.Operations(message, e);
 
                                 stats.RecordBatchStopReason($"{message} : {e}");
+                                
+                                // todo store relevant error here
                             }
                         }
 
                         statsAggregator.Complete();
                     }
-                    
-                    Statistics.AverageErrorsRatio.UpdateOnBatchCompletion(Statistics.BatchErrors, Statistics.BatchErrors + Statistics.BatchSuccesses);
-                    Statistics.UpdateHealthStatusOnBatchCompletion();
-            
-                    Statistics.BatchErrors = 0;
-                    Statistics.BatchSuccesses = 0;
+
+                    Statistics.OnBatchCompletion();
 
                     if (didWork)
                     {

@@ -57,8 +57,8 @@ public class RavenDB_21192 : RavenTestBase
                 Error = "Test message"
             };
                 
-            database.EtlErrorsStorage.StoreProcessError(error1);
-            database.EtlErrorsStorage.StoreProcessError(error2);
+            database.EtlErrorsStorage.EnqueueProcessError(error1);
+            database.EtlErrorsStorage.EnqueueProcessError(error2);
 
             using (database.EtlErrorsStorage.ReadProcessErrorsOrderedByCreationDate(out var errorTableValues))
             {
@@ -81,28 +81,31 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(error2.Error, errors[1].Error);
             }
                 
-            var partialError1 = new EtlItemError()
+            var itemError1 = new EtlItemError()
             {
                 DocumentId = "doc/1", 
                 EtlProcessName = "ETL1",
                 CreatedAt = now,
                 Step = EtlErrorStep.Load,
-                Severity = EtlErrorSeverity.Low
+                Severity = EtlErrorSeverity.Low,
+                Error = "Item error"
             };
             
-            database.EtlErrorsStorage.StoreItemError(partialError1);
+            database.EtlErrorsStorage.RecordItemError(itemError1);
+            database.EtlErrorsStorage.StoreItemErrors();
             
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
             {
-                var partialErrors = partialErrorTableValues.ToList();
+                var itemErrors = itemErrorTableValues.ToList();
 
-                Assert.Single(partialErrors);
+                Assert.Single(itemErrors);
                 
-                Assert.Equal(partialError1.CreatedAt, partialErrors[0].CreatedAt);
-                Assert.Equal(partialError1.EtlProcessName, partialErrors[0].EtlProcessName);
-                Assert.Equal(partialError1.DocumentId, partialErrors[0].DocumentId);
-                Assert.Equal((long)partialError1.Step, partialErrors[0].Step);
-                Assert.Equal((long)partialError1.Severity, partialErrors[0].Severity);
+                Assert.Equal(itemError1.CreatedAt, itemErrors[0].CreatedAt);
+                Assert.Equal(itemError1.EtlProcessName, itemErrors[0].EtlProcessName);
+                Assert.Equal(itemError1.DocumentId, itemErrors[0].DocumentId);
+                Assert.Equal((long)itemError1.Step, itemErrors[0].Step);
+                Assert.Equal((long)itemError1.Severity, itemErrors[0].Severity);
+                Assert.Equal(itemError1.Error, itemErrors[0].Error);
             }
 
             using (database.EtlErrorsStorage.ReadProcessErrorsOfTask("ETL1", out var firstTaskErrors))
@@ -150,8 +153,6 @@ public class RavenDB_21192 : RavenTestBase
             }
             
             etlDone.Wait(TimeSpan.FromSeconds(10));
-            
-            WaitForUserToContinueTheTest(src);
 
             var etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
             
@@ -337,7 +338,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(0, etlStats.LoadSuccesses);
             Assert.Equal(10, etlStats.TransformationErrors);
 
-            Assert.Equal(EtlTaskHealthStatus.Failed, etlStats.HealthStatus);
+            Assert.Equal(EtlProcessHealthStatus.Failed, etlStats.HealthStatus);
             
             etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 50);
             
@@ -354,7 +355,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(50, etlStats.LoadSuccesses);
             Assert.Equal(20, etlStats.TransformationErrors);
 
-            Assert.Equal(EtlTaskHealthStatus.Impaired, etlStats.HealthStatus);
+            Assert.Equal(EtlProcessHealthStatus.Impaired, etlStats.HealthStatus);
 
             etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 950);
             
@@ -371,7 +372,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(950, etlStats.LoadSuccesses);
             Assert.Equal(20, etlStats.TransformationErrors);
 
-            Assert.Equal(EtlTaskHealthStatus.Healthy, etlStats.HealthStatus);
+            Assert.Equal(EtlProcessHealthStatus.Healthy, etlStats.HealthStatus);
             
             etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 1020);
             
@@ -388,7 +389,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(950, etlStats.LoadSuccesses);
             Assert.Equal(1020, etlStats.TransformationErrors);
 
-            Assert.Equal(EtlTaskHealthStatus.Healthy, etlStats.HealthStatus);
+            Assert.Equal(EtlProcessHealthStatus.Healthy, etlStats.HealthStatus);
         }
     }
     
@@ -423,13 +424,13 @@ public class RavenDB_21192 : RavenTestBase
             
             var etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
 
-            Assert.Equal(EtlTaskHealthStatus.Failed, etlStats.HealthStatus);
-            AssertHealthStatusNotification(src, processTag, $"{etlName1}/{transformationName1}", EtlTaskHealthStatus.Failed);
+            Assert.Equal(EtlProcessHealthStatus.Failed, etlStats.HealthStatus);
+            AssertHealthStatusNotification(src, processTag, $"{etlName1}/{transformationName1}", EtlProcessHealthStatus.Failed);
         }
     }
 
     [RavenFact(RavenTestCategory.Etl)]
-    public void EtlTaskHealthStatusChangeNotificationsShouldBeAddedAndRemoved()
+    public void EtlProcessHealthStatusChangeNotificationsShouldBeAddedAndRemoved()
     {
         using (var src = GetDocumentStore())
         using (var dest = GetDocumentStore())
@@ -464,7 +465,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(0, etlStats.LoadSuccesses);
             Assert.Equal(10, etlStats.TransformationErrors);
 
-            AssertHealthStatusNotification(src, processTag, $"{etlName1}/{transformationName1}", EtlTaskHealthStatus.Failed);
+            AssertHealthStatusNotification(src, processTag, $"{etlName1}/{transformationName1}", EtlProcessHealthStatus.Failed);
             
             etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 50);
             
@@ -481,7 +482,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(50, etlStats.LoadSuccesses);
             Assert.Equal(20, etlStats.TransformationErrors);
             
-            AssertHealthStatusNotification(src, processTag, $"{etlName1}/{transformationName1}", EtlTaskHealthStatus.Disrupted);
+            AssertHealthStatusNotification(src, processTag, $"{etlName1}/{transformationName1}", EtlProcessHealthStatus.Disrupted);
             
             etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 1050);
             
@@ -499,7 +500,7 @@ public class RavenDB_21192 : RavenTestBase
         }
     }
     
-    private void AssertHealthStatusNotification(IDocumentStore store, string processTag, string processName, EtlTaskHealthStatus healthStatus)
+    private void AssertHealthStatusNotification(IDocumentStore store, string processTag, string processName, EtlProcessHealthStatus healthStatus)
     {
         var db = GetDatabase(store.Database).GetAwaiter().GetResult();
 
@@ -542,11 +543,11 @@ public class RavenDB_21192 : RavenTestBase
             etlDone.Wait(TimeSpan.FromSeconds(10));
             
             var database = GetDatabase(src.Database).Result;
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
             {
-                var partialErrors = partialErrorTableValues.ToList();
+                var itemErrors = itemErrorTableValues.ToList();
 
-                Assert.Equal(20, partialErrors.Count);
+                Assert.Equal(20, itemErrors.Count);
             }
             
             var updatedConfig = new RavenEtlConfiguration
@@ -573,15 +574,15 @@ public class RavenDB_21192 : RavenTestBase
             
             etlDone.Wait(TimeSpan.FromSeconds(10));
             
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
             {
-                var partialErrors = partialErrorTableValues.ToList();
+                var itemErrors = itemErrorTableValues.ToList();
 
-                Assert.Equal(10, partialErrors.Count);
+                Assert.Equal(10, itemErrors.Count);
 
-                foreach (var partialError in partialErrors)
+                foreach (var itemError in itemErrors)
                 {
-                    Assert.StartsWith($"{etlName1}/{transformationName1}", partialError.Id);
+                    Assert.StartsWith($"{etlName1}/{transformationName1}", itemError.Id);
                 }
             }
         }
@@ -624,25 +625,25 @@ public class RavenDB_21192 : RavenTestBase
             etlDone.Wait(TimeSpan.FromSeconds(10));
             
             var database = GetDatabase(src.Database).Result;
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
             {
-                var partialErrors = partialErrorTableValues.ToList();
+                var itemErrors = itemErrorTableValues.ToList();
 
-                Assert.Equal(20, partialErrors.Count);
+                Assert.Equal(20, itemErrors.Count);
             }
             
             var deleteOp = new DeleteOngoingTaskOperation(taskId1, OngoingTaskType.RavenEtl);
             src.Maintenance.Send(deleteOp);
             
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
             {
-                var partialErrors = partialErrorTableValues.ToList();
+                var itemErrors = itemErrorTableValues.ToList();
 
-                Assert.Equal(10, partialErrors.Count);
+                Assert.Equal(10, itemErrors.Count);
 
-                foreach (var partialError in partialErrors)
+                foreach (var itemError in itemErrors)
                 {
-                    Assert.StartsWith($"{etlName2}/{transformationName2}", partialError.Id);
+                    Assert.StartsWith($"{etlName2}/{transformationName2}", itemError.Id);
                 }
             }
         }
@@ -697,14 +698,14 @@ public class RavenDB_21192 : RavenTestBase
             etlDone2.Wait(TimeSpan.FromSeconds(15));
             
             var database = GetDatabase(src.Database).Result;
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var partialErrorTableValues))
+            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
             {
-                var partialErrors = partialErrorTableValues.ToList();
+                var itemErrors = itemErrorTableValues.ToList();
 
-                var firstTransformationErrors = partialErrors.Where(x => x.EtlProcessName == $"{etlName1}/{transformationName1}");
-                var secondTransformationErrors = partialErrors.Where(x => x.EtlProcessName == $"{etlName1}/{transformationName2}");
+                var firstTransformationErrors = itemErrors.Where(x => x.EtlProcessName == $"{etlName1}/{transformationName1}");
+                var secondTransformationErrors = itemErrors.Where(x => x.EtlProcessName == $"{etlName1}/{transformationName2}");
 
-                Assert.Equal(100, firstTransformationErrors.Count());
+                Assert.Equal(500, firstTransformationErrors.Count());
                 Assert.Equal(50, secondTransformationErrors.Count());
             }
         }

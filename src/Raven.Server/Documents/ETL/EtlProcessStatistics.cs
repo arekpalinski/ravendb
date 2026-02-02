@@ -36,7 +36,7 @@ namespace Raven.Server.Documents.ETL
             LastSlowSqlWarningsInCurrentBatch = new SlowSqlDetails();
             _onDisposeActions = new OnDisposeActions(this);
             AverageErrorsRatio = new TimeAgnosticEwma();
-            HealthStatus = EtlTaskHealthStatus.Healthy;
+            HealthStatus = EtlProcessHealthStatus.Healthy;
         }
 
         public string LastChangeVector { get; set; }
@@ -72,7 +72,7 @@ namespace Raven.Server.Documents.ETL
         public long BatchErrors { get; set; }
         public long BatchSuccesses { get; set; }
         
-        public EtlTaskHealthStatus HealthStatus { get; private set; }
+        public EtlProcessHealthStatus HealthStatus { get; private set; }
         private bool ExplicitFail { get; set; }
         public DateTime? NextBatchRetryTime { get; set; }
 
@@ -93,13 +93,27 @@ namespace Raven.Server.Documents.ETL
             return _onDisposeActions;
         }
 
-        internal void UpdateHealthStatusOnBatchCompletion()
+        internal void OnBatchCompletion()
+        {
+            UpdateHealthStatusOnBatchCompletion();
+            _etlErrorsStorage.StoreItemErrors();
+            
+            //_etlErrorsStorage.DeleteOldestProcessErrorOfTask(_processName);
+            //_etlErrorsStorage.DeleteOldestItemErrorOfTask(_processName);
+            
+            AverageErrorsRatio.UpdateOnBatchCompletion(BatchErrors, BatchErrors + BatchSuccesses);
+            
+            BatchErrors = 0;
+            BatchSuccesses = 0;
+        }
+
+        private void UpdateHealthStatusOnBatchCompletion()
         {
             var previousStatus = HealthStatus;
             
             if (ExplicitFail)
             {
-                HealthStatus = EtlTaskHealthStatus.Failed;
+                HealthStatus = EtlProcessHealthStatus.Failed;
             }
 
             else
@@ -108,15 +122,15 @@ namespace Raven.Server.Documents.ETL
             
                 HealthStatus = errorsEwma switch
                 {
-                    > 0.9 => EtlTaskHealthStatus.Failed,
-                    > 0.5 => EtlTaskHealthStatus.Disrupted,
-                    > 0.1 => EtlTaskHealthStatus.Impaired,
-                    _ => EtlTaskHealthStatus.Healthy
+                    > 0.9 => EtlProcessHealthStatus.Failed,
+                    > 0.5 => EtlProcessHealthStatus.Disrupted,
+                    > 0.1 => EtlProcessHealthStatus.Impaired,
+                    _ => EtlProcessHealthStatus.Healthy
                 };
             }
             
             // We don't want to create notification about task returning to healthy state
-            if (HealthStatus == EtlTaskHealthStatus.Healthy)
+            if (HealthStatus == EtlProcessHealthStatus.Healthy)
                 return;
             
             if (HealthStatus != previousStatus)
@@ -140,10 +154,11 @@ namespace Raven.Server.Documents.ETL
                 EtlProcessName = _processName,
                 DocumentId = documentId,
                 Step = EtlErrorStep.Transformation,
-                Severity = EtlErrorSeverity.Low
+                Severity = EtlErrorSeverity.Low,
+                Error = e.ToString()
             };
             
-            _etlErrorsStorage.StoreItemError(itemError);
+            _etlErrorsStorage.RecordItemError(itemError);
             
             TransformationErrors++;
             BatchErrors++;
@@ -168,10 +183,11 @@ namespace Raven.Server.Documents.ETL
                 EtlProcessName = _processName,
                 DocumentId = documentId,
                 Step = EtlErrorStep.Load,
-                Severity = EtlErrorSeverity.Low
+                Severity = EtlErrorSeverity.Low,
+                Error = error
             };
             
-            _etlErrorsStorage.StoreItemError(itemError);
+            _etlErrorsStorage.RecordItemError(itemError);
             WasLatestLoadSuccessful = false;
 
             LoadErrors += count; 
@@ -201,7 +217,7 @@ namespace Raven.Server.Documents.ETL
                 Error = error
             };
             
-            _etlErrorsStorage.StoreProcessError(etlError);
+            _etlErrorsStorage.EnqueueProcessError(etlError);
         }
 
         public void RecordLoadError(string error, int count)
@@ -218,7 +234,7 @@ namespace Raven.Server.Documents.ETL
                 Error = error
             };
             
-            _etlErrorsStorage.StoreProcessError(etlError);
+            _etlErrorsStorage.EnqueueProcessError(etlError);
             
             LastLoadErrorTime = now;
             BatchErrors += count;
@@ -313,8 +329,7 @@ namespace Raven.Server.Documents.ETL
             public void Dispose()
             {
                 _parent.CreateAlertIfAnySlowSqls();
-                _parent.AverageErrorsRatio.UpdateOnBatchCompletion(_parent.BatchErrors, _parent.BatchErrors + _parent.BatchSuccesses);
-                _parent.UpdateHealthStatusOnBatchCompletion();
+                _parent.OnBatchCompletion();
             }
         }
 

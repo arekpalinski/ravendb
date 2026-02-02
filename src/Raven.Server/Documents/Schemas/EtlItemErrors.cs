@@ -24,6 +24,7 @@ public static class EtlItemErrors
         public const int DocumentIdIndex = 3;
         public const int StepIndex = 4;
         public const int SeverityIndex = 5;
+        public const int ErrorIndex = 6;
     }
 
     static EtlItemErrors()

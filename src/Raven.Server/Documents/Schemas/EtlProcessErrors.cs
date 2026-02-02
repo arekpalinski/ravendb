@@ -24,7 +24,7 @@ public static class EtlProcessErrors
         public const int AffectedDocumentsCountIndex = 3;
         public const int StepIndex = 4;
         public const int SeverityIndex = 5;
-        public const int MessageIndex = 6;
+        public const int ErrorIndex = 6;
     }
 
     static EtlProcessErrors()

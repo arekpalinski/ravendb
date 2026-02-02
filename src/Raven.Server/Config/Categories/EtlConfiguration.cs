@@ -64,5 +64,20 @@ namespace Raven.Server.Config.Categories
         [TimeUnit(TimeUnit.Seconds)]
         [ConfigurationEntry("ETL.Queue.AzureQueueStorage.VisibilityTimeoutInSec", ConfigurationEntryScope.ServerWideOrPerDatabase)]
         public TimeSetting AzureQueueStorageVisibilityTimeout{ get; set; }
+        
+        [Description("")]
+        [DefaultValue(0.9f)]
+        [ConfigurationEntry("ETL.ProcessHealthStatusFailedThreshold", ConfigurationEntryScope.ServerWideOrPerDatabase)]
+        public float ProcessHealthStatusFailedThreshold { get; set; }
+        
+        [Description("")]
+        [DefaultValue(0.5f)]
+        [ConfigurationEntry("ETL.ProcessHealthStatusDisruptedThreshold", ConfigurationEntryScope.ServerWideOrPerDatabase)]
+        public float ProcessHealthStatusDisruptedThreshold { get; set; }
+        
+        [Description("")]
+        [DefaultValue(0.1f)]
+        [ConfigurationEntry("ETL.ProcessHealthStatusImpairedThreshold", ConfigurationEntryScope.ServerWideOrPerDatabase)]
+        public float ProcessHealthStatusImpairedThreshold { get; set; }
     }
 }

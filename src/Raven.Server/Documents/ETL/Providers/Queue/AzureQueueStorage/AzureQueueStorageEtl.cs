@@ -44,7 +44,7 @@ public sealed class AzureQueueStorageEtl : QueueEtl<AzureQueueStorageItem>
             return 0;
         }
 
-        var tooLargeDocsErrors = new Queue<EtlErrorInfo>();
+        //var tooLargeDocsErrors = new Queue<EtlErrorInfo>();
         idsToDelete = [];
         int count = 0;
 
@@ -83,12 +83,23 @@ public sealed class AzureQueueStorageEtl : QueueEtl<AzureQueueStorageItem>
                 {
                     if (ex.ErrorCode is "RequestBodyTooLarge")
                     {
+                        /*
                         tooLargeDocsErrors.Enqueue(new EtlErrorInfo()
                         {
                             Date = DateTime.UtcNow,
                             DocumentId = queueItem.DocumentId,
                             Error = ex.Message 
                         });
+                        */
+
+                        var message = $"""
+                                      ETL has partially loaded the data. 
+                                      Some of the documents were too big (>64KB) to be handled by Azure Queue Storage.
+                                      It caused load errors, that have been skipped. 
+                                      {ex}
+                                      """;
+                        
+                        Statistics.RecordItemLoadError(message, queueItem.DocumentId);
                     }
                     else
                     {
@@ -103,7 +114,7 @@ public sealed class AzureQueueStorageEtl : QueueEtl<AzureQueueStorageItem>
                     throw new QueueLoadException($"Failed to deliver message, error reason: '{ex.Message}'", ex);
                 }
             }
-
+            
             /*
             if (tooLargeDocsErrors.Count > 0)
             {
