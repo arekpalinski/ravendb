@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using FastTests;
+using Microsoft.AspNetCore.WebUtilities;
 using Newtonsoft.Json;
 using Raven.Client.Documents;
 using Raven.Client.Documents.Operations.ConnectionStrings;
@@ -276,6 +277,98 @@ public class RavenDB_21192 : RavenTestBase
             using (var commands = src.Commands())
             {
                 var cmd = new GetEtlTaskErrorsCommand(new List<string>() { etlName1, etlName2 });
+                commands.Execute(cmd);
+                
+                var res = cmd.Result as BlittableJsonReaderObject;
+
+                Assert.NotNull(res);
+                
+                res.TryGet(nameof(EtlHandlerProcessorForErrors.Response.Results), out BlittableJsonReaderArray results);
+                var resultsObjectList = JsonConvert.DeserializeObject<List<EtlProcessErrors>>(results.ToString());
+
+                var firstTaskErrors = resultsObjectList.Single(x => x.ProcessName == $"{etlName1}/{transformationName1}");
+                
+                Assert.Empty(firstTaskErrors.ProcessErrors);
+                Assert.Equal(5, firstTaskErrors.ItemErrors.Length);
+                
+                var secondTaskErrors = resultsObjectList.Single(x => x.ProcessName == $"{etlName2}/{transformationName2}");
+                
+                Assert.Contains(secondTaskErrors.ProcessErrors, x => x.AffectedDocumentsCount == 5);
+                Assert.Empty(secondTaskErrors.ItemErrors);
+                
+                var thirdTaskErrors = resultsObjectList.Single(x => x.ProcessName == $"{etlName2}/{transformationName3}");
+                
+                Assert.Contains(thirdTaskErrors.ProcessErrors, x => x.AffectedDocumentsCount == 5);
+                Assert.Empty(thirdTaskErrors.ItemErrors);
+            }
+        }
+    }
+    
+    [RavenTheory(RavenTestCategory.Etl)]
+    [RavenData(DatabaseMode = RavenDatabaseMode.Sharded)]
+    public void TestEtlErrorsEndpointForShardedDatabase(Options options)
+    {
+        const int shardNumber = 1;
+        
+        using (var src = GetDocumentStore(options))
+        using (var dest = GetDocumentStore(options))
+        {
+            const string connectionStringName1 = "ConnectionString1";
+            const string etlName1 = "ETL1";
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   this.Name = 'James Doe';
+                                   throw new Error("dummy error");
+                                   loadToUsers(this);
+                                   """;
+            var collections1 = new List<string>() { "Users" };
+            
+            const string connectionStringName2 = "ConnectionString2";
+            const string etlName2 = "ETL2";
+            const string transformationName2 = "Transformation2";
+            const string script2 = """
+                                   this.Name = 'Cool Company';
+                                   loadToCompanies(this);
+                                   """;
+            const string transformationName3 = "Transformation3";
+            const string script3 = """
+                                   this.Name = 'Other Company Name';
+                                   loadToCompanies(this);
+                                   """;
+            var collections2 = new List<string>() { "Companies" };
+            
+            var etlDone1 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName1}/{transformationName1}" && statistics.LoadErrors >= 5);
+            var etlDone2 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName2}/{transformationName2}" && statistics.LoadErrors >= 5);
+            var etlDone3 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName2}/{transformationName3}" && statistics.LoadErrors >= 5);
+            
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1], [script1], collections1);
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 5; i++)
+                    bulkInsert.Store(new User { Id = $"Users/{i}${shardNumber}", Name = "Joe Doe" });
+            }
+            
+            etlDone1.Wait(TimeSpan.FromSeconds(10));
+            
+            AddEtlTask(src, dest, etlName2, connectionStringName2, [transformationName2, transformationName3], [script2, script3], collections2);
+            
+            var disableDatabaseResult = dest.Maintenance.Server.SendAsync(new ToggleDatabasesStateOperation(dest.Database, disable: true)).GetAwaiter().GetResult();
+            
+            Assert.True(disableDatabaseResult.Disabled);
+            
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 5; i++)
+                    bulkInsert.Store(new Company() { Id = $"Companies/{i}${shardNumber}", Name = "Some Company" });
+            }
+            
+            etlDone2.Wait(TimeSpan.FromSeconds(10));
+            etlDone3.Wait(TimeSpan.FromSeconds(10));
+
+            using (var commands = src.Commands())
+            {
+                var cmd = new GetEtlTaskErrorsCommand(new List<string>() { etlName1, etlName2 }, isSharded: true, shardNumber);
                 commands.Execute(cmd);
                 
                 var res = cmd.Result as BlittableJsonReaderObject;
@@ -841,27 +934,46 @@ public class RavenDB_21192 : RavenTestBase
 
     private class User
     {
+        public string Id { get; set; }
         public string Name { get; set; }
         public int Value { get; set; }
     }
 
     private class Company
     {
+        public string Id { get; set; }
         public string Name { get; set; }
     }
     
     private class GetEtlTaskErrorsCommand : RavenCommand<object>
     {
         private readonly List<string> _taskNames;
+        private readonly bool _isSharded;
+        private readonly int _shardNumber;
         
-        public GetEtlTaskErrorsCommand(List<string> taskNames)
+        public GetEtlTaskErrorsCommand(List<string> taskNames, bool isSharded = false, int shardNumber = 0)
         {
             _taskNames = taskNames;
+            _isSharded = isSharded;
+            _shardNumber = shardNumber;
         }
 
         public override HttpRequestMessage CreateRequest(JsonOperationContext ctx, ServerNode node, out string url)
         {
-            url = $"{node.Url}/databases/{node.Database}/etl/errors?{string.Join(',', _taskNames)}";
+            var baseUrl = $"{node.Url}/databases/{node.Database}/etl/errors";
+            
+            var queryParams = new Dictionary<string, string>
+            {
+                { "taskNames", string.Join(',', _taskNames) }
+            };
+
+            if (_isSharded)
+            {
+                queryParams.Add("nodeTag", node.ClusterTag);
+                queryParams.Add("shardNumber", _shardNumber.ToString());
+            }
+            
+            url = QueryHelpers.AddQueryString(baseUrl, queryParams);
             
             return new HttpRequestMessage
             {

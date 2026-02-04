@@ -102,9 +102,15 @@ namespace Raven.Server.Documents.ETL
             //_etlErrorsStorage.DeleteOldestItemErrorOfTask(_processName);
             
             AverageErrorsRatio.UpdateOnBatchCompletion(BatchErrors, BatchErrors + BatchSuccesses);
+            ResetBatchStatistics();
             
-            BatchErrors = 0;
-            BatchSuccesses = 0;
+            return;
+            
+            void ResetBatchStatistics()
+            {
+                BatchErrors = 0;
+                BatchSuccesses = 0;
+            }
         }
 
         private void UpdateHealthStatusOnBatchCompletion()

@@ -14,7 +14,6 @@ internal abstract class AbstractEtlHandlerProcessorForErrors<TRequestHandler, TO
 {
     protected AbstractEtlHandlerProcessorForErrors([NotNull] TRequestHandler requestHandler) : base(requestHandler)
     {
-        
     }
     
     protected override RavenCommand<EtlProcessErrors[]> CreateCommandForNode(string nodeTag)
