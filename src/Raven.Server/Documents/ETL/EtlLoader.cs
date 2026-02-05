@@ -103,8 +103,7 @@ namespace Raven.Server.Documents.ETL
         {
             ProcessRemoved?.Invoke(process);
 
-            _database.EtlErrorsStorage.DeleteProcessErrorsOfTask(process.Name);
-            _database.EtlErrorsStorage.DeleteItemErrorsOfTask(process.Name);
+            _database.EtlErrorsStorage.DeleteErrorsOfProcess(process.Name);
         }
 
         private void LoadProcesses(DatabaseRecord record,

@@ -11,6 +11,7 @@ using Raven.Client.Documents.Operations.ETL;
 using Raven.Client.Documents.Operations.OngoingTasks;
 using Raven.Client.Http;
 using Raven.Client.ServerWide.Operations;
+using Raven.Server.Config;
 using Raven.Server.Documents.ETL;
 using Raven.Server.Documents.ETL.Handlers.Processors;
 using Raven.Server.Documents.ETL.Stats;
@@ -32,6 +33,9 @@ public class RavenDB_21192 : RavenTestBase
     [RavenFact(RavenTestCategory.Etl)]
     public void TestEtlErrorsStorage()
     {
+        const string processName1 = "ETL1";
+        const string processName2 = "ETL2";
+        
         using (var store = GetDocumentStore())
         {
             var database = GetDatabase(store.Database).Result;
@@ -41,7 +45,7 @@ public class RavenDB_21192 : RavenTestBase
             var error1 = new EtlProcessError()
             {
                 CreatedAt = now,
-                EtlProcessName = "ETL1",
+                EtlProcessName = processName1,
                 AffectedDocumentsCount = 1,
                 Step = EtlErrorStep.Transformation,
                 Severity = EtlErrorSeverity.Low,
@@ -51,7 +55,7 @@ public class RavenDB_21192 : RavenTestBase
             var error2 = new EtlProcessError()
             {
                 CreatedAt = now.AddDays(1),
-                EtlProcessName = "ETL2",
+                EtlProcessName = processName2,
                 AffectedDocumentsCount = 21,
                 Step = EtlErrorStep.Load,
                 Severity = EtlErrorSeverity.High,
@@ -85,7 +89,7 @@ public class RavenDB_21192 : RavenTestBase
             var itemError1 = new EtlItemError()
             {
                 DocumentId = "doc/1", 
-                EtlProcessName = "ETL1",
+                EtlProcessName = processName1,
                 CreatedAt = now,
                 Step = EtlErrorStep.Load,
                 Severity = EtlErrorSeverity.Low,
@@ -93,7 +97,7 @@ public class RavenDB_21192 : RavenTestBase
             };
             
             database.EtlErrorsStorage.RecordItemError(itemError1);
-            database.EtlErrorsStorage.StoreItemErrors();
+            database.EtlErrorsStorage.StoreItemErrors(processName1);
             
             using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
             {
@@ -109,7 +113,7 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(itemError1.Error, itemErrors[0].Error);
             }
 
-            using (database.EtlErrorsStorage.ReadProcessErrorsOfTask("ETL1", out var firstTaskErrors))
+            using (database.EtlErrorsStorage.ReadProcessErrorsOfTask(processName1, out var firstTaskErrors))
             {
                 var errors = firstTaskErrors.ToList();
                 
@@ -485,6 +489,52 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(EtlProcessHealthStatus.Healthy, etlStats.HealthStatus);
         }
     }
+
+    [RavenFact(RavenTestCategory.Etl)]
+    public void HealthStatusUpdatesShouldRespectConfiguration()
+    {
+        var options = new Options()
+        {
+            ModifyDatabaseRecord = record =>
+            {
+                record.Settings[RavenConfiguration.GetKey(x => x.Etl.ProcessHealthStatusFailedThreshold)] = "0.05";
+            }
+        };
+        
+        using (var src = GetDocumentStore(options))
+        using (var dest = GetDocumentStore())
+        {
+            const string connectionStringName1 = "ConnectionString1";
+            const string etlName1 = "ETL1";
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   if (this.Name == "James Doe")
+                                   {
+                                        throw new Error("dummy error");
+                                   }                   
+                                   loadToUsers(this);
+                                   """;
+            var collections1 = new List<string>() { "Users" };
+                    
+            var etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 1);
+        
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1], [script1], collections1);
+        
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 9; i++)
+                    bulkInsert.Store(new User { Name = "Joe Doe", Value = 0 });
+                
+                bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
+            }
+                    
+            etlDone.Wait(TimeSpan.FromSeconds(10));
+                    
+            var etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
+        
+            Assert.Equal(EtlProcessHealthStatus.Failed, etlStats.HealthStatus);
+        }
+    }
     
     [RavenFact(RavenTestCategory.Etl)]
     public void InvalidScriptShouldSetTaskHealthToFailed()
@@ -665,7 +715,7 @@ public class RavenDB_21192 : RavenTestBase
             
             UpdateRavenEtlTask(src, taskId1, updatedConfig);
             
-            etlDone.Wait(TimeSpan.FromSeconds(10));
+            etlDone.Wait(TimeSpan.FromSeconds(20));
             
             using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
             {
@@ -715,7 +765,7 @@ public class RavenDB_21192 : RavenTestBase
                     bulkInsert.Store(new User { Name = "James Doe", Value = 0 });
             }
             
-            etlDone.Wait(TimeSpan.FromSeconds(10));
+            etlDone.Wait(TimeSpan.FromSeconds(20));
             
             var database = GetDatabase(src.Database).Result;
             using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))

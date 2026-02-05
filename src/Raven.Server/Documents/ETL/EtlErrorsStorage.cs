@@ -99,7 +99,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         _itemErrors.Add(itemError);
     }
 
-    internal void StoreItemErrors()
+    internal void StoreItemErrors(string processName)
     {
         using (_contextPool.AllocateOperationContext(out TransactionOperationContext context))
         {
@@ -112,12 +112,16 @@ public unsafe class EtlErrorsStorage(string databaseName)
                     StoreItemError(itemError, table, context);
                 }
                 
+                DeleteOldestItemErrorsOfProcess(processName, table, context);
+                
                 tx.Commit();
             }
         }
+        
+        _itemErrors.Clear();
     }
     
-    private void StoreItemError(EtlItemError itemError, Table table, JsonOperationContext context)
+    private static void StoreItemError(EtlItemError itemError, Table table, JsonOperationContext context)
     {
         var createdAtTicks = Bits.SwapBytes(itemError.CreatedAt.Ticks);
         var stepSwapped = Bits.SwapBytes((long)itemError.Step);
@@ -127,17 +131,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
         var etlProcessName = context.GetLazyString(itemError.EtlProcessName);
         var documentId = context.GetLazyString(itemError.DocumentId);
         var error = context.GetLazyString(itemError.Error);
-
-        // todo move on batch completion
-        /*
-        using (Slice.From(tx.InnerTransaction.Allocator, etlProcessName, out Slice etlProcessNameSlice))
-        {
-            if (table.GetCountOfMatchesFor(Schemas.EtlItemErrors.Current.Indexes[Schemas.EtlItemErrors.ByEtlProcessName], etlProcessNameSlice) >= ErrorsLimitPerEtl)
-            {
-                DeleteOldestItemErrorOfTask(itemError.EtlProcessName);
-            }
-        }
-        */
 
         using (table.Allocate(out TableValueBuilder tvb))
         {
@@ -152,68 +145,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
             table.Set(tvb);
         }
     }
-    
-    /*
-    public IDisposable ReadProcessError(string id, out EtlProcessErrorTableValue value)
-    {
-        using (var scope = new DisposableScope())
-        {
-            RavenTransaction tx;
-
-            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
-            scope.EnsureDispose(tx = context.OpenReadTransaction());
-
-            value = GetProcessError(id, tx);
-            
-            return scope.Delay();
-        }
-    }
-    
-    public IDisposable ReadItemError(string id, out EtlItemErrorTableValue value)
-    {
-        using (var scope = new DisposableScope())
-        {
-            RavenTransaction tx;
-
-            scope.EnsureDispose(_contextPool.AllocateOperationContext(out TransactionOperationContext context));
-            scope.EnsureDispose(tx = context.OpenReadTransaction());
-
-            value = GetItemError(id, tx);
-            
-            return scope.Delay();
-        }
-    }
-    
-    private EtlProcessErrorTableValue GetProcessError(string id, RavenTransaction tx)
-    {
-        var table = tx.InnerTransaction.OpenTable(Schemas.EtlProcessErrors.Current, _processErrorsTableName);
-        if (table == null)
-            return null;
-
-        using (Slice.From(tx.InnerTransaction.Allocator, id, out Slice slice))
-        {
-            if (table.ReadByKey(slice, out TableValueReader tvr) == false)
-                return null;
-
-            return ReadProcessError(ref tvr);
-        }
-    }
-    
-    private EtlItemErrorTableValue GetItemError(string id, RavenTransaction tx)
-    {
-        var table = tx.InnerTransaction.OpenTable(Schemas.EtlItemErrors.Current, _itemErrorsTableName);
-        if (table == null)
-            return null;
-
-        using (Slice.From(tx.InnerTransaction.Allocator, id, out Slice slice))
-        {
-            if (table.ReadByKey(slice, out TableValueReader tvr) == false)
-                return null;
-
-            return ReadItemError(ref tvr);
-        }
-    }
-    */
     
     private static EtlProcessErrorTableValue ReadProcessError(ref TableValueReader reader)
     {
@@ -370,8 +301,14 @@ public unsafe class EtlErrorsStorage(string databaseName)
             }
         }
     }
+
+    public void DeleteErrorsOfProcess(string processName)
+    {
+        DeleteProcessErrorsOfProcess(processName);
+        DeleteItemErrorsOfProcess(processName);
+    }
     
-    public void DeleteProcessErrorsOfTask(string etlTaskName)
+    private void DeleteProcessErrorsOfProcess(string processName)
     {
         using (var scope = new DisposableScope())
         {
@@ -384,13 +321,13 @@ public unsafe class EtlErrorsStorage(string databaseName)
 
             var idsToDelete = new List<string>();
             
-            using (Slice.From(context.Transaction.InnerTransaction.Allocator, etlTaskName, out Slice taskNameSlice))
+            using (Slice.From(context.Transaction.InnerTransaction.Allocator, processName, out Slice taskNameSlice))
             {
                 foreach (var tvr in table.SeekForwardFrom(Schemas.EtlProcessErrors.Current.Indexes[Schemas.EtlProcessErrors.ByEtlProcessName], taskNameSlice, 0))
                 {
                     var error = ReadProcessError(ref tvr.Result.Reader);
 
-                    if (error.EtlProcessName != etlTaskName)
+                    if (error.EtlProcessName != processName)
                         break;
 
                     idsToDelete.Add(error.Id);
@@ -409,7 +346,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         }
     }
 
-    public void DeleteItemErrorsOfTask(string etlTaskName)
+    private void DeleteItemErrorsOfProcess(string processName)
     {
         using (var scope = new DisposableScope())
         {
@@ -422,13 +359,13 @@ public unsafe class EtlErrorsStorage(string databaseName)
 
             var idsToDelete = new List<string>();
             
-            using (Slice.From(context.Transaction.InnerTransaction.Allocator, etlTaskName, out Slice taskNameSlice))
+            using (Slice.From(context.Transaction.InnerTransaction.Allocator, processName, out Slice taskNameSlice))
             {
                 foreach (var tvr in table.SeekForwardFrom(Schemas.EtlItemErrors.Current.Indexes[Schemas.EtlItemErrors.ByEtlProcessName], taskNameSlice, 0))
                 {
                     var error = ReadItemError(ref tvr.Result.Reader);
 
-                    if (error.EtlProcessName != etlTaskName)
+                    if (error.EtlProcessName != processName)
                         break;
 
                     idsToDelete.Add(error.Id);
@@ -468,6 +405,39 @@ public unsafe class EtlErrorsStorage(string databaseName)
                     context.Transaction.Commit();
                     return;
                 }
+            }
+        }
+    }
+
+    private void DeleteOldestItemErrorsOfProcess(string processName, Table table, TransactionOperationContext context)
+    {
+        var idsToDelete = new List<string>();
+            
+        using (Slice.From(context.Transaction.InnerTransaction.Allocator, processName, out Slice processNameSlice))
+        {
+            var numberOfDeletedErrors = 0;
+            var numberOfErrorsToDelete = table.GetCountOfMatchesFor(Schemas.EtlProcessErrors.Current.Indexes[Schemas.EtlProcessErrors.ByEtlProcessName], processNameSlice) - ErrorsLimitPerEtl;
+                
+            if (numberOfErrorsToDelete <= 0)
+                return;
+                
+            foreach (var tvr in table.SeekForwardFrom(Schemas.EtlItemErrors.Current.Indexes[Schemas.EtlItemErrors.ByEtlProcessName], processNameSlice, 0))
+            {
+                var error = ReadItemError(ref tvr.Result.Reader);
+
+                if (error.EtlProcessName != processName || numberOfDeletedErrors == numberOfErrorsToDelete)
+                    break;
+
+                idsToDelete.Add(error.Id);
+                numberOfDeletedErrors++;
+            }
+        }
+
+        foreach (var id in idsToDelete)
+        {
+            using (Slice.From(context.Transaction.InnerTransaction.Allocator, id, out Slice errorId))
+            {
+                table.DeleteByKey(errorId);
             }
         }
     }

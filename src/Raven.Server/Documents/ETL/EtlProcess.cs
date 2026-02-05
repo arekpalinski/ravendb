@@ -169,7 +169,7 @@ namespace Raven.Server.Documents.ETL
             Logger = LoggingSource.Instance.GetLogger(database.Name, GetType().FullName);
             Database = database;
             _serverStore = serverStore;
-            Statistics = new EtlProcessStatistics(Tag, Name, Database.EtlErrorsStorage, Database.NotificationCenter);
+            Statistics = new EtlProcessStatistics(Tag, Name, Database.EtlErrorsStorage, Database.NotificationCenter, Database.Configuration.Etl);
 
             if (transformation.ApplyToAllDocuments == false)
                 _collections = new HashSet<string>(Transformation.Collections, StringComparer.OrdinalIgnoreCase);
@@ -439,12 +439,14 @@ namespace Raven.Server.Documents.ETL
 
         private void HandleTransformationScriptParseException(TStatsScope stats, Exception e)
         {
-            var message = $"[{Name}] Could not parse transformation script. Stopping ETL process. {e}";
+            var message = $"[{Name}] Could not parse transformation script. Stopping ETL process.";
+            var messageWithException = $"{message}: {e}";
 
             if (Logger.IsOperationsEnabled)
                 Logger.Operations(message, e);
 
-            Statistics.SetExplicitFail(message);
+            Statistics.SetProcessHealthStatusToFailed();
+            Statistics.RecordConfigurationError(messageWithException);
             
             stats.RecordBatchTransformationCompleteReason(message);
             stats.RecordTransformationError();
@@ -463,7 +465,6 @@ namespace Raven.Server.Documents.ETL
                     stats.RecordLastLoadedEtag(stats.LastTransformedEtags.Values.Max());
 
                     Statistics.LoadSuccess(count);
-                    Statistics.BatchSuccesses = count;
 
                     stats.RecordLoadSuccess(count);
 
@@ -474,6 +475,7 @@ namespace Raven.Server.Documents.ETL
                     if (CancellationToken.IsCancellationRequested == false) 
                     {
                         string msg = $"Failed to load transformed data for '{Name}'";
+                        var messageWithException = $"{msg}: {e}";
 
                         if (Logger.IsOperationsEnabled)
                         {
@@ -481,12 +483,12 @@ namespace Raven.Server.Documents.ETL
                         }
 
                         stats.RecordLoadFailure();
-                        stats.RecordBatchStopReason($"{msg} : {e}");
+                        stats.RecordBatchStopReason(messageWithException);
 
                         EnterFallbackMode(Statistics.LastLoadErrorTime);
 
                         var count = stats.NumberOfExtractedItems.Sum(x => x.Value);
-                        Statistics.RecordLoadError(e.ToString(), count);
+                        Statistics.RecordLoadError(messageWithException, count);
                     }
 
                     return false;
@@ -824,13 +826,14 @@ namespace Raven.Server.Documents.ETL
                             catch (Exception e)
                             {
                                 var message = $"{Tag} Exception in ETL process '{Name}'";
+                                var messageWithException = $"{message}: {e}";
 
                                 if (Logger.IsOperationsEnabled)
                                     Logger.Operations(message, e);
-
-                                stats.RecordBatchStopReason($"{message} : {e}");
                                 
-                                // todo store relevant error here
+                                Statistics.RecordUnknownError(messageWithException);
+
+                                stats.RecordBatchStopReason(messageWithException);
                             }
                         }
 
@@ -915,13 +918,16 @@ namespace Raven.Server.Documents.ETL
                 catch (Exception e)
                 {
                     var msg = $"Unexpected error in {Tag} process: '{Name}'";
-
+                    var messageWithException = $"{msg}: {e}";
+                    
                     if (Logger.IsOperationsEnabled)
                     {
                         Logger.Operations(msg, e);
                     }
+                    
+                    Statistics.RecordUnknownError(messageWithException);
 
-                    ReportStopReasonToStats($"{msg} : {e}");
+                    ReportStopReasonToStats(messageWithException);
                 }
                 finally
                 {
