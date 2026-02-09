@@ -49,7 +49,8 @@ public class RavenDB_21192 : RavenTestBase
                 AffectedDocumentsCount = 1,
                 Step = EtlErrorStep.Transformation,
                 Severity = EtlErrorSeverity.Low,
-                Error = "Test message"
+                Error = "Test message",
+                NextBatchRetryTime = now.AddHours(5)
             };
 
             var error2 = new EtlProcessError()
@@ -77,6 +78,7 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal((long)error1.Step, errors[0].Step);
                 Assert.Equal((long)error1.Severity, errors[0].Severity);
                 Assert.Equal(error1.Error, errors[0].Error);
+                Assert.Equal(error1.NextBatchRetryTime, errors[0].NextBatchRetryTime);
                 
                 Assert.Equal(error2.CreatedAt, errors[1].CreatedAt);
                 Assert.Equal(error2.EtlProcessName, errors[1].EtlProcessName);
@@ -84,6 +86,7 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal((long)error2.Step, errors[1].Step);
                 Assert.Equal((long)error2.Severity, errors[1].Severity);
                 Assert.Equal(error2.Error, errors[1].Error);
+                Assert.Equal(error2.NextBatchRetryTime, errors[1].NextBatchRetryTime);
             }
                 
             var itemError1 = new EtlItemError()
@@ -215,7 +218,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(950, etlStats.LoadSuccesses);
             Assert.Equal(1020, etlStats.TransformationErrors);
             
-            Assert.InRange(etlStats.AverageErrorsRatio.GetRate(), 0.55, 0.58);
+            Assert.InRange(etlStats.AverageErrorsRatio.GetRate(), 0.40, 0.45);
         }
     }
     
@@ -452,7 +455,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(50, etlStats.LoadSuccesses);
             Assert.Equal(20, etlStats.TransformationErrors);
 
-            Assert.Equal(EtlProcessHealthStatus.Impaired, etlStats.HealthStatus);
+            Assert.Equal(EtlProcessHealthStatus.Disrupted, etlStats.HealthStatus);
 
             etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 950);
             
@@ -469,7 +472,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(950, etlStats.LoadSuccesses);
             Assert.Equal(20, etlStats.TransformationErrors);
 
-            Assert.Equal(EtlProcessHealthStatus.Healthy, etlStats.HealthStatus);
+            Assert.Equal(EtlProcessHealthStatus.Impaired, etlStats.HealthStatus);
             
             etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 1020);
             

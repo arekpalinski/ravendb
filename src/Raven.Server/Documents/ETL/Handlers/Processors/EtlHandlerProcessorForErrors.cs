@@ -53,7 +53,7 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
             await using (var writer = new AsyncBlittableJsonTextWriter(context, RequestHandler.ResponseBodyStream()))
             {
                 writer.WriteStartObject();
-                writer.WriteArray(context, nameof(Response.Results), response.Results, (w, c, stats) => w.WriteObject(c.ReadObject(stats.ToJson(), "etl/errors")));
+                writer.WriteArray(context, nameof(Response.Results), response.Results, (w, c, errors) => w.WriteObject(c.ReadObject(errors.ToJson(), "etl/errors")));
                 writer.WriteEndObject();
             }
         }

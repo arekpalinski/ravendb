@@ -1,8 +1,11 @@
+using System;
+
 namespace Raven.Server.Documents.ETL;
 
 public class EtlProcessErrorTableValue : EtlErrorTableValueBase
 {
     public long AffectedDocumentsCount;
+    public DateTime? NextBatchRetryTime;
     
     protected override string GetId()
     {
@@ -18,7 +21,8 @@ public class EtlProcessErrorTableValue : EtlErrorTableValueBase
             AffectedDocumentsCount = AffectedDocumentsCount,
             Step = (EtlErrorStep)Step,
             Severity = (EtlErrorSeverity)Severity,
-            Error = Error
+            Error = Error,
+            NextBatchRetryTime = NextBatchRetryTime
         };
     }
 }

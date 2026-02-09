@@ -13,14 +13,9 @@ public class EtlItemError : EtlErrorBase
 
     public override DynamicJsonValue ToJson()
     {
-        return new DynamicJsonValue
-        {
-            [nameof(Id)] = Id,
-            [nameof(EtlProcessName)] = EtlProcessName,
-            [nameof(CreatedAt)] = CreatedAt,
-            [nameof(DocumentId)] = DocumentId,
-            [nameof(Step)] = Step,
-            [nameof(Severity)] = Severity,
-        };
+        var json = base.ToJson();
+        json[nameof(DocumentId)] = DocumentId;
+
+        return json;
     }
 }

@@ -14,5 +14,17 @@ public abstract class EtlErrorBase
     public string Error { get; set; }
 
     protected virtual string GetId() => throw new NotImplementedException();
-    public virtual DynamicJsonValue ToJson() => throw new NotImplementedException();
+
+    public virtual DynamicJsonValue ToJson()
+    {
+        return new DynamicJsonValue
+        {
+            [nameof(Id)] = Id,
+            [nameof(EtlProcessName)] = EtlProcessName,
+            [nameof(CreatedAt)] = CreatedAt,
+            [nameof(Step)] = Step,
+            [nameof(Severity)] = Severity,
+            [nameof(Error)] = Error
+        };
+    }
 }

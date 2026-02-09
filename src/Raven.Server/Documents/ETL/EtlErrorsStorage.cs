@@ -30,6 +30,8 @@ public unsafe class EtlErrorsStorage(string databaseName)
     
     private List<EtlItemError> _itemErrors;
     
+    private static readonly long NextBatchRetryTimeNotSpecified = Bits.SwapBytes(long.MaxValue);
+    
     public void Initialize(StorageEnvironment environment, TransactionContextPool contextPool, ClusterTransactionOperationsMerger txMerger)
     {
         Environment = environment;
@@ -67,6 +69,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         var affectedDocumentsCountSwapped = Bits.SwapBytes(processError.AffectedDocumentsCount);
         var stepSwapped = Bits.SwapBytes((long)processError.Step);
         var severitySwapped = Bits.SwapBytes((long)processError.Severity);
+        var nextBatchRetryTimeTicks = processError.NextBatchRetryTime.HasValue ? Bits.SwapBytes(processError.NextBatchRetryTime.Value.Ticks) : NextBatchRetryTimeNotSpecified;
                 
         var id = context.GetLazyString(processError.Id);
         var etlProcessName = context.GetLazyString(processError.EtlProcessName);
@@ -89,6 +92,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
             tvb.Add((byte*)&stepSwapped, sizeof(long));
             tvb.Add((byte*)&severitySwapped, sizeof(long));
             tvb.Add(error.Buffer, error.Size);
+            tvb.Add((byte*)&nextBatchRetryTimeTicks, sizeof(long));
 
             table.Set(tvb);
         }
@@ -154,6 +158,11 @@ public unsafe class EtlErrorsStorage(string databaseName)
         var step = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.StepIndex, out _));
         var severity = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.SeverityIndex, out _));
         var error = reader.ReadString(Schemas.EtlProcessErrors.EtlProcessErrorsTable.ErrorIndex);
+        var nextBatchRetryTimeTicks = *(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.NextBatchRetryTimeIndex, out _);
+        
+        DateTime? nextBatchRetryTime = null;
+        if (nextBatchRetryTimeTicks != NextBatchRetryTimeNotSpecified)
+            nextBatchRetryTime = new DateTime(Bits.SwapBytes(nextBatchRetryTimeTicks));
         
         return new EtlProcessErrorTableValue
         {
@@ -162,7 +171,8 @@ public unsafe class EtlErrorsStorage(string databaseName)
             AffectedDocumentsCount = affectedDocumentsCount,
             Step = step,
             Severity = severity,
-            Error = error
+            Error = error,
+            NextBatchRetryTime = nextBatchRetryTime
         };
     }
     

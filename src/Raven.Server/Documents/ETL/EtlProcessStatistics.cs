@@ -126,8 +126,8 @@ namespace Raven.Server.Documents.ETL
                 HealthStatus = errorsEwma switch
                 {
                     _ when errorsEwma > _etlConfiguration.ProcessHealthStatusFailedThreshold => EtlProcessHealthStatus.Failed,
-                    _ when errorsEwma > _etlConfiguration.ProcessHealthStatusFailedThreshold => EtlProcessHealthStatus.Disrupted,
-                    _ when errorsEwma > _etlConfiguration.ProcessHealthStatusFailedThreshold => EtlProcessHealthStatus.Impaired,
+                    _ when errorsEwma > _etlConfiguration.ProcessHealthStatusDisruptedThreshold => EtlProcessHealthStatus.Disrupted,
+                    _ when errorsEwma > _etlConfiguration.ProcessHealthStatusImpairedThreshold => EtlProcessHealthStatus.Impaired,
                     _ => EtlProcessHealthStatus.Healthy
                 };
             }
@@ -232,7 +232,8 @@ namespace Raven.Server.Documents.ETL
                 AffectedDocumentsCount = count,
                 Step = EtlErrorStep.Load,
                 Severity = EtlErrorSeverity.Low,
-                Error = error
+                Error = error,
+                NextBatchRetryTime = NextBatchRetryTime
             };
             
             _etlErrorsStorage.EnqueueProcessError(etlError);

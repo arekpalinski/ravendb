@@ -1,3 +1,4 @@
+using System;
 using Sparrow.Json.Parsing;
 
 namespace Raven.Server.Documents.ETL;
@@ -5,6 +6,7 @@ namespace Raven.Server.Documents.ETL;
 public class EtlProcessError : EtlErrorBase
 {
     public long AffectedDocumentsCount { get; set; }
+    public DateTime? NextBatchRetryTime { get; set; }
     
     protected override string GetId()
     {
@@ -13,15 +15,10 @@ public class EtlProcessError : EtlErrorBase
 
     public override DynamicJsonValue ToJson()
     {
-        return new DynamicJsonValue
-        {
-            [nameof(Id)] = Id,
-            [nameof(EtlProcessName)] = EtlProcessName,
-            [nameof(CreatedAt)] = CreatedAt,
-            [nameof(AffectedDocumentsCount)] = AffectedDocumentsCount,
-            [nameof(Step)] = Step,
-            [nameof(Severity)] = Severity,
-            [nameof(Error)] = Error
-        };
+        var json = base.ToJson();
+        json[nameof(AffectedDocumentsCount)] = AffectedDocumentsCount;
+        json[nameof(NextBatchRetryTime)] = NextBatchRetryTime;
+
+        return json;
     }
 }
