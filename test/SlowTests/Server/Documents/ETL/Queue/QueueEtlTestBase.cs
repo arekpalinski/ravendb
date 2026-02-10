@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FastTests;
@@ -18,10 +19,10 @@ public abstract class QueueEtlTestBase : RavenTestBase
     {
         if (etlDone.Wait(timeout) == false)
         {
-            var loadError = await Etl.TryGetLoadErrorAsync(databaseName, config);
-            var transformationError = await Etl.TryGetTransformationErrorAsync(databaseName, config);
-
-            Assert.Fail($"ETL wasn't done. Load error: {loadError?.Error}. Transformation error: {transformationError?.Error}");
+            var loadErrors = await Etl.GetItemLoadErrorsAsync(databaseName, config);
+            var transformationErrors = await Etl.GetItemTransformationErrorsAsync(databaseName, config);
+            
+            Assert.Fail($"ETL wasn't done. Load errors: {loadErrors.First().Error}. Transformation error: {transformationErrors.First().Error}");
         }
     }
 

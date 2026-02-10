@@ -1204,9 +1204,11 @@ namespace Raven.Server.Documents.ETL
                             var results = ravenEtl.Transform(new[] { ravenEtlItem }, context, new EtlStatsScope(new EtlRunStats()),
                                 new EtlProcessState { SkippedTimeSeriesDocs = new HashSet<string> { testScript.DocumentId } });
 
+                            database.EtlErrorsStorage.ReadItemErrorsOfTask(testScript.Configuration.Name, out var etlItemErrors);
+                            
                             return new RavenEtlTestScriptResult
                             {
-                                TransformationErrors = ravenEtl.Statistics.TransformationErrorsInCurrentBatch.Errors.ToList(),
+                                ItemTransformationErrors = etlItemErrors.Where(x => x.Step == (int)EtlErrorStep.Transformation).Select(x => x.ToEtlItemError()).ToList(),
                                 Commands = results.ToList(),
                                 DebugOutput = debugOutput
                             };
@@ -1267,10 +1269,12 @@ namespace Raven.Server.Documents.ETL
                                         throw new NotSupportedException("Unknown transform type: " + olapItem.GetType());
                                 }
                             }
+                            
+                            database.EtlErrorsStorage.ReadItemErrorsOfTask(testScript.Configuration.Name, out var etlItemErrors);
 
                             return new OlapEtlTestScriptResult
                             {
-                                TransformationErrors = olapElt.Statistics.TransformationErrorsInCurrentBatch.Errors.ToList(),
+                                ItemTransformationErrors = etlItemErrors.Where(x => x.Step == (int)EtlErrorStep.Transformation).Select(x => x.ToEtlItemError()).ToList(),
                                 ItemsByPartition = itemsByPartition,
                                 DebugOutput = debugOutput
                             };

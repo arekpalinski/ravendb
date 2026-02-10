@@ -170,9 +170,11 @@ public abstract class QueueEtl<T> : EtlProcess<QueueItem, QueueWithItems<T>, Que
             summaries.Add(new QueueSummary { QueueName = record.Name, Messages = messages });
         }
 
+        Database.EtlErrorsStorage.ReadItemErrorsOfTask(Name, out var errors);
+
         return new QueueEtlTestScriptResult
         {
-            TransformationErrors = Statistics.TransformationErrorsInCurrentBatch.Errors.ToList(),
+            ItemTransformationErrors = errors.Where(error => error.Step == (int)EtlErrorStep.Transformation).Select(x => x.ToEtlItemError()).ToList(),
             Summary = summaries
         };
     }

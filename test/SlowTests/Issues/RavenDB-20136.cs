@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using FastTests;
 using FastTests.Utils;
@@ -45,10 +46,10 @@ namespace SlowTests.Issues
 
                 if (loadDone1.Wait(TimeSpan.FromSeconds(30)) == false)
                 {
-                    var loadError = await Etl.TryGetLoadErrorAsync(src.Database, configuration);
-                    var transformationError = await Etl.TryGetTransformationErrorAsync(src.Database, configuration);
+                    var loadErrors = await Etl.GetItemLoadErrorsAsync(src.Database, configuration);
+                    var transformationErrors = await Etl.GetItemTransformationErrorsAsync(src.Database, configuration);
 
-                    Assert.Fail($"ETL wasn't done. Load error: {loadError?.Error}. Transformation error: {transformationError?.Error}");
+                    Assert.Fail($"ETL wasn't done. Load errors: {loadErrors.First().Error}. Transformation error: {transformationErrors.First().Error}");
                 }
 
                 using (var session = dst.OpenAsyncSession())
@@ -66,10 +67,10 @@ namespace SlowTests.Issues
 
                 if (loadDone2.Wait(TimeSpan.FromSeconds(30)) == false)
                 {
-                    var loadError = await Etl.TryGetLoadErrorAsync(src.Database, configuration);
-                    var transformationError = await Etl.TryGetTransformationErrorAsync(src.Database, configuration);
+                    var loadErrors = await Etl.GetItemLoadErrorsAsync(src.Database, configuration);
+                    var transformationErrors = await Etl.GetItemTransformationErrorsAsync(src.Database, configuration);
 
-                    Assert.Fail($"ETL wasn't done. Load error: {loadError?.Error}. Transformation error: {transformationError?.Error}");
+                    Assert.Fail($"ETL wasn't done. Load errors: {loadErrors.First().Error}. Transformation error: {transformationErrors.First().Error}");
                 }
 
                 using (var session = dst.OpenAsyncSession())

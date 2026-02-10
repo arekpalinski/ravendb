@@ -234,62 +234,22 @@ namespace FastTests
                 });
             }
 
-            public async Task<EtlErrorInfo> TryGetLoadErrorAsync<T>(string databaseName, EtlConfiguration<T> config) where T : ConnectionString
+            public async Task<IEnumerable<EtlItemErrorTableValue>> GetItemLoadErrorsAsync<T>(string databaseName, EtlConfiguration<T> config) where T : ConnectionString
             {
                 var database = await _parent.GetDatabase(databaseName);
 
-                string tag;
+                database.EtlErrorsStorage.ReadItemErrorsOfTask($"{config.Name}/{config.Transforms.First().Name}", out var errors);
 
-                if (typeof(T) == typeof(ElasticSearchConnectionString))
-                    tag = ElasticSearchEtl.ElasticSearchEtlTag;
-                else if (typeof(T) == typeof(SqlConnectionString<>))
-                    tag = SqlEtl.SqlEtlTag;
-                else if (typeof(T) == typeof(RavenConnectionString))
-                    tag = RavenEtl.RavenEtlTag;
-                else if (typeof(T) == typeof(OlapConnectionString))
-                    tag = OlapEtl.OlaptEtlTag;
-                else if (typeof(T) == typeof(QueueConnectionString))
-                    tag = QueueEtl<QueueItem>.QueueEtlTag;
-                else
-                    throw new NotSupportedException($"Unknown ETL type: {typeof(T)}");
-
-                var loadAlert = database.NotificationCenter.EtlNotifications.GetAlert<EtlErrorsDetails>(tag, $"{config.Name}/{config.Transforms.First().Name}", AlertType.Etl_LoadError);
-
-                if (loadAlert is null)
-                    return null;
-
-                var details = (EtlErrorsDetails)loadAlert.Details;
-
-                return details.Errors.Count != 0 ? details.Errors.First() : null;
+                return errors.Where(error => error.Step == (int)EtlErrorStep.Load);
             }
 
-            public async Task<EtlErrorInfo> TryGetTransformationErrorAsync<T>(string databaseName, EtlConfiguration<T> config) where T : ConnectionString
+            public async Task<IEnumerable<EtlItemErrorTableValue>> GetItemTransformationErrorsAsync<T>(string databaseName, EtlConfiguration<T> config) where T : ConnectionString
             {
                 var database = await _parent.GetDatabase(databaseName);
 
-                string tag;
+                database.EtlErrorsStorage.ReadItemErrorsOfTask($"{config.Name}/{config.Transforms.First().Name}", out var errors);
 
-                if (typeof(T) == typeof(ElasticSearchConnectionString))
-                    tag = ElasticSearchEtl.ElasticSearchEtlTag;
-                else if (typeof(T) == typeof(SqlConnectionString))
-                    tag = SqlEtl.SqlEtlTag;
-                else if (typeof(T) == typeof(RavenConnectionString))
-                    tag = RavenEtl.RavenEtlTag;
-                else if (typeof(T) == typeof(OlapConnectionString))
-                    tag = OlapEtl.OlaptEtlTag;
-                else if (typeof(T) == typeof(QueueConnectionString))
-                    tag = QueueEtl<QueueItem>.QueueEtlTag;
-                else
-                    throw new NotSupportedException($"Unknown ETL type: {typeof(T)}");
-
-                var loadAlert = database.NotificationCenter.EtlNotifications.GetAlert<EtlErrorsDetails>(tag, $"{config.Name}/{config.Transforms.First().Name}", AlertType.Etl_TransformationError);
-                
-                if (loadAlert is null)
-                    return null;
-
-                var details = (EtlErrorsDetails)loadAlert.Details;
-
-                return details.Errors.Count != 0 ? details.Errors.First() : null;
+                return errors.Where(error => error.Step == (int)EtlErrorStep.Transformation);
             }
 
             public async Task<DocumentDatabase> GetDatabaseFor(IDocumentStore store, string docId)

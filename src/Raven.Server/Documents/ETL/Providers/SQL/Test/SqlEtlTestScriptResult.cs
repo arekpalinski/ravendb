@@ -8,7 +8,7 @@ namespace Raven.Server.Documents.ETL.Providers.SQL.Test
     {
         public List<TableQuerySummary> Summary { get; set; }
 
-        public List<EtlErrorInfo> LoadErrors{ get; set; }
+        public List<EtlItemError> ItemLoadErrors { get; set; }
 
         public List<SlowSqlStatementInfo> SlowSqlWarnings { get; set; }
     }

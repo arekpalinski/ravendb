@@ -16,7 +16,7 @@ namespace Raven.Server.Documents.ETL.Providers.Raven.Test
         {
             var json = new DynamicJsonValue
             {
-                [nameof(TransformationErrors)] = new DynamicJsonArray(TransformationErrors.Select(x => x.ToJson())),
+                [nameof(ItemTransformationErrors)] = new DynamicJsonArray(ItemTransformationErrors.Select(x => x.ToJson())),
                 [nameof(DebugOutput)] = new DynamicJsonArray(DebugOutput)
             };
 

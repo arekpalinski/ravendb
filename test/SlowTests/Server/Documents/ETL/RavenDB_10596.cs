@@ -26,55 +26,38 @@ namespace SlowTests.Server.Documents.ETL
             using (var src = GetDocumentStore())
             using (var dest = GetDocumentStore())
             {
+                var etlDone = Etl.WaitForEtlToComplete(src);
+                
                 Etl.AddEtl(src, dest, "Users", script: @"throw 'super exception';
                                        loadToUsers(this);");
 
                 var database = await GetDatabase(src.Database);
 
-                var notifications = new AsyncQueue<DynamicJsonValue>();
-                using (database.NotificationCenter.TrackActions(notifications, null))
+                for (int i = 0; i < 3; i++)
                 {
-                    for (int i = 0; i < 3; i++)
+                    etlDone.Reset();
+
+                    using (var session = src.OpenSession())
                     {
-                        using (var session = src.OpenSession())
-                        {
-                            session.Store(new User()
+                        session.Store(new User()
                             {
                                 Name = "Joe Doe"
                             }, $"users/{i}");
 
-                            session.SaveChanges();
-                        }
+                        session.SaveChanges();
+                    }
 
-                        // let's ignore notification that's triggered by document put (DatabaseStatsChanged)
+                    etlDone.Wait(TimeSpan.FromSeconds(5));
 
-                        DynamicJsonValue alert = null;
+                    using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
+                    {
+                        var itemErrors = itemErrorTableValues.ToList();
 
-                        for (int attempt = 0; attempt < 2; attempt++)
-                        {
-                            var notification = await notifications.TryDequeueAsync(TimeSpan.FromSeconds(30));
+                        Assert.Equal(i + 1, itemErrors.Count);
 
-                            Assert.True(notification.Item1);
-
-                            if (notification.Item2[nameof(Notification.Type)].ToString() == NotificationType.AlertRaised.ToString())
-                                alert = notification.Item2;
-                        }
-
-                        Assert.NotNull(alert);
-
-                        var details = (DynamicJsonValue)alert[nameof(AlertRaised.Details)];
-                        var errors = (DynamicJsonArray)details[nameof(EtlErrorsDetails.Errors)];
-
-                        Assert.Equal(i + 1, errors.Items.Count);
-                        
-                        for (int j = 0; j < i + 1; j++)
-                        {
-                            var error = (DynamicJsonValue)errors.Items.ToArray()[j];
-
-                            Assert.Equal($"users/{j}", error[nameof(EtlErrorInfo.DocumentId)]);
-                            Assert.Contains("super exception", error[nameof(EtlErrorInfo.Error)].ToString());
-                            Assert.NotNull(error[nameof(EtlErrorInfo.Date)]);
-                        }
+                        Assert.Equal($"users/{i}", itemErrors[i].DocumentId);
+                        Assert.Contains("super exception", itemErrors[i].Error);
+                        Assert.NotNull(itemErrors[i].CreatedAt);
                     }
                 }
             }

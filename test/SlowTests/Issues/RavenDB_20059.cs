@@ -1,8 +1,9 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using FastTests;
 using Raven.Client.Exceptions.Documents.Patching;
-using Raven.Server.NotificationCenter.Notifications.Details;
+using Raven.Server.Documents.ETL;
 using Tests.Infrastructure;
 using Xunit;
 using Xunit.Abstractions;
@@ -77,28 +78,29 @@ loadToContractsTemp(this);
 function deleteDocumentsOfContractsBehavior(docId) {
     return false;
     }";
-                Etl.AddEtl(srcStore, destStore, new[] { "Contracts" }, script, out var config);
+                Etl.AddEtl(srcStore, destStore, new[] { "Contracts" }, script, out _);
 
+                var etlDone = Etl.WaitForEtlToComplete(srcStore);
+                
                 using (var session = srcStore.OpenAsyncSession())
                 {
                     await session.StoreAsync(new Contract { Contact = new Contact { AdditionalInfo = 10 } });
                     await session.SaveChangesAsync();
                 }
-
-                var timeout = (int)TimeSpan.FromSeconds(15).TotalMilliseconds;
-
-                EtlErrorInfo error = null;
-                var value = await WaitForValueAsync(async () =>
+                
+                etlDone.Wait(TimeSpan.FromSeconds(5));
+                
+                var database = await GetDatabase(srcStore.Database);
+                
+                using (database.EtlErrorsStorage.ReadProcessErrorsOrderedByCreationDate(out var errorTableValues))
                 {
-                    error = await Etl.TryGetTransformationErrorAsync(srcStore.Database, config);
-                    return error != null;
-                }, true, timeout: timeout);
-
-                Assert.True(value);
-
-                Assert.NotNull(error);
-                Assert.True(error.Error.Contains($"{nameof(JavaScriptParseException)}: Failed to parse:"));
-                Assert.True(error.Error.Contains("Unexpected token ."));
+                    var processErrors = errorTableValues.ToList();
+                    
+                    Assert.Single(processErrors);
+                    Assert.Equal((int)EtlErrorStep.Configuration, processErrors.Single().Step);
+                    Assert.True(processErrors.Single().Error.Contains($"{nameof(JavaScriptParseException)}: Failed to parse:"));
+                    Assert.True(processErrors.Single().Error.Contains("Unexpected token ."));
+                }
             }
         }
 

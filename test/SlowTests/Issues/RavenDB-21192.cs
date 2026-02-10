@@ -650,7 +650,7 @@ public class RavenDB_21192 : RavenTestBase
     {
         var db = GetDatabase(store.Database).GetAwaiter().GetResult();
 
-        var alert = db.NotificationCenter.EtlNotifications.GetAlert<EtlErrorsDetails>(processTag, processName, AlertType.Etl_HealthStatusChange);
+        var alert = db.NotificationCenter.EtlNotifications.GetAlert<MessageDetails>(processTag, processName, AlertType.Etl_HealthStatusChange);
         
         Assert.NotNull(alert);
         Assert.Equal($"ETL task health status was changed to {healthStatus}.", alert.Message);

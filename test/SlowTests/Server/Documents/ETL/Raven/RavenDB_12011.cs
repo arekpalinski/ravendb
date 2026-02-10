@@ -85,7 +85,7 @@ loadToOrders(orderData);
                         
                         var result = (RavenEtlTestScriptResult)testResult;
                             
-                        Assert.Equal(0, result.TransformationErrors.Count);
+                        Assert.Equal(0, result.ItemTransformationErrors.Count);
 
                         Assert.Equal(2, result.Commands.Count);
 
@@ -149,7 +149,7 @@ function deleteDocumentsOfUsersBehavior(docId) {
                         
                         var result = (RavenEtlTestScriptResult)testResult;
                             
-                        Assert.Equal(0, result.TransformationErrors.Count);
+                        Assert.Equal(0, result.ItemTransformationErrors.Count);
 
                         Assert.Equal(0, result.Commands.Count);
 

@@ -87,7 +87,7 @@ loadToOrders(orderData);"
                         
                         var result = (RavenEtlTestScriptResult)testResult;
 
-                        Assert.Equal(0, result.TransformationErrors.Count);
+                        Assert.Equal(0, result.ItemTransformationErrors.Count);
 
                         Assert.Equal(4, result.Commands.Count);
 
@@ -230,7 +230,7 @@ loadToDifferentCollection(this);"
 
                     var result = (RavenEtlTestScriptResult)testResult;
 
-                    Assert.Equal(0, result.TransformationErrors.Count);
+                    Assert.Equal(0, result.ItemTransformationErrors.Count);
 
                     Assert.Equal(1, result.Commands.Count);
 

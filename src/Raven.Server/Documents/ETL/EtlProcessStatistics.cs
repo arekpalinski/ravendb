@@ -33,8 +33,6 @@ namespace Raven.Server.Documents.ETL
             _processName = processName;
             _notificationCenter = notificationCenter;
             _etlErrorsStorage = etlErrorsStorage;
-            TransformationErrorsInCurrentBatch = new EtlErrorsDetails();
-            LastLoadErrorsInCurrentBatch = new EtlErrorsDetails();
             LastSlowSqlWarningsInCurrentBatch = new SlowSqlDetails();
             _onDisposeActions = new OnDisposeActions(this);
             _etlConfiguration = etlConfiguration;
@@ -62,10 +60,6 @@ namespace Raven.Server.Documents.ETL
 
         public AlertRaised LastAlert { get; set; }
 
-        public EtlErrorsDetails TransformationErrorsInCurrentBatch { get; }
-
-        public EtlErrorsDetails LastLoadErrorsInCurrentBatch { get; }
-
         public SlowSqlDetails LastSlowSqlWarningsInCurrentBatch { get; }
 
         public bool WasLatestLoadSuccessful { get; set; }
@@ -85,8 +79,6 @@ namespace Raven.Server.Documents.ETL
 
         public IDisposable NewBatch()
         {
-            TransformationErrorsInCurrentBatch.Errors.Clear();
-            LastLoadErrorsInCurrentBatch.Errors.Clear();
             LastSlowSqlWarningsInCurrentBatch.Statements.Clear();
             LoadSuccessesInCurrentBatch = 0;
             BatchErrors = 0;
@@ -165,13 +157,6 @@ namespace Raven.Server.Documents.ETL
             BatchErrors++;
 
             LastTransformationErrorTime = now;
-
-            TransformationErrorsInCurrentBatch.Add(new EtlErrorInfo
-            {
-                Date = now,
-                DocumentId = documentId,
-                Error = e.ToString()
-            });
         }
 
         public void RecordItemLoadError(string error, LazyStringValue documentId, int count = 1)
@@ -195,13 +180,6 @@ namespace Raven.Server.Documents.ETL
             BatchErrors += count;
             
             LastLoadErrorTime = now;
-
-            LastLoadErrorsInCurrentBatch.Add(new EtlErrorInfo
-            {
-                Date = now,
-                DocumentId = documentId,
-                Error = error
-            });
         }
 
         public void RecordConfigurationError(string error)
@@ -240,12 +218,6 @@ namespace Raven.Server.Documents.ETL
             
             LastLoadErrorTime = now;
             BatchErrors += count;
-
-            LastLoadErrorsInCurrentBatch.Add(new EtlErrorInfo
-            {
-                Date = now,
-                Error = error
-            });
         }
         
         public void RecordUnknownError(string error)
@@ -330,8 +302,6 @@ namespace Raven.Server.Documents.ETL
             BatchErrors = 0;
             LastChangeVector = null;
             LastAlert = null;
-            TransformationErrorsInCurrentBatch.Errors.Clear();
-            LastLoadErrorsInCurrentBatch.Errors.Clear();
             LastSlowSqlWarningsInCurrentBatch.Statements.Clear();
         }
 

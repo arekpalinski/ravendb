@@ -233,7 +233,7 @@ function loadTimeSeriesOfUsersBehavior(doc, ts)
 
                 if (shouldEtlTs)
                 {
-                    Assert.Equal(0, result.TransformationErrors.Count);
+                    Assert.Equal(0, result.ItemTransformationErrors.Count);
 
                     Assert.NotNull(timeSeriesCommand);
 
@@ -346,6 +346,8 @@ function loadTimeSeriesOfUsersBehavior(doc, ts)
 
             var (src, dest, _) = Etl.CreateSrcDestAndAddEtl(collections: new[] { "Users" }, script: null);
 
+            var etlDone = Etl.WaitForEtlToComplete(src);
+            
             using (var session = src.OpenAsyncSession())
             {
                 await session.StoreAsync(new User(), docId);
@@ -354,19 +356,18 @@ function loadTimeSeriesOfUsersBehavior(doc, ts)
 
                 await session.SaveChangesAsync();
             }
-            var connectionStringName = $"{src.Database}@{src.Urls.First()} to {dest.Database}@{dest.Urls.First()}/ETL : {src.Database}@{src.Urls.First()} to {dest.Database}@{dest.Urls.First()}";
+            
+            etlDone.Wait(TimeSpan.FromSeconds(5));
+            
             var database = await Databases.GetDocumentDatabaseInstanceFor(src);
 
-            var alert = await AssertWaitForNotNullAsync(() =>
+            using (database.EtlErrorsStorage.ReadProcessErrorsOrderedByCreationDate(out var processErrorsTableValues))
             {
-                var alert = database.NotificationCenter.EtlNotifications.GetAlert<EtlErrorsDetails>("Raven ETL", connectionStringName, AlertType.Etl_LoadError);
-                return Task.FromResult(alert);
-            });
+                var itemErrors = processErrorsTableValues.ToList();
 
-            var details = (EtlErrorsDetails)alert.Details;
-
-            Assert.Contains("Current ETL batch with '2' items was stopped", alert.Message);
-            Assert.Contains("System.NotSupportedException: Load isn't support for incremental time series 'INC:HeartRate' at document 'users/1'", details.Errors.First().Error);
+                Assert.Single(itemErrors);
+                Assert.Contains("System.NotSupportedException: Load isn't support for incremental time series 'INC:HeartRate' at document 'users/1'", itemErrors.Single().Error);
+            }
         }
 
         [RavenFact(RavenTestCategory.Etl)]

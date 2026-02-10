@@ -144,10 +144,10 @@ loadToOrders" + IndexSuffix + @"(orderData);";
         {
             if (etlDone.Wait(timeout) == false)
             {
-                var loadError = await Etl.TryGetLoadErrorAsync(databaseName, config);
-                var transformationError = await Etl.TryGetTransformationErrorAsync(databaseName, config);
+                var loadErrors = await Etl.GetItemLoadErrorsAsync(databaseName, config);
+                var transformationErrors = await Etl.GetItemTransformationErrorsAsync(databaseName, config);
 
-                Assert.Fail($"ETL wasn't done. Load error: {loadError?.Error}. Transformation error: {transformationError?.Error}");
+                Assert.Fail($"ETL wasn't done. Load errors: {loadErrors.First().Error}. Transformation error: {transformationErrors.First().Error}");
             }
         }
     }

@@ -169,7 +169,9 @@ namespace SlowTests.Server.Documents.ETL.ElasticSearch
                         }
                     },
                 };
-
+                
+                var etlDone = Etl.WaitForEtlToComplete(store);
+                
                 Etl.AddEtl(store, config, new ElasticSearchConnectionString { Name = "test", Nodes = new[] { "http://localhost:1234" } }); //wrong elastic search url
 
                 using (var session = store.OpenAsyncSession())
@@ -183,14 +185,18 @@ namespace SlowTests.Server.Documents.ETL.ElasticSearch
                     });
                     await session.SaveChangesAsync();
                 }
-
-                var alert = await AssertWaitForNotNullAsync(async () =>
-                {
-                    var error = await Etl.TryGetLoadErrorAsync(store.Database, config);
-                    return error;
-                }, timeout: (int)TimeSpan.FromMinutes(1).TotalMilliseconds);
                 
-                Assert.StartsWith("Raven.Server.Exceptions.ETL.ElasticSearch.ElasticSearchLoadException", alert.Error);
+                etlDone.Wait(TimeSpan.FromSeconds(15));
+                
+                var database = await GetDatabase(store.Database);
+
+                using (database.EtlErrorsStorage.ReadProcessErrorsOfTask($"{config.Name}/{config.Transforms.Single().Name}", out var processErrors))
+                {
+                    var processErrorsList = processErrors.ToList();
+                    
+                    Assert.Single(processErrorsList);
+                    Assert.Contains("Raven.Server.Exceptions.ETL.ElasticSearch.ElasticSearchLoadException", processErrorsList.Single().Error);
+                }
             }
         }
 
@@ -820,7 +826,7 @@ output('test output')"
                     
                     var result = (ElasticSearchEtlTestScriptResult)testResult;
 
-                    Assert.Equal(0, result.TransformationErrors.Count);
+                    Assert.Equal(0, result.ItemTransformationErrors.Count);
 
                     Assert.Equal(2, result.Summary.Count);
 
@@ -899,7 +905,7 @@ output('test output')"
                     
                     var result = (ElasticSearchEtlTestScriptResult)testResult;
 
-                    Assert.Equal(0, result.TransformationErrors.Count);
+                    Assert.Equal(0, result.ItemTransformationErrors.Count);
 
                     Assert.Equal(2, result.Summary.Count);
 

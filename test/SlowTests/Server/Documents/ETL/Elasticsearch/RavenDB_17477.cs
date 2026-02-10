@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Orders;
 using Raven.Client.Documents.Operations.ETL.ElasticSearch;
@@ -45,11 +46,11 @@ loadTo" + OrdersIndexName + @"(orderData);",
 
                 var alert = await AssertWaitForNotNullAsync(async () =>
                 {
-                    var error = await Etl.TryGetLoadErrorAsync(store.Database, config);
+                    var error = await Etl.GetItemLoadErrorsAsync(store.Database, config);
                     return error;
                 }, timeout: (int)TimeSpan.FromMinutes(1).TotalMilliseconds);
 
-                Assert.Contains($"The index '{OrdersIndexName}' has invalid mapping for 'Id' property.", alert.Error);
+                Assert.Contains($"The index '{OrdersIndexName}' has invalid mapping for 'Id' property.", alert.First().Error);
             }
         }
     }
