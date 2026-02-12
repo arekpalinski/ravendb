@@ -1204,11 +1204,11 @@ namespace Raven.Server.Documents.ETL
                             var results = ravenEtl.Transform(new[] { ravenEtlItem }, context, new EtlStatsScope(new EtlRunStats()),
                                 new EtlProcessState { SkippedTimeSeriesDocs = new HashSet<string> { testScript.DocumentId } });
 
-                            database.EtlErrorsStorage.ReadItemErrorsOfTask($"{testScript.Configuration.Name}/{testScript.Configuration.Transforms.First().Name}", out var etlItemErrors);
+                            var etlItemErrors = database.EtlErrorsStorage.GetInMemoryItemErrorsOfProcess($"{testScript.Configuration.Name}/{testScript.Configuration.Transforms.First().Name}");
                             
                             return new RavenEtlTestScriptResult
                             {
-                                ItemTransformationErrors = etlItemErrors.Where(x => x.Step == (int)EtlErrorStep.Transformation).Select(x => x.ToEtlItemError()).ToList(),
+                                ItemTransformationErrors = etlItemErrors.Where(x => x.Step == EtlErrorStep.Transformation).ToList(),
                                 Commands = results.ToList(),
                                 DebugOutput = debugOutput
                             };
@@ -1270,11 +1270,11 @@ namespace Raven.Server.Documents.ETL
                                 }
                             }
                             
-                            database.EtlErrorsStorage.ReadItemErrorsOfTask(testScript.Configuration.Name, out var etlItemErrors);
+                            var etlItemErrors = database.EtlErrorsStorage.GetInMemoryItemErrorsOfProcess($"{testScript.Configuration.Name}/{testScript.Configuration.Transforms.First().Name}");
 
                             return new OlapEtlTestScriptResult
                             {
-                                ItemTransformationErrors = etlItemErrors.Where(x => x.Step == (int)EtlErrorStep.Transformation).Select(x => x.ToEtlItemError()).ToList(),
+                                ItemTransformationErrors = etlItemErrors.Where(x => x.Step == EtlErrorStep.Transformation).ToList(),
                                 ItemsByPartition = itemsByPartition,
                                 DebugOutput = debugOutput
                             };

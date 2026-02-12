@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Raven.Server.Documents.TransactionMerger.Commands;
 using Raven.Server.NotificationCenter;
 using Raven.Server.ServerWide;
@@ -458,6 +459,11 @@ public unsafe class EtlErrorsStorage(string databaseName)
                 table.DeleteByKey(errorId);
             }
         }
+    }
+
+    internal List<EtlItemError> GetInMemoryItemErrorsOfProcess(string processName)
+    {
+        return _itemErrors.Where(itemError => itemError.EtlProcessName == processName).ToList();
     }
 
     internal void DeleteOldestItemErrorsOfTask(string etlProcessName)

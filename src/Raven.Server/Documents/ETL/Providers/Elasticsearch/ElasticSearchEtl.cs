@@ -294,11 +294,11 @@ namespace Raven.Server.Documents.ETL.Providers.ElasticSearch
                 });
             }
 
-            Database.EtlErrorsStorage.ReadItemErrorsOfTask(Name, out var errors);
+            var etlItemErrors = Database.EtlErrorsStorage.GetInMemoryItemErrorsOfProcess(Name);
             
             return new ElasticSearchEtlTestScriptResult
             {
-                ItemTransformationErrors = errors.Where(error => error.Step == (int)EtlErrorStep.Transformation).Select(x => x.ToEtlItemError()).ToList(),
+                ItemTransformationErrors = etlItemErrors.Where(x => x.Step == EtlErrorStep.Transformation).ToList(),
                 Summary = summaries
             };
         }

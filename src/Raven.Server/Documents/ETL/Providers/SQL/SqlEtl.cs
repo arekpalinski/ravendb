@@ -179,14 +179,12 @@ namespace Raven.Server.Documents.ETL.Providers.SQL
                 }
             }
 
-            Database.EtlErrorsStorage.ReadItemErrorsOfTask(Name, out var itemErrors);
-
-            var etlItemErrorTableValues = itemErrors.ToList();
+            var etlItemErrors = Database.EtlErrorsStorage.GetInMemoryItemErrorsOfProcess(Name);
             
             return new SqlEtlTestScriptResult
             {
-                ItemTransformationErrors = etlItemErrorTableValues.Where(error => error.Step == (int)EtlErrorStep.Transformation).Select(x => x.ToEtlItemError()).ToList(),
-                ItemLoadErrors = etlItemErrorTableValues.Where(error => error.Step == (int)EtlErrorStep.Load).Select(x => x.ToEtlItemError()).ToList(),
+                ItemTransformationErrors = etlItemErrors.Where(error => error.Step == EtlErrorStep.Transformation).ToList(),
+                ItemLoadErrors = etlItemErrors.Where(error => error.Step == EtlErrorStep.Load).ToList(),
                 SlowSqlWarnings = Statistics.LastSlowSqlWarningsInCurrentBatch.Statements.ToList(),
                 Summary = summaries
             };
