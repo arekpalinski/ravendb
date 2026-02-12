@@ -5,9 +5,10 @@ namespace Raven.Server.NotificationCenter.Notifications
     {
         Etl_Error,
         Etl_Warning,
+        
+        // Backward compatibility
         Etl_TransformationError,
         Etl_LoadError,
-        Etl_HealthStatusChange,
         
         QueueSink_Error,
         QueueSink_Warning,
@@ -96,5 +97,6 @@ namespace Raven.Server.NotificationCenter.Notifications
         ConflictRevisionsExceeded,
         
         SqlConnectionString_DeprecatedFactoryReplaced,
+        Etl_HealthStatusChange,
     }
 }

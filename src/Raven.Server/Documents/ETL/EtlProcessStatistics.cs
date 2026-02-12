@@ -2,7 +2,6 @@
 using Raven.Client.Util;
 using Raven.Server.Config.Categories;
 using Raven.Server.NotificationCenter;
-using Raven.Server.NotificationCenter.Notifications;
 using Raven.Server.NotificationCenter.Notifications.Details;
 using Raven.Server.Utils.Metrics;
 using Sparrow.Json;

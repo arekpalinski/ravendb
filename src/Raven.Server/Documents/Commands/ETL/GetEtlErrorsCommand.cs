@@ -1,5 +1,5 @@
-using System;
 using System.Net.Http;
+using Microsoft.AspNetCore.WebUtilities;
 using Raven.Client.Documents.Conventions;
 using Raven.Client.Http;
 using Raven.Server.Documents.ETL.Stats;
@@ -25,13 +25,13 @@ internal sealed class GetEtlErrorsCommand : RavenCommand<EtlProcessErrors[]>
 
         if (_names is { Length: > 0 })
         {
-            for (var i = 0; i < _names.Length; i++)
-                url += $"{(i == 0 ? "?" : "&")}name={Uri.EscapeDataString(_names[i])}";
+            foreach (var name in _names)
+            {
+                url = QueryHelpers.AddQueryString(url, "name", name);
+            }
         }
 
-        var request = new HttpRequestMessage { Method = HttpMethod.Get };
-
-        return request;
+        return new HttpRequestMessage { Method = HttpMethod.Get };
     }
 
     public override void SetResponse(JsonOperationContext context, BlittableJsonReaderObject response, bool fromCache)
