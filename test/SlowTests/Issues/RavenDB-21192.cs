@@ -14,9 +14,12 @@ using Raven.Client.ServerWide.Operations;
 using Raven.Server.Config;
 using Raven.Server.Documents.ETL;
 using Raven.Server.Documents.ETL.Handlers.Processors;
+using Raven.Server.Documents.ETL.Providers.Raven;
+using Raven.Server.Documents.ETL.Providers.Raven.Test;
 using Raven.Server.Documents.ETL.Stats;
 using Raven.Server.NotificationCenter.Notifications;
 using Raven.Server.NotificationCenter.Notifications.Details;
+using Raven.Server.ServerWide.Context;
 using Sparrow.Json;
 using Tests.Infrastructure;
 using Xunit;
@@ -38,7 +41,7 @@ public class RavenDB_21192 : RavenTestBase
         
         using (var store = GetDocumentStore())
         {
-            var database = GetDatabase(store.Database).Result;
+            var database = GetDatabase(store.Database).GetAwaiter().GetResult();
 
             var now = DateTime.Now;
 
@@ -50,7 +53,8 @@ public class RavenDB_21192 : RavenTestBase
                 Step = EtlErrorStep.Transformation,
                 Severity = EtlErrorSeverity.Low,
                 Error = "Test message",
-                NextBatchRetryTime = now.AddHours(5)
+                NextBatchRetryTime = now.AddHours(5),
+                AdditionalInfo = "some additional info"
             };
 
             var error2 = new EtlProcessError()
@@ -79,6 +83,7 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal((long)error1.Severity, errors[0].Severity);
                 Assert.Equal(error1.Error, errors[0].Error);
                 Assert.Equal(error1.NextBatchRetryTime, errors[0].NextBatchRetryTime);
+                Assert.Equal(error1.AdditionalInfo, errors[0].AdditionalInfo);
                 
                 Assert.Equal(error2.CreatedAt, errors[1].CreatedAt);
                 Assert.Equal(error2.EtlProcessName, errors[1].EtlProcessName);
@@ -87,6 +92,7 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal((long)error2.Severity, errors[1].Severity);
                 Assert.Equal(error2.Error, errors[1].Error);
                 Assert.Equal(error2.NextBatchRetryTime, errors[1].NextBatchRetryTime);
+                Assert.Equal(error2.AdditionalInfo, errors[1].AdditionalInfo);
             }
                 
             var itemError1 = new EtlItemError()
@@ -114,6 +120,7 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal((long)itemError1.Step, itemErrors[0].Step);
                 Assert.Equal((long)itemError1.Severity, itemErrors[0].Severity);
                 Assert.Equal(itemError1.Error, itemErrors[0].Error);
+                Assert.Equal(itemError1.AdditionalInfo, itemErrors[0].AdditionalInfo);
             }
 
             using (database.EtlErrorsStorage.ReadProcessErrorsOfTask(processName1, out var firstTaskErrors))
@@ -184,7 +191,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(50, etlStats.LoadSuccesses);
             Assert.Equal(20, etlStats.TransformationErrors);
             
-            Assert.InRange(etlStats.AverageErrorsRatio.GetRate(), 0.64, 0.68);
+            Assert.InRange(etlStats.AverageErrorsRatio.GetRate(), 0.75, 0.83);
             
             etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 950);
 
@@ -201,7 +208,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(950, etlStats.LoadSuccesses);
             Assert.Equal(20, etlStats.TransformationErrors);
             
-            Assert.InRange(etlStats.AverageErrorsRatio.GetRate(), 0.05, 0.10);
+            Assert.InRange(etlStats.AverageErrorsRatio.GetRate(), 0.15, 0.20);
             
             etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.TransformationErrors >= 510);
             
@@ -218,7 +225,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(950, etlStats.LoadSuccesses);
             Assert.Equal(1020, etlStats.TransformationErrors);
             
-            Assert.InRange(etlStats.AverageErrorsRatio.GetRate(), 0.40, 0.45);
+            Assert.InRange(etlStats.AverageErrorsRatio.GetRate(), 0.55, 0.60);
         }
     }
     
@@ -688,7 +695,7 @@ public class RavenDB_21192 : RavenTestBase
             
             etlDone.Wait(TimeSpan.FromSeconds(10));
             
-            var database = GetDatabase(src.Database).Result;
+            var database = GetDatabase(src.Database).GetAwaiter().GetResult();
             using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
             {
                 var itemErrors = itemErrorTableValues.ToList();
@@ -770,7 +777,7 @@ public class RavenDB_21192 : RavenTestBase
             
             etlDone.Wait(TimeSpan.FromSeconds(20));
             
-            var database = GetDatabase(src.Database).Result;
+            var database = GetDatabase(src.Database).GetAwaiter().GetResult();
             using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
             {
                 var itemErrors = itemErrorTableValues.ToList();
@@ -932,6 +939,62 @@ public class RavenDB_21192 : RavenTestBase
             
             etlStats = GetEtlStats(src, $"{etlName1}/{transformationName1}");
             */
+        }
+    }
+    
+    [RavenFact(RavenTestCategory.Etl)]
+    public void TestScriptErrorsShouldNotBePersisted()
+    {
+        //const string etlName = "simulate";
+        //const string transformationName = "Users";
+        
+        using (var store = GetDocumentStore())
+        {
+            var user = new User() { Id = "users/1", Name = "Joe Doe" };
+            
+            using (var session = store.OpenSession())
+            {
+                session.Store(user);
+                session.SaveChanges();
+            }
+
+            var database = GetDatabase(store.Database).GetAwaiter().GetResult();
+
+            using (database.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
+            {
+                var testResult = RavenEtl.TestScript(new TestRavenEtlScript
+                {
+                    DocumentId = user.Id,
+                    Configuration = new RavenEtlConfiguration()
+                    {
+                        Name = "simulate",
+                        Transforms =
+                        {
+                            new Transformation()
+                            {
+                                Collections = { "Users" },
+                                Name = "Users",
+                                Script =
+                                    """
+                                    throw new Error("dummy error"); 
+                                    loadToUsers(this);
+                                    """
+                            }
+                        }
+                    }
+                }, database, database.ServerStore, context);
+                
+                var result = (RavenEtlTestScriptResult)testResult;
+                            
+                Assert.Equal(1, result.ItemTransformationErrors.Count);
+                
+                using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
+                {
+                    var itemErrors = itemErrorTableValues.ToList();
+
+                    Assert.Empty(itemErrors);
+                }
+            }
         }
     }
 

@@ -22,7 +22,8 @@ public class EtlProcessErrorTableValue : EtlErrorTableValueBase
             Step = (EtlErrorStep)Step,
             Severity = (EtlErrorSeverity)Severity,
             Error = Error,
-            NextBatchRetryTime = NextBatchRetryTime
+            NextBatchRetryTime = NextBatchRetryTime,
+            AdditionalInfo = AdditionalInfo
         };
     }
 }

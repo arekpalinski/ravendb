@@ -52,13 +52,11 @@ namespace Raven.Server.Documents.ETL
 
         public int TransformationSuccesses { get; private set; }
 
-        public int LoadErrors { get; set; }
+        public int LoadErrors { get; private set; }
 
         public int LoadSuccesses { get; private set; }
 
         public int LoadSuccessesInCurrentBatch { get; private set; }
-
-        public AlertRaised LastAlert { get; set; }
 
         public SlowSqlDetails LastSlowSqlWarningsInCurrentBatch { get; }
 
@@ -80,8 +78,6 @@ namespace Raven.Server.Documents.ETL
         public IDisposable NewBatch()
         {
             LastSlowSqlWarningsInCurrentBatch.Statements.Clear();
-            LoadSuccessesInCurrentBatch = 0;
-            BatchErrors = 0;
             
             return _onDisposeActions;
         }
@@ -98,6 +94,7 @@ namespace Raven.Server.Documents.ETL
             
             void ResetBatchStatistics()
             {
+                LoadSuccessesInCurrentBatch = 0;
                 BatchErrors = 0;
             }
         }
@@ -263,7 +260,6 @@ namespace Raven.Server.Documents.ETL
         {
             var json = new DynamicJsonValue
             {
-                [nameof(LastAlert)] = LastAlert?.ToJson(),
                 [nameof(LastTransformationErrorTime)] = LastTransformationErrorTime,
                 [nameof(LastLoadErrorTime)] = LastLoadErrorTime,
                 [nameof(LastProcessedEtag)] = LastProcessedEtag,
@@ -301,7 +297,6 @@ namespace Raven.Server.Documents.ETL
             LoadErrors = 0;
             BatchErrors = 0;
             LastChangeVector = null;
-            LastAlert = null;
             LastSlowSqlWarningsInCurrentBatch.Statements.Clear();
         }
 

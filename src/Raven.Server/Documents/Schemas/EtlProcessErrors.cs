@@ -26,6 +26,7 @@ public static class EtlProcessErrors
         public const int SeverityIndex = 5;
         public const int ErrorIndex = 6;
         public const int NextBatchRetryTimeIndex = 7;
+        public const int AdditionalInfoIndex = 8;
     }
 
     static EtlProcessErrors()

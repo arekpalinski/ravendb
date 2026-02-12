@@ -1204,7 +1204,7 @@ namespace Raven.Server.Documents.ETL
                             var results = ravenEtl.Transform(new[] { ravenEtlItem }, context, new EtlStatsScope(new EtlRunStats()),
                                 new EtlProcessState { SkippedTimeSeriesDocs = new HashSet<string> { testScript.DocumentId } });
 
-                            database.EtlErrorsStorage.ReadItemErrorsOfTask(testScript.Configuration.Name, out var etlItemErrors);
+                            database.EtlErrorsStorage.ReadItemErrorsOfTask($"{testScript.Configuration.Name}/{testScript.Configuration.Transforms.First().Name}", out var etlItemErrors);
                             
                             return new RavenEtlTestScriptResult
                             {

@@ -10,6 +10,7 @@ public abstract class EtlErrorTableValueBase
     public long Step;
     public long Severity;
     public string Error;
+    public string AdditionalInfo;
 
     protected virtual string GetId() => throw new NotSupportedException();
 }

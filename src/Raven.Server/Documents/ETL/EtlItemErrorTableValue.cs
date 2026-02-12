@@ -18,7 +18,8 @@ public class EtlItemErrorTableValue : EtlErrorTableValueBase
             DocumentId = DocumentId,
             Step = (EtlErrorStep)Step,
             Severity = (EtlErrorSeverity)Severity,
-            Error = Error
+            Error = Error,
+            AdditionalInfo = AdditionalInfo
         };
     }
 }

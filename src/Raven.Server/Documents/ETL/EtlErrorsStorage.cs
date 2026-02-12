@@ -74,6 +74,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         var id = context.GetLazyString(processError.Id);
         var etlProcessName = context.GetLazyString(processError.EtlProcessName);
         var error = context.GetLazyString(processError.Error);
+        var additionalInfo = context.GetLazyString(processError.AdditionalInfo);
         
         using (Slice.From(context.Transaction.InnerTransaction.Allocator, etlProcessName, out Slice etlProcessNameSlice))
         {
@@ -93,6 +94,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
             tvb.Add((byte*)&severitySwapped, sizeof(long));
             tvb.Add(error.Buffer, error.Size);
             tvb.Add((byte*)&nextBatchRetryTimeTicks, sizeof(long));
+            tvb.Add(additionalInfo.Buffer, additionalInfo.Size);
 
             table.Set(tvb);
         }
@@ -135,6 +137,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         var etlProcessName = context.GetLazyString(itemError.EtlProcessName);
         var documentId = context.GetLazyString(itemError.DocumentId);
         var error = context.GetLazyString(itemError.Error);
+        var additionalInfo = context.GetLazyString(itemError.AdditionalInfo);
 
         using (table.Allocate(out TableValueBuilder tvb))
         {
@@ -145,6 +148,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
             tvb.Add((byte*)&stepSwapped, sizeof(long));
             tvb.Add((byte*)&severitySwapped, sizeof(long));
             tvb.Add(error.Buffer, error.Size);
+            tvb.Add(additionalInfo.Buffer, additionalInfo.Size);
 
             table.Set(tvb);
         }
@@ -159,6 +163,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         var severity = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.SeverityIndex, out _));
         var error = reader.ReadString(Schemas.EtlProcessErrors.EtlProcessErrorsTable.ErrorIndex);
         var nextBatchRetryTimeTicks = *(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.NextBatchRetryTimeIndex, out _);
+        var additionalInfo = reader.ReadString(Schemas.EtlProcessErrors.EtlProcessErrorsTable.AdditionalInfoIndex);
         
         DateTime? nextBatchRetryTime = null;
         if (nextBatchRetryTimeTicks != NextBatchRetryTimeNotSpecified)
@@ -172,7 +177,8 @@ public unsafe class EtlErrorsStorage(string databaseName)
             Step = step,
             Severity = severity,
             Error = error,
-            NextBatchRetryTime = nextBatchRetryTime
+            NextBatchRetryTime = nextBatchRetryTime,
+            AdditionalInfo = additionalInfo
         };
     }
     
@@ -184,6 +190,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         var step = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlItemErrors.EtlItemErrorsTable.StepIndex, out _));
         var severity = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlItemErrors.EtlItemErrorsTable.SeverityIndex, out _));
         var error = reader.ReadString(Schemas.EtlItemErrors.EtlItemErrorsTable.ErrorIndex);
+        var additionalInfo = reader.ReadString(Schemas.EtlItemErrors.EtlItemErrorsTable.AdditionalInfoIndex);
         
         return new EtlItemErrorTableValue
         {
@@ -192,7 +199,8 @@ public unsafe class EtlErrorsStorage(string databaseName)
             DocumentId = documentId,
             Severity = severity,
             Step = step,
-            Error = error
+            Error = error,
+            AdditionalInfo = additionalInfo
         };
     }
     

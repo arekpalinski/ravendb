@@ -12,6 +12,7 @@ public abstract class EtlErrorBase
     public EtlErrorStep Step { get; set; }
     public EtlErrorSeverity Severity { get; set; }
     public string Error { get; set; }
+    public string AdditionalInfo { get; set; } = string.Empty;
 
     protected virtual string GetId() => throw new NotImplementedException();
 
@@ -24,7 +25,8 @@ public abstract class EtlErrorBase
             [nameof(CreatedAt)] = CreatedAt,
             [nameof(Step)] = Step,
             [nameof(Severity)] = Severity,
-            [nameof(Error)] = Error
+            [nameof(Error)] = Error,
+            [nameof(AdditionalInfo)] = AdditionalInfo
         };
     }
 }
