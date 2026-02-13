@@ -69,6 +69,7 @@ namespace Raven.Server.Monitoring.Snmp
             _objectStore.Add(new DatabaseRehabs(_databaseName, _databaseLandlord, _databaseIndex));
             _objectStore.Add(new DatabasePerformanceHints(_databaseName, _databaseLandlord, _databaseIndex));
             _objectStore.Add(new DatabaseIndexingErrors(_databaseName, _databaseLandlord, _databaseIndex));
+            _objectStore.Add(new DatabaseEtlErrors(_databaseName, _databaseLandlord, _databaseIndex));
 
             _objectStore.Add(new DatabaseDocPutsPerSecond(_databaseName, _databaseLandlord, _databaseIndex));
             _objectStore.Add(new DatabaseMapIndexIndexedPerSecond(_databaseName, _databaseLandlord, _databaseIndex));

@@ -461,7 +461,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         }
     }
 
-    internal List<EtlItemError> GetInMemoryItemErrorsOfProcess(string processName)
+    internal List<EtlItemError> ReadInMemoryItemErrorsOfProcess(string processName)
     {
         return _itemErrors.Where(itemError => itemError.EtlProcessName == processName).ToList();
     }

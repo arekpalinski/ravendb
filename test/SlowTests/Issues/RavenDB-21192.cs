@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using FastTests;
+using Lextm.SharpSnmpLib;
+using Lextm.SharpSnmpLib.Messaging;
 using Microsoft.AspNetCore.WebUtilities;
 using Newtonsoft.Json;
 using Raven.Client.Documents;
@@ -919,6 +922,88 @@ public class RavenDB_21192 : RavenTestBase
             }
         }
     }
+    
+    [RavenFact(RavenTestCategory.Monitoring | RavenTestCategory.Etl)]
+    public void CanGetEtlErrorsSnmpMetrics_V2C()
+    {
+        var port = ReservePort().Port;
+        var communityString = "public-test";
+        var customSettings = new Dictionary<string, string>
+        {
+            [RavenConfiguration.GetKey(x => x.Monitoring.Snmp.Enabled)] = "true",
+            [RavenConfiguration.GetKey(x => x.Monitoring.Snmp.SupportedVersions)] = "V2C",
+            [RavenConfiguration.GetKey(x => x.Monitoring.Snmp.Port)] = port.ToString(),
+            [RavenConfiguration.GetKey(x => x.Monitoring.Snmp.Community)] = communityString
+        };
+
+        UseNewLocalServer(customSettings);
+        
+        using (var src = GetDocumentStore(new Options { CreateDatabase = true }))
+        using (var dest = GetDocumentStore(new Options { CreateDatabase = true }))
+        {
+            const string connectionStringName1 = "ConnectionString1";
+            const string etlName1 = "ETL1";
+
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   throw new Error("dummy error");
+                                   loadToUsers(this);
+                                   """;
+
+            const string transformationName2 = "Transformation2";
+            const string script2 = """
+                                   throw new Error("dummy error");
+                                   loadToUsers(this);
+                                   """;
+
+            var collections1 = new List<string>() { "Users" };
+            
+            var etlDone1 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName1}/{transformationName1}" && statistics.TransformationErrors >= 123);
+            var etlDone2 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName1}/{transformationName2}" && statistics.TransformationErrors >= 123);
+
+            using (var session = src.OpenSession())
+            {
+                for (int i = 0; i < 123; i++)
+                    session.Store(new User { Name = "James Doe", Value = 0 });
+                
+                session.SaveChanges();
+            }
+            
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1, transformationName2], [script1, script2], collections1);
+            
+            etlDone1.Wait(TimeSpan.FromSeconds(15));
+            etlDone2.Wait(TimeSpan.FromSeconds(15));
+
+            var ip = new Uri(Server.WebUrl).Host;
+            var endpoint = new IPEndPoint(IPAddress.Parse(ip), port);
+            
+            using (var commands = src.Commands())
+            {
+                var cmd = new GetSnmpOidsCommand();
+
+                commands.Execute(cmd);
+
+                var res = cmd.Result as BlittableJsonReaderObject;
+
+                Assert.NotNull(res);
+                
+                res.TryGet("Databases", out BlittableJsonReaderObject databases);
+                databases.TryGet(src.Database, out BlittableJsonReaderObject databaseOids);
+                databaseOids.TryGet("@General", out BlittableJsonReaderArray generalEntries);
+                var databaseOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(generalEntries.ToString());
+
+                var etlErrorsOid = databaseOidsObjectList.Single(x => x.Description == "Number of ETL errors").OID;
+                
+                var result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(etlErrorsOid))],
+                    100);
+                
+                Assert.Equal(246, ((Integer32)result.Single().Data).ToInt32());
+            }
+        }
+    }
 
     private EtlProcessStatistics GetEtlStats(IDocumentStore store, string etlName)
     {
@@ -982,6 +1067,12 @@ public class RavenDB_21192 : RavenTestBase
         public string Id { get; set; }
         public string Name { get; set; }
     }
+
+    private class SnmpEntry
+    {
+        public string OID { get; set; }
+        public string Description { get; set; }
+    }
     
     private class GetEtlTaskErrorsCommand : RavenCommand<object>
     {
@@ -1027,6 +1118,29 @@ public class RavenDB_21192 : RavenTestBase
             Result = response;
         }
 
+        public override bool IsReadRequest => true;
+    }
+    
+    private class GetSnmpOidsCommand : RavenCommand<object>
+    {
+        public override HttpRequestMessage CreateRequest(JsonOperationContext ctx, ServerNode node, out string url)
+        {
+            url = $"{node.Url}/monitoring/snmp/oids";
+            
+            return new HttpRequestMessage
+            {
+                Method = HttpMethod.Get
+            };
+        }
+    
+        public override void SetResponse(JsonOperationContext context, BlittableJsonReaderObject response, bool fromCache)
+        {
+            if (response == null)
+                ThrowInvalidResponse();
+    
+            Result = response;
+        }
+    
         public override bool IsReadRequest => true;
     }
 }

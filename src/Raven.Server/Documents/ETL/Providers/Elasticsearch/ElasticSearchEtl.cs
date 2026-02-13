@@ -294,7 +294,7 @@ namespace Raven.Server.Documents.ETL.Providers.ElasticSearch
                 });
             }
 
-            var etlItemErrors = Database.EtlErrorsStorage.GetInMemoryItemErrorsOfProcess(Name);
+            var etlItemErrors = Database.EtlErrorsStorage.ReadInMemoryItemErrorsOfProcess(Name);
             
             return new ElasticSearchEtlTestScriptResult
             {

@@ -639,6 +639,10 @@ namespace Raven.Server.Monitoring.Snmp
             [SnmpDataType(SnmpType.Integer32)]
             [Description("Number of indexing errors")]
             public const string IndexingErrors = "5.2.{0}.1.16";
+            
+            [SnmpDataType(SnmpType.Integer32)]
+            [Description("Number of ETL errors")]
+            public const string EtlErrors = "5.2.{0}.1.17";
 
             [SnmpDataType(SnmpType.Gauge32)]
             [Description("Documents storage allocated size in MB")]

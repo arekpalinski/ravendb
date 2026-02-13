@@ -179,7 +179,7 @@ namespace Raven.Server.Documents.ETL.Providers.SQL
                 }
             }
 
-            var etlItemErrors = Database.EtlErrorsStorage.GetInMemoryItemErrorsOfProcess(Name);
+            var etlItemErrors = Database.EtlErrorsStorage.ReadInMemoryItemErrorsOfProcess(Name);
             
             return new SqlEtlTestScriptResult
             {
