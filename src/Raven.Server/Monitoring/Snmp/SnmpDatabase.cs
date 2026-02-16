@@ -8,6 +8,7 @@ using Raven.Client.Documents.Changes;
 using Raven.Client.Exceptions.Database;
 using Raven.Client.Util;
 using Raven.Server.Documents;
+using Raven.Server.Documents.ETL;
 using Raven.Server.Monitoring.Snmp.Objects.Database;
 using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Commands.Monitoring.Snmp;
@@ -19,6 +20,7 @@ namespace Raven.Server.Monitoring.Snmp
     public sealed class SnmpDatabase
     {
         private readonly Dictionary<string, int> _loadedIndexes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> _loadedEtls = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         private readonly DatabasesLandlord _databaseLandlord;
 
@@ -122,8 +124,10 @@ namespace Raven.Server.Monitoring.Snmp
                     var database = await _databaseLandlord.TryGetOrCreateResourceStore(_databaseName);
 
                     database.Changes.OnIndexChange += AddIndexIfNecessary;
+                    database.EtlLoader.ProcessAdded += AddEtlProcess;
 
-                    await AddIndexesFromDatabase(database);
+                    await AddIndexesFromDatabaseAsync(database);
+                    await AddEtlsFromDatabaseAsync(database);
 
                     _attached = true;
                 }
@@ -185,7 +189,56 @@ namespace Raven.Server.Monitoring.Snmp
             });
         }
 
-        private async Task AddIndexesFromDatabase(DocumentDatabase database)
+        private void AddEtlProcess(EtlProcess process)
+        {
+            Task.Factory.StartNew(async () =>
+            {
+                await _locker.WaitAsync();
+
+                try
+                {
+                    if (_loadedEtls.ContainsKey(process.Name))
+                        return;
+
+                    var database = await _databaseLandlord.TryGetOrCreateResourceStore(_databaseName);
+
+                    using (database.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
+                    {
+                        context.OpenReadTransaction();
+
+                        var mapping = GetEtlMapping(context, database.ServerStore, database.Name);
+                        if (mapping.ContainsKey(process.Name) == false)
+                        {
+                            context.CloseTransaction();
+
+                            var result = await database.ServerStore.SendToLeaderAsync(new UpdateSnmpDatabaseEtlsMappingCommand(_databaseName, new List<string>
+                            {
+                                process.Name
+                            }, RaftIdGenerator.NewId()));
+
+                            await database.ServerStore.Cluster.WaitForIndexNotification(result.Index);
+
+                            context.OpenReadTransaction();
+
+                            mapping = GetEtlMapping(context, database.ServerStore, database.Name);
+                        }
+
+                        LoadEtl(process.Name, (int)mapping[process.Name]);
+                    }
+                }
+                finally
+                {
+                    _locker.Release();
+                }
+            });
+        }
+
+        private void RemoveEtlProcess(EtlProcess process)
+        {
+            // todo
+        }
+
+        private async Task AddIndexesFromDatabaseAsync(DocumentDatabase database)
         {
             var indexes = database.IndexStore.GetIndexes().ToList();
 
@@ -221,6 +274,43 @@ namespace Raven.Server.Monitoring.Snmp
                     LoadIndex(index.Name, (int)mapping[index.Name]);
             }
         }
+        
+        private async Task AddEtlsFromDatabaseAsync(DocumentDatabase database)
+        {
+            var etls = database.EtlLoader.Processes;
+
+            if (etls.Count() == 0)
+                return;
+
+            using (database.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
+            {
+                context.OpenReadTransaction();
+
+                var mapping = GetEtlMapping(context, database.ServerStore, database.Name);
+
+                var missingEtls = new List<string>();
+                foreach (var etl in etls)
+                {
+                    if (mapping.ContainsKey(etl.Name) == false)
+                        missingEtls.Add(etl.Name);
+                }
+
+                if (missingEtls.Count > 0)
+                {
+                    context.CloseTransaction();
+
+                    var result = await database.ServerStore.SendToLeaderAsync(new UpdateSnmpDatabaseEtlsMappingCommand(database.Name, missingEtls, RaftIdGenerator.NewId()));
+                    await database.ServerStore.Cluster.WaitForIndexNotification(result.Index);
+
+                    context.OpenReadTransaction();
+
+                    mapping = GetEtlMapping(context, database.ServerStore, database.Name);
+                }
+
+                foreach (var etl in etls)
+                    LoadEtl(etl.Name, (int)mapping[etl.Name]);
+            }
+        }
 
         private void LoadIndex(string indexName, int index)
         {
@@ -245,10 +335,39 @@ namespace Raven.Server.Monitoring.Snmp
 
             _loadedIndexes[indexName] = index;
         }
+        
+        private void LoadEtl(string processName, int index)
+        {
+            if (_loadedEtls.ContainsKey(processName))
+                return;
+
+            _objectStore.Add(new DatabaseEtlErrorsOfTask(_databaseName, processName, _databaseLandlord, _databaseIndex, index));
+
+            _loadedEtls[processName] = index;
+        }
 
         internal static Dictionary<string, long> GetIndexMapping(TransactionOperationContext context, ServerStore serverStore, string databaseName)
         {
             var json = serverStore.Cluster.Read(context, UpdateSnmpDatabaseIndexesMappingCommand.GetStorageKey(databaseName));
+
+            var result = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            if (json == null)
+                return result;
+
+            var propertyDetails = new BlittableJsonReaderObject.PropertyDetails();
+            for (int i = 0; i < json.Count; i++)
+            {
+                json.GetPropertyByIndex(i, ref propertyDetails);
+
+                result[propertyDetails.Name] = (long)propertyDetails.Value;
+            }
+
+            return result;
+        }
+        
+        internal static Dictionary<string, long> GetEtlMapping(TransactionOperationContext context, ServerStore serverStore, string databaseName)
+        {
+            var json = serverStore.Cluster.Read(context, UpdateSnmpDatabaseEtlsMappingCommand.GetStorageKey(databaseName));
 
             var result = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             if (json == null)

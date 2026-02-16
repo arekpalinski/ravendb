@@ -9,6 +9,7 @@ using Lextm.SharpSnmpLib.Messaging;
 using Microsoft.AspNetCore.WebUtilities;
 using Newtonsoft.Json;
 using Raven.Client.Documents;
+using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Operations.ConnectionStrings;
 using Raven.Client.Documents.Operations.ETL;
 using Raven.Client.Documents.Operations.OngoingTasks;
@@ -988,8 +989,12 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.NotNull(res);
                 
                 res.TryGet("Databases", out BlittableJsonReaderObject databases);
+                
                 databases.TryGet(src.Database, out BlittableJsonReaderObject databaseOids);
+                
                 databaseOids.TryGet("@General", out BlittableJsonReaderArray generalEntries);
+                databaseOids.TryGet("Etls", out BlittableJsonReaderObject etlEntries);
+                
                 var databaseOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(generalEntries.ToString());
 
                 var etlErrorsOid = databaseOidsObjectList.Single(x => x.Description == "Number of ETL errors").OID;
@@ -998,9 +1003,33 @@ public class RavenDB_21192 : RavenTestBase
                     endpoint,
                     new OctetString(communityString),
                     [new Variable(new ObjectIdentifier(etlErrorsOid))],
-                    100);
+                    10000);
                 
                 Assert.Equal(246, ((Integer32)result.Single().Data).ToInt32());
+                
+                etlEntries.TryGet($"{etlName1}/{transformationName1}", out BlittableJsonReaderArray firstProcessEntries);
+                var firstProcessOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(firstProcessEntries.ToString());
+                var firstProcessEtlErrorsOid = firstProcessOidsObjectList.Single(x => x.Description == "Number of task ETL errors").OID;
+                
+                result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(firstProcessEtlErrorsOid))],
+                    10000);
+                
+                Assert.Equal(123, ((Integer32)result.Single().Data).ToInt32());
+                
+                etlEntries.TryGet($"{etlName1}/{transformationName2}", out BlittableJsonReaderArray secondProcessEntries);
+                var secondProcessOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(secondProcessEntries.ToString());
+                var secondProcessEtlErrorsOid = secondProcessOidsObjectList.Single(x => x.Description == "Number of task ETL errors").OID;
+                
+                result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(secondProcessEtlErrorsOid))],
+                    10000);
+                
+               Assert.Equal(123, ((Integer32)result.Single().Data).ToInt32());
             }
         }
     }

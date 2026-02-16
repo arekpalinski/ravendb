@@ -188,8 +188,9 @@ namespace Raven.Server.ServerWide
             [nameof(AddPrefixedShardingSettingCommand)] = 62_000,
             [nameof(DeletePrefixedShardingSettingCommand)] = 62_000,
             [nameof(UpdatePrefixedShardingSettingCommand)] = 62_000,
-            [nameof(RevisionsBinConfigurationCommand)] = 62_001
-
+            [nameof(RevisionsBinConfigurationCommand)] = 62_001,
+            
+            [nameof(UpdateSnmpDatabaseEtlsMappingCommand)] =  62_001
         };
 
         public bool CanPutCommand(string command)

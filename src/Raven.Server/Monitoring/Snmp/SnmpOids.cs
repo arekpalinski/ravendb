@@ -846,6 +846,78 @@ namespace Raven.Server.Monitoring.Snmp
                 }
             }
 
+            public sealed class Etls
+            {
+                private Etls()
+                {
+                }
+                
+                [Description("Number of task ETL errors")]
+                public const string EtlErrorsOfTask = "5.2.{0}.1.{{0}}.1";
+                
+                public static Dictionary<string, string> CreateMapping(long ignoreIndex)
+                {
+                    var dictionary = new Dictionary<string, string>();
+                    foreach (var field in typeof(Etls).GetFields())
+                    {
+                        var fieldValue = GetFieldValue(field);
+                        var databaseOid = string.Format(fieldValue.Oid, ignoreIndex);
+                        var etlOid = string.Format(databaseOid, ignoreIndex);
+                        dictionary.Add(Root + etlOid, fieldValue.Description);
+                    }
+
+                    return dictionary;
+                }
+
+                public static DynamicJsonValue ToJson(ServerStore serverStore, TransactionOperationContext context, RawDatabaseRecord record, long databaseIndex)
+                {
+                    var mapping = SnmpDatabase.GetEtlMapping(context, serverStore, record.DatabaseName);
+
+                    var djv = new DynamicJsonValue();
+                    if (mapping.Count == 0)
+                        return djv;
+
+                    foreach (var elasticSearchEtl in record.ElasticSearchEtls)
+                        Temp(elasticSearchEtl.Name);
+                    
+                    foreach (var sqlEtl in record.SqlEtls)
+                        Temp(sqlEtl.Name);
+
+                    foreach (var olapEtl in record.OlapEtls)
+                        Temp(olapEtl.Name);
+                    
+                    foreach (var queueEtl in record.QueueEtls)
+                        Temp(queueEtl.Name);
+
+                    foreach (var ravenEtl in record.RavenEtls)
+                    {
+                        foreach (var transformation in ravenEtl.Transforms)
+                        {
+                            Temp($"{ravenEtl.Name}/{transformation.Name}");
+                        }
+                    }
+                    
+                    return djv;
+
+                    void Temp(string name)
+                    {
+                        if (mapping.TryGetValue(name, out var index) == false)
+                            return;
+
+                        var array = new DynamicJsonArray();
+                        foreach (var field in typeof(Etls).GetFields())
+                        {
+                            var fieldValue = GetFieldValue(field);
+                            var databaseOid = string.Format(fieldValue.Oid, databaseIndex);
+                            var indexOid = string.Format(databaseOid, index);
+                            array.Add(CreateJsonItem(Root + indexOid, fieldValue.Description));
+                        }
+
+                        djv[name] = array;
+                    }
+                }
+            }
+
             public sealed class General
             {
                 private General()
@@ -1046,7 +1118,11 @@ namespace Raven.Server.Monitoring.Snmp
 
             public static Dictionary<string, string> CreateMapping()
             {
-                var dict = General.CreateMapping().Concat(Indexes.CreateMapping(0)).ToDictionary();
+                var dict = General.CreateMapping()
+                    .Concat(Indexes.CreateMapping(0))
+                    .Concat(Etls.CreateMapping(0))
+                    .ToDictionary();
+                
                 foreach (var field in typeof(Databases).GetFields())
                 {
                     var fieldValue = GetFieldValue(field);
@@ -1084,7 +1160,8 @@ namespace Raven.Server.Monitoring.Snmp
                         djv[kvp.Key] = new DynamicJsonValue
                         {
                             [$"@{nameof(General)}"] = array,
-                            [nameof(Indexes)] = Indexes.ToJson(serverStore, context, record, kvp.Value)
+                            [nameof(Indexes)] = Indexes.ToJson(serverStore, context, record, kvp.Value),
+                            [nameof(Etls)] = Etls.ToJson(serverStore, context, record, kvp.Value)
                         };
                     }
                 }

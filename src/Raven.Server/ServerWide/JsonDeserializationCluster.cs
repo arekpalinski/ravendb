@@ -292,7 +292,8 @@ namespace Raven.Server.ServerWide
             [nameof(AddPrefixedShardingSettingCommand)] = GenerateJsonDeserializationRoutine<AddPrefixedShardingSettingCommand>(),
             [nameof(DeletePrefixedShardingSettingCommand)] = GenerateJsonDeserializationRoutine<DeletePrefixedShardingSettingCommand>(),
             [nameof(UpdatePrefixedShardingSettingCommand)] = GenerateJsonDeserializationRoutine<UpdatePrefixedShardingSettingCommand>(),
-            [nameof(RevisionsBinConfigurationCommand)] = GenerateJsonDeserializationRoutine<RevisionsBinConfigurationCommand>()
+            [nameof(RevisionsBinConfigurationCommand)] = GenerateJsonDeserializationRoutine<RevisionsBinConfigurationCommand>(),
+            [nameof(UpdateSnmpDatabaseEtlsMappingCommand)] = GenerateJsonDeserializationRoutine<UpdateSnmpDatabaseEtlsMappingCommand>()
         };
     }
 }
