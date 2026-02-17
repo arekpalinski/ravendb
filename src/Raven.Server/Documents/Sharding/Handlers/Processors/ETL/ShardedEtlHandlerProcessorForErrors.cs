@@ -19,7 +19,7 @@ internal sealed class ShardedEtlHandlerProcessorForErrors : AbstractEtlHandlerPr
     
     protected override ValueTask HandleCurrentNodeAsync() => throw new NotSupportedException();
     
-    protected override Task HandleRemoteNodeAsync(ProxyCommand<EtlProcessErrors[]> command, OperationCancelToken token)
+    protected override Task HandleRemoteNodeAsync(ProxyCommand<EtlErrors[]> command, OperationCancelToken token)
     {
         var shardNumber = GetShardNumber();
     

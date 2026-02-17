@@ -7,7 +7,7 @@ using Sparrow.Json;
 
 namespace Raven.Server.Documents.Commands.ETL;
 
-internal sealed class GetEtlErrorsCommand : RavenCommand<EtlProcessErrors[]>
+internal sealed class GetEtlErrorsCommand : RavenCommand<EtlErrors[]>
 {
     private readonly string[] _names;
 
@@ -45,6 +45,6 @@ internal sealed class GetEtlErrorsCommand : RavenCommand<EtlProcessErrors[]>
     // ReSharper disable once ClassNeverInstantiated.Local
     private sealed class EtlTaskErrorsResponse
     {
-        public EtlProcessErrors[] Results { get; set; }
+        public EtlErrors[] Results { get; set; }
     }
 }

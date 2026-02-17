@@ -8,7 +8,7 @@ using Sparrow.Json;
 
 namespace Raven.Server.Documents.ETL.Handlers.Processors;
 
-internal abstract class AbstractEtlHandlerProcessorForErrors<TRequestHandler, TOperationContext> : AbstractHandlerProxyReadProcessor<EtlProcessErrors[], TRequestHandler, TOperationContext>
+internal abstract class AbstractEtlHandlerProcessorForErrors<TRequestHandler, TOperationContext> : AbstractHandlerProxyReadProcessor<EtlErrors[], TRequestHandler, TOperationContext>
     where TOperationContext : JsonOperationContext
     where TRequestHandler : AbstractDatabaseRequestHandler<TOperationContext>
 {
@@ -16,7 +16,7 @@ internal abstract class AbstractEtlHandlerProcessorForErrors<TRequestHandler, TO
     {
     }
     
-    protected override RavenCommand<EtlProcessErrors[]> CreateCommandForNode(string nodeTag)
+    protected override RavenCommand<EtlErrors[]> CreateCommandForNode(string nodeTag)
     {
         var names = GetNames();
 

@@ -36,7 +36,7 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
                 using (storage.ReadProcessErrorsOfTask(processName, out var processErrors))
                 using (storage.ReadItemErrorsOfTask(processName, out var itemErrors))
                 {
-                    var etlProcessErrors = new EtlProcessErrors()
+                    var etlProcessErrors = new EtlErrors()
                     {
                         ProcessName = processName,
                         ProcessErrors = processErrors.Select(x => x.ToEtlProcessError()).ToArray(),
@@ -59,11 +59,11 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
         }
     }
 
-    protected override Task HandleRemoteNodeAsync(ProxyCommand<EtlProcessErrors[]> command, OperationCancelToken token) => RequestHandler.ExecuteRemoteAsync(command, token.Token);
+    protected override Task HandleRemoteNodeAsync(ProxyCommand<EtlErrors[]> command, OperationCancelToken token) => RequestHandler.ExecuteRemoteAsync(command, token.Token);
 
     internal class Response
     {
-        public List<EtlProcessErrors> Results { get; set; } = new List<EtlProcessErrors>();        
+        public List<EtlErrors> Results { get; set; } = new List<EtlErrors>();        
     }
 }
 

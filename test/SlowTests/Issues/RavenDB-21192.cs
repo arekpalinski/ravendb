@@ -294,7 +294,7 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.NotNull(res);
                 
                 res.TryGet(nameof(EtlHandlerProcessorForErrors.Response.Results), out BlittableJsonReaderArray results);
-                var resultsObjectList = JsonConvert.DeserializeObject<List<EtlProcessErrors>>(results.ToString());
+                var resultsObjectList = JsonConvert.DeserializeObject<List<EtlErrors>>(results.ToString());
 
                 var firstTaskErrors = resultsObjectList.Single(x => x.ProcessName == $"{etlName1}/{transformationName1}");
                 
@@ -386,7 +386,7 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.NotNull(res);
                 
                 res.TryGet(nameof(EtlHandlerProcessorForErrors.Response.Results), out BlittableJsonReaderArray results);
-                var resultsObjectList = JsonConvert.DeserializeObject<List<EtlProcessErrors>>(results.ToString());
+                var resultsObjectList = JsonConvert.DeserializeObject<List<EtlErrors>>(results.ToString());
 
                 var firstTaskErrors = resultsObjectList.Single(x => x.ProcessName == $"{etlName1}/{transformationName1}");
                 

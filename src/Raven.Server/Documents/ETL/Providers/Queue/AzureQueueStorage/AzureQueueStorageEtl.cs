@@ -81,9 +81,8 @@ public sealed class AzureQueueStorageEtl : QueueEtl<AzureQueueStorageItem>
                     if (ex.ErrorCode is "RequestBodyTooLarge")
                     {
                         var message = $"""
-                                      ETL has partially loaded the data. 
-                                      Some of the documents were too big (>64KB) to be handled by Azure Queue Storage.
-                                      It caused load errors, that have been skipped. 
+                                      Document {queueItem.DocumentId} is too big (>64KB) to be handled by Azure Queue Storage.
+                                      It has been skipped from processing. 
                                       {ex}
                                       """;
                         

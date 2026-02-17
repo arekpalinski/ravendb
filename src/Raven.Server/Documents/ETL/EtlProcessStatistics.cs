@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Raven.Client.Util;
 using Raven.Server.Config.Categories;
 using Raven.Server.NotificationCenter;
@@ -42,8 +43,6 @@ namespace Raven.Server.Documents.ETL
         public string LastChangeVector { get; set; }
 
         public long LastProcessedEtag { get; set; }
-
-        public DateTime? LastTransformationErrorTime { get; private set; }
 
         public DateTime? LastLoadErrorTime { get; private set; }
 
@@ -150,8 +149,6 @@ namespace Raven.Server.Documents.ETL
             
             TransformationErrors++;
             BatchErrors++;
-
-            LastTransformationErrorTime = now;
         }
 
         public void RecordItemLoadError(string error, LazyStringValue documentId, int count = 1)
@@ -254,7 +251,6 @@ namespace Raven.Server.Documents.ETL
         {
             var json = new DynamicJsonValue
             {
-                [nameof(LastTransformationErrorTime)] = LastTransformationErrorTime,
                 [nameof(LastLoadErrorTime)] = LastLoadErrorTime,
                 [nameof(LastProcessedEtag)] = LastProcessedEtag,
                 [nameof(TransformationSuccesses)] = TransformationSuccesses,
@@ -263,7 +259,7 @@ namespace Raven.Server.Documents.ETL
                 [nameof(LoadErrors)] = LoadErrors,
                 [nameof(AverageErrorsRatio)] = AverageErrorsRatio.GetRate(),
                 [nameof(HealthStatus)] = HealthStatus,
-                [nameof(NextBatchRetryTime)] =  NextBatchRetryTime
+                [nameof(NextBatchRetryTime)] = NextBatchRetryTime
             };
             return json;
         }
@@ -271,7 +267,6 @@ namespace Raven.Server.Documents.ETL
         public override string ToString()
         {
             return $"{nameof(LastProcessedEtag)}: {LastProcessedEtag} " +
-                   $"{nameof(LastTransformationErrorTime)}: {LastTransformationErrorTime} " +
                    $"{nameof(LastLoadErrorTime)}: {LastLoadErrorTime} " +
                    $"{nameof(TransformationSuccesses)}: {TransformationSuccesses} " +
                    $"{nameof(TransformationErrors)}: {TransformationErrors} " +
@@ -282,7 +277,6 @@ namespace Raven.Server.Documents.ETL
         public void Reset()
         {
             LastProcessedEtag = 0;
-            LastTransformationErrorTime = null;
             LastLoadErrorTime = null;
             TransformationSuccesses = 0;
             TransformationErrors = 0;

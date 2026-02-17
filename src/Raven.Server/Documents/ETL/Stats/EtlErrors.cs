@@ -3,7 +3,7 @@ using Sparrow.Json.Parsing;
 
 namespace Raven.Server.Documents.ETL.Stats;
 
-public sealed class EtlProcessErrors : IDynamicJson
+public sealed class EtlErrors : IDynamicJson
 {
     public string ProcessName { get; set; }
 
