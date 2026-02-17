@@ -33,8 +33,8 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
             {
                 var processName = process.Name;
                 
-                using (storage.ReadProcessErrorsOfTask(processName, out var processErrors))
-                using (storage.ReadItemErrorsOfTask(processName, out var itemErrors))
+                using (storage.ReadProcessErrorsOfEtl(processName, out var processErrors))
+                using (storage.ReadItemErrorsOfEtl(processName, out var itemErrors))
                 {
                     var etlProcessErrors = new EtlErrors()
                     {

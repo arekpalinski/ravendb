@@ -17,9 +17,9 @@ public sealed class DatabaseEtlErrors : DatabaseScalarObjectBase<Integer32>
     
     private static int GetCount(DocumentDatabase database)
     {
-        database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrors);
-        database.EtlErrorsStorage.ReadProcessErrorsOrderedByCreationDate(out var processErrors);
+        database.EtlErrorsStorage.ReadAllItemErrors(out var itemErrors);
+        database.EtlErrorsStorage.ReadAllProcessErrors(out var processErrors);
         
-        return itemErrors.Count() + processErrors.Count();
+        return itemErrors.Count + processErrors.Count;
     }
 }

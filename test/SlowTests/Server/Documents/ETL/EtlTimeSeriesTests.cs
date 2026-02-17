@@ -361,7 +361,7 @@ function loadTimeSeriesOfUsersBehavior(doc, ts)
             
             var database = await Databases.GetDocumentDatabaseInstanceFor(src);
 
-            using (database.EtlErrorsStorage.ReadProcessErrorsOrderedByCreationDate(out var processErrorsTableValues))
+            using (database.EtlErrorsStorage.ReadAllProcessErrors(out var processErrorsTableValues))
             {
                 var itemErrors = processErrorsTableValues.ToList();
 

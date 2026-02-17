@@ -39,16 +39,35 @@ public class RavenDB_21192 : RavenTestBase
     [RavenFact(RavenTestCategory.Etl)]
     public void TestEtlErrorsStorage()
     {
-        const string processName1 = "ETL1";
-        const string processName2 = "ETL2";
+        const string connectionStringName1 = "ConnectionString1";
+        const string etlName1 = "ETL1";
+        const string transformationName1 = "Transformation1";
+        const string script1 = """
+                               if (this.Name == "James Doe")
+                               {
+                                    throw new Error("dummy error");
+                               }                   
+                               loadToUsers(this);
+                               """;
+        var collections1 = new List<string>() { "Users" };
         
-        using (var store = GetDocumentStore())
+        const string etlName2 = "ETL2";
+        const string transformationName2 = "Transformation2";
+
+        const string processName1 = $"{etlName1}/{transformationName1}";
+        const string processName2 = $"{etlName2}/{transformationName2}";
+        
+        using (var src = GetDocumentStore())
+        using (var dest = GetDocumentStore())
         {
-            var database = GetDatabase(store.Database).GetAwaiter().GetResult();
+            var database = GetDatabase(src.Database).GetAwaiter().GetResult();
+            
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1], [script1], collections1);
+            AddEtlTask(src, dest, etlName2, connectionStringName1, [transformationName2], [script1], collections1);
 
             var now = DateTime.Now;
 
-            var error1 = new EtlProcessError()
+            var error1 = new EtlProcessError
             {
                 CreatedAt = now,
                 EtlProcessName = processName1,
@@ -59,7 +78,7 @@ public class RavenDB_21192 : RavenTestBase
                 AdditionalInfo = "some additional info"
             };
 
-            var error2 = new EtlProcessError()
+            var error2 = new EtlProcessError
             {
                 CreatedAt = now.AddDays(1),
                 EtlProcessName = processName2,
@@ -71,7 +90,7 @@ public class RavenDB_21192 : RavenTestBase
             database.EtlErrorsStorage.EnqueueProcessError(error1);
             database.EtlErrorsStorage.EnqueueProcessError(error2);
 
-            using (database.EtlErrorsStorage.ReadProcessErrorsOrderedByCreationDate(out var errorTableValues))
+            using (database.EtlErrorsStorage.ReadAllProcessErrors(out var errorTableValues))
             {
                 var errors = errorTableValues.ToList();
                 
@@ -94,7 +113,7 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(error2.AdditionalInfo, errors[1].AdditionalInfo);
             }
                 
-            var itemError1 = new EtlItemError()
+            var itemError1 = new EtlItemError
             {
                 DocumentId = "doc/1", 
                 EtlProcessName = processName1,
@@ -103,10 +122,9 @@ public class RavenDB_21192 : RavenTestBase
                 Error = "Item error"
             };
             
-            //database.EtlErrorsStorage.RecordItemError(itemError1);
             database.EtlErrorsStorage.StoreItemErrors(processName1, [itemError1]);
             
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
+            using (database.EtlErrorsStorage.ReadAllItemErrors(out var itemErrorTableValues))
             {
                 var itemErrors = itemErrorTableValues.ToList();
 
@@ -120,7 +138,7 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(itemError1.AdditionalInfo, itemErrors[0].AdditionalInfo);
             }
 
-            using (database.EtlErrorsStorage.ReadProcessErrorsOfTask(processName1, out var firstTaskErrors))
+            using (database.EtlErrorsStorage.ReadProcessErrorsOfEtl(processName1, out var firstTaskErrors))
             {
                 var errors = firstTaskErrors.ToList();
                 
@@ -692,7 +710,7 @@ public class RavenDB_21192 : RavenTestBase
             etlDone.Wait(TimeSpan.FromSeconds(10));
             
             var database = GetDatabase(src.Database).GetAwaiter().GetResult();
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
+            using (database.EtlErrorsStorage.ReadAllItemErrors(out var itemErrorTableValues))
             {
                 var itemErrors = itemErrorTableValues.ToList();
 
@@ -723,7 +741,7 @@ public class RavenDB_21192 : RavenTestBase
             
             etlDone.Wait(TimeSpan.FromSeconds(20));
             
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
+            using (database.EtlErrorsStorage.ReadAllItemErrors(out var itemErrorTableValues))
             {
                 var itemErrors = itemErrorTableValues.ToList();
 
@@ -774,7 +792,7 @@ public class RavenDB_21192 : RavenTestBase
             etlDone.Wait(TimeSpan.FromSeconds(20));
             
             var database = GetDatabase(src.Database).GetAwaiter().GetResult();
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
+            using (database.EtlErrorsStorage.ReadAllItemErrors(out var itemErrorTableValues))
             {
                 var itemErrors = itemErrorTableValues.ToList();
 
@@ -784,7 +802,7 @@ public class RavenDB_21192 : RavenTestBase
             var deleteOp = new DeleteOngoingTaskOperation(taskId1, OngoingTaskType.RavenEtl);
             src.Maintenance.Send(deleteOp);
             
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
+            using (database.EtlErrorsStorage.ReadAllItemErrors(out var itemErrorTableValues))
             {
                 var itemErrors = itemErrorTableValues.ToList();
 
@@ -847,7 +865,7 @@ public class RavenDB_21192 : RavenTestBase
             etlDone2.Wait(TimeSpan.FromSeconds(15));
             
             var database = GetDatabase(src.Database).Result;
-            using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
+            using (database.EtlErrorsStorage.ReadAllItemErrors(out var itemErrorTableValues))
             {
                 var itemErrors = itemErrorTableValues.ToList();
 
@@ -906,7 +924,7 @@ public class RavenDB_21192 : RavenTestBase
                             
                 Assert.Equal(1, result.ItemTransformationErrors.Count);
                 
-                using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
+                using (database.EtlErrorsStorage.ReadAllItemErrors(out var itemErrorTableValues))
                 {
                     var itemErrors = itemErrorTableValues.ToList();
 

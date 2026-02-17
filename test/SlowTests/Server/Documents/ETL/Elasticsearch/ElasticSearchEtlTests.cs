@@ -190,7 +190,7 @@ namespace SlowTests.Server.Documents.ETL.ElasticSearch
                 
                 var database = await GetDatabase(store.Database);
 
-                using (database.EtlErrorsStorage.ReadProcessErrorsOfTask($"{config.Name}/{config.Transforms.Single().Name}", out var processErrors))
+                using (database.EtlErrorsStorage.ReadProcessErrorsOfEtl($"{config.Name}/{config.Transforms.Single().Name}", out var processErrors))
                 {
                     var processErrorsList = processErrors.ToList();
                     

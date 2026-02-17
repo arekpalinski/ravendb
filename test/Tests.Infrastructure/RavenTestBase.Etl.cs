@@ -238,7 +238,7 @@ namespace FastTests
             {
                 var database = await _parent.GetDatabase(databaseName);
 
-                database.EtlErrorsStorage.ReadItemErrorsOfTask($"{config.Name}/{config.Transforms.First().Name}", out var errors);
+                database.EtlErrorsStorage.ReadItemErrorsOfEtl($"{config.Name}/{config.Transforms.First().Name}", out var errors);
 
                 return errors.Where(error => error.Step == (int)EtlErrorStep.Load);
             }
@@ -247,7 +247,7 @@ namespace FastTests
             {
                 var database = await _parent.GetDatabase(databaseName);
 
-                database.EtlErrorsStorage.ReadItemErrorsOfTask($"{config.Name}/{config.Transforms.First().Name}", out var errors);
+                database.EtlErrorsStorage.ReadItemErrorsOfEtl($"{config.Name}/{config.Transforms.First().Name}", out var errors);
 
                 return errors.Where(error => error.Step == (int)EtlErrorStep.Transformation);
             }

@@ -97,13 +97,15 @@ namespace Raven.Server.Documents.ETL
         private void OnProcessAdded(EtlProcess process)
         {
             ProcessAdded?.Invoke(process);
+
+            _database.EtlErrorsStorage.CreateEtlErrorsTablesForProcess(process.Name);
         }
 
         private void OnProcessRemoved(EtlProcess process)
         {
             ProcessRemoved?.Invoke(process);
 
-            _database.EtlErrorsStorage.DeleteErrorsOfProcess(process.Name);
+            _database.EtlErrorsStorage.DeleteEtlErrorsTablesForProcess(process.Name);
         }
 
         private void LoadProcesses(DatabaseRecord record,

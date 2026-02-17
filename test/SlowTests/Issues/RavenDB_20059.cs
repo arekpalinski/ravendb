@@ -92,7 +92,7 @@ function deleteDocumentsOfContractsBehavior(docId) {
                 
                 var database = await GetDatabase(srcStore.Database);
                 
-                using (database.EtlErrorsStorage.ReadProcessErrorsOrderedByCreationDate(out var errorTableValues))
+                using (database.EtlErrorsStorage.ReadAllProcessErrors(out var errorTableValues))
                 {
                     var processErrors = errorTableValues.ToList();
                     

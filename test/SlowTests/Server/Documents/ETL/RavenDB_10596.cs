@@ -49,7 +49,7 @@ namespace SlowTests.Server.Documents.ETL
 
                     etlDone.Wait(TimeSpan.FromSeconds(5));
 
-                    using (database.EtlErrorsStorage.ReadItemErrorsOrderedByCreationDate(out var itemErrorTableValues))
+                    using (database.EtlErrorsStorage.ReadAllItemErrors(out var itemErrorTableValues))
                     {
                         var itemErrors = itemErrorTableValues.ToList();
 

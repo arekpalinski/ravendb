@@ -22,8 +22,8 @@ public sealed class DatabaseEtlErrorsOfTask : DatabaseEtlScalarObjectBase<OctetS
             {
                 var database = Landlord.TryGetOrCreateResourceStore(DatabaseName).Result;
                 
-                database.EtlErrorsStorage.ReadProcessErrorsOfTask(EtlName, out var processErrors);
-                database.EtlErrorsStorage.ReadItemErrorsOfTask(EtlName, out var itemErrors);
+                database.EtlErrorsStorage.ReadProcessErrorsOfEtl(EtlName, out var processErrors);
+                database.EtlErrorsStorage.ReadItemErrorsOfEtl(EtlName, out var itemErrors);
 
                 return new Integer32(processErrors.Count() + itemErrors.Count());
             }

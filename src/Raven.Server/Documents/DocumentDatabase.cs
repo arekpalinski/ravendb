@@ -182,7 +182,7 @@ namespace Raven.Server.Documents
                 MetricCacher = new DatabaseMetricCacher(this);
                 TxMerger = new DocumentsTransactionOperationsMerger(this);
                 ConfigurationStorage = new ConfigurationStorage(this);
-                EtlErrorsStorage = new EtlErrorsStorage(Name);
+                EtlErrorsStorage = new EtlErrorsStorage();
                 NotificationCenter = new DatabaseNotificationCenter(this);
                 _clusterTransactionErrorNotifier = new ClusterTransactionErrorNotifier(NotificationCenter, Name);
                 HugeDocuments = new HugeDocuments(NotificationCenter, configuration.PerformanceHints.HugeDocumentsCollectionSize,
@@ -410,7 +410,7 @@ namespace Raven.Server.Documents
                 _addToInitLog(LogMode.Information, "Initializing ConfigurationStorage");
                 ConfigurationStorage.Initialize();
                 
-                EtlErrorsStorage.Initialize(ConfigurationStorage.Environment, _serverStore.ContextPool, ServerStore.Engine.TxMerger);
+                EtlErrorsStorage.Initialize(DocumentsStorage.Environment, DocumentsStorage.ContextPool, TxMerger, EtlLoader);
 
                 _clusterTransactionErrorNotifier.Initialize();
 
