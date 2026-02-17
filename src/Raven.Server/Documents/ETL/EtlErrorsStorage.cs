@@ -29,8 +29,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
     private TransactionContextPool _contextPool;
     private ClusterTransactionOperationsMerger _txMerger;
     
-    private List<EtlItemError> _itemErrors;
-    
     private static readonly long NextBatchRetryTimeNotSpecified = Bits.SwapBytes(long.MaxValue);
     
     public void Initialize(StorageEnvironment environment, TransactionContextPool contextPool, ClusterTransactionOperationsMerger txMerger)
@@ -38,8 +36,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
         Environment = environment;
         _contextPool = contextPool;
         _txMerger = txMerger;
-        
-        _itemErrors = new List<EtlItemError>();
         
         using (contextPool.AllocateOperationContext(out TransactionOperationContext context))
         using (var tx = context.OpenWriteTransaction())
@@ -99,12 +95,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
         }
     }
 
-    internal void RecordItemError(EtlItemError itemError)
-    {
-        _itemErrors.Add(itemError);
-    }
-
-    internal void StoreItemErrors(string processName)
+    internal void StoreItemErrors(string processName, List<EtlItemError> itemErrors)
     {
         using (_contextPool.AllocateOperationContext(out TransactionOperationContext context))
         {
@@ -112,7 +103,7 @@ public unsafe class EtlErrorsStorage(string databaseName)
             {
                 var table = tx.InnerTransaction.OpenTable(Schemas.EtlItemErrors.Current, _itemErrorsTableName);
 
-                foreach (var itemError in _itemErrors)
+                foreach (var itemError in itemErrors)
                 {
                     StoreItemError(itemError, table, context);
                 }
@@ -122,8 +113,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
                 tx.Commit();
             }
         }
-        
-        _itemErrors.Clear();
     }
     
     private static void StoreItemError(EtlItemError itemError, Table table, JsonOperationContext context)
@@ -451,11 +440,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
                 table.DeleteByKey(errorId);
             }
         }
-    }
-
-    internal List<EtlItemError> ReadInMemoryItemErrorsOfProcess(string processName)
-    {
-        return _itemErrors.Where(itemError => itemError.EtlProcessName == processName).ToList();
     }
 
     internal void DeleteOldestItemErrorsOfTask(string etlProcessName)

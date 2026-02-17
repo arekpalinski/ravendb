@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using Raven.Client.Util;
 using Raven.Server.Config.Categories;
 using Raven.Server.NotificationCenter;
@@ -21,6 +22,7 @@ namespace Raven.Server.Documents.ETL
         private readonly OnDisposeActions _onDisposeActions;
 
         private bool _preventFromAddingAlertsToNotificationCenter;
+        private readonly List<EtlItemError> _itemErrors;
 
         public EtlProcessStatistics()
         {
@@ -38,6 +40,7 @@ namespace Raven.Server.Documents.ETL
             _etlConfiguration = etlConfiguration;
             AverageErrorsRatio = new TimeAgnosticEwma();
             HealthStatus = EtlProcessHealthStatus.Healthy;
+            _itemErrors = new List<EtlItemError>();
         }
 
         public string LastChangeVector { get; set; }
@@ -83,7 +86,8 @@ namespace Raven.Server.Documents.ETL
         internal void OnBatchCompletion()
         {
             UpdateHealthStatusOnBatchCompletion();
-            _etlErrorsStorage.StoreItemErrors(_processName);
+            _etlErrorsStorage.StoreItemErrors(_processName, _itemErrors);
+            _itemErrors.Clear();
             
             AverageErrorsRatio.UpdateOnBatchCompletion(BatchErrors, BatchErrors + LoadSuccessesInCurrentBatch);
             ResetBatchStatistics();
@@ -145,7 +149,7 @@ namespace Raven.Server.Documents.ETL
                 Error = e.ToString()
             };
             
-            _etlErrorsStorage.RecordItemError(itemError);
+            _itemErrors.Add(itemError);
             
             TransformationErrors++;
             BatchErrors++;
@@ -164,7 +168,7 @@ namespace Raven.Server.Documents.ETL
                 Error = error
             };
             
-            _etlErrorsStorage.RecordItemError(itemError);
+            _itemErrors.Add(itemError);
             WasLatestLoadSuccessful = false;
 
             LoadErrors += count; 
@@ -245,6 +249,11 @@ namespace Raven.Server.Documents.ETL
             _notificationCenter.EtlNotifications.AddSlowSqlWarnings(_processTag, _processName, LastSlowSqlWarningsInCurrentBatch.Statements);
 
             LastSlowSqlWarningsInCurrentBatch.Statements.Clear();
+        }
+        
+        internal List<EtlItemError> ReadInMemoryItemErrorsOfProcess(string processName)
+        {
+            return _itemErrors.Where(itemError => itemError.EtlProcessName == processName).ToList();
         }
 
         public DynamicJsonValue ToJson()
