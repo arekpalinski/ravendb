@@ -17,7 +17,6 @@ public class EtlItemErrorTableValue : EtlErrorTableValueBase
             EtlProcessName = EtlProcessName,
             DocumentId = DocumentId,
             Step = (EtlErrorStep)Step,
-            Severity = (EtlErrorSeverity)Severity,
             Error = Error,
             AdditionalInfo = AdditionalInfo
         };

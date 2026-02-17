@@ -9,7 +9,6 @@ using Lextm.SharpSnmpLib.Messaging;
 using Microsoft.AspNetCore.WebUtilities;
 using Newtonsoft.Json;
 using Raven.Client.Documents;
-using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Operations.ConnectionStrings;
 using Raven.Client.Documents.Operations.ETL;
 using Raven.Client.Documents.Operations.OngoingTasks;
@@ -55,7 +54,6 @@ public class RavenDB_21192 : RavenTestBase
                 EtlProcessName = processName1,
                 AffectedDocumentsCount = 1,
                 Step = EtlErrorStep.Transformation,
-                Severity = EtlErrorSeverity.Low,
                 Error = "Test message",
                 NextBatchRetryTime = now.AddHours(5),
                 AdditionalInfo = "some additional info"
@@ -67,7 +65,6 @@ public class RavenDB_21192 : RavenTestBase
                 EtlProcessName = processName2,
                 AffectedDocumentsCount = 21,
                 Step = EtlErrorStep.Load,
-                Severity = EtlErrorSeverity.High,
                 Error = "Test message"
             };
                 
@@ -84,7 +81,6 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(error1.EtlProcessName, errors[0].EtlProcessName);
                 Assert.Equal(error1.AffectedDocumentsCount, errors[0].AffectedDocumentsCount);
                 Assert.Equal((long)error1.Step, errors[0].Step);
-                Assert.Equal((long)error1.Severity, errors[0].Severity);
                 Assert.Equal(error1.Error, errors[0].Error);
                 Assert.Equal(error1.NextBatchRetryTime, errors[0].NextBatchRetryTime);
                 Assert.Equal(error1.AdditionalInfo, errors[0].AdditionalInfo);
@@ -93,7 +89,6 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(error2.EtlProcessName, errors[1].EtlProcessName);
                 Assert.Equal(error2.AffectedDocumentsCount, errors[1].AffectedDocumentsCount);
                 Assert.Equal((long)error2.Step, errors[1].Step);
-                Assert.Equal((long)error2.Severity, errors[1].Severity);
                 Assert.Equal(error2.Error, errors[1].Error);
                 Assert.Equal(error2.NextBatchRetryTime, errors[1].NextBatchRetryTime);
                 Assert.Equal(error2.AdditionalInfo, errors[1].AdditionalInfo);
@@ -105,7 +100,6 @@ public class RavenDB_21192 : RavenTestBase
                 EtlProcessName = processName1,
                 CreatedAt = now,
                 Step = EtlErrorStep.Load,
-                Severity = EtlErrorSeverity.Low,
                 Error = "Item error"
             };
             
@@ -122,7 +116,6 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(itemError1.EtlProcessName, itemErrors[0].EtlProcessName);
                 Assert.Equal(itemError1.DocumentId, itemErrors[0].DocumentId);
                 Assert.Equal((long)itemError1.Step, itemErrors[0].Step);
-                Assert.Equal((long)itemError1.Severity, itemErrors[0].Severity);
                 Assert.Equal(itemError1.Error, itemErrors[0].Error);
                 Assert.Equal(itemError1.AdditionalInfo, itemErrors[0].AdditionalInfo);
             }
@@ -137,7 +130,6 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(error1.EtlProcessName, errors[0].EtlProcessName);
                 Assert.Equal(error1.AffectedDocumentsCount, errors[0].AffectedDocumentsCount);
                 Assert.Equal((long)error1.Step, errors[0].Step);
-                Assert.Equal((long)error1.Severity, errors[0].Severity);
                 Assert.Equal(error1.Error, errors[0].Error);
             }
         }

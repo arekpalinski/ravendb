@@ -20,7 +20,6 @@ public class EtlProcessErrorTableValue : EtlErrorTableValueBase
             EtlProcessName = EtlProcessName,
             AffectedDocumentsCount = AffectedDocumentsCount,
             Step = (EtlErrorStep)Step,
-            Severity = (EtlErrorSeverity)Severity,
             Error = Error,
             NextBatchRetryTime = NextBatchRetryTime,
             AdditionalInfo = AdditionalInfo

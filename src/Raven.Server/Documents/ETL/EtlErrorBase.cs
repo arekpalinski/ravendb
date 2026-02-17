@@ -6,11 +6,9 @@ namespace Raven.Server.Documents.ETL;
 public abstract class EtlErrorBase
 {
     public string Id => GetId();
-    // todo update this on task/transformation rename
     public string EtlProcessName { get; set; }
     public DateTime CreatedAt { get; set; }
     public EtlErrorStep Step { get; set; }
-    public EtlErrorSeverity Severity { get; set; }
     public string Error { get; set; }
     public string AdditionalInfo { get; set; } = string.Empty;
 
@@ -24,7 +22,6 @@ public abstract class EtlErrorBase
             [nameof(EtlProcessName)] = EtlProcessName,
             [nameof(CreatedAt)] = CreatedAt,
             [nameof(Step)] = Step,
-            [nameof(Severity)] = Severity,
             [nameof(Error)] = Error,
             [nameof(AdditionalInfo)] = AdditionalInfo
         };

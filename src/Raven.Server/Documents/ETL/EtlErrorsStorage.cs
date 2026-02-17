@@ -69,7 +69,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
         var createdAtTicks = Bits.SwapBytes(processError.CreatedAt.Ticks);
         var affectedDocumentsCountSwapped = Bits.SwapBytes(processError.AffectedDocumentsCount);
         var stepSwapped = Bits.SwapBytes((long)processError.Step);
-        var severitySwapped = Bits.SwapBytes((long)processError.Severity);
         var nextBatchRetryTimeTicks = processError.NextBatchRetryTime.HasValue ? Bits.SwapBytes(processError.NextBatchRetryTime.Value.Ticks) : NextBatchRetryTimeNotSpecified;
                 
         var id = context.GetLazyString(processError.Id);
@@ -92,7 +91,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
             tvb.Add((byte*)&createdAtTicks, sizeof(long));
             tvb.Add((byte*)&affectedDocumentsCountSwapped, sizeof(long));
             tvb.Add((byte*)&stepSwapped, sizeof(long));
-            tvb.Add((byte*)&severitySwapped, sizeof(long));
             tvb.Add(error.Buffer, error.Size);
             tvb.Add((byte*)&nextBatchRetryTimeTicks, sizeof(long));
             tvb.Add(additionalInfo.Buffer, additionalInfo.Size);
@@ -132,7 +130,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
     {
         var createdAtTicks = Bits.SwapBytes(itemError.CreatedAt.Ticks);
         var stepSwapped = Bits.SwapBytes((long)itemError.Step);
-        var severitySwapped = Bits.SwapBytes((long)itemError.Severity);
 
         var id = context.GetLazyString(itemError.Id);
         var etlProcessName = context.GetLazyString(itemError.EtlProcessName);
@@ -147,7 +144,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
             tvb.Add((byte*)&createdAtTicks, sizeof(long));
             tvb.Add(documentId.Buffer, documentId.Size);
             tvb.Add((byte*)&stepSwapped, sizeof(long));
-            tvb.Add((byte*)&severitySwapped, sizeof(long));
             tvb.Add(error.Buffer, error.Size);
             tvb.Add(additionalInfo.Buffer, additionalInfo.Size);
 
@@ -161,7 +157,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
         var etlProcessName = reader.ReadString(Schemas.EtlProcessErrors.EtlProcessErrorsTable.EtlProcessNameIndex);
         var affectedDocumentsCount = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.AffectedDocumentsCountIndex, out _));
         var step = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.StepIndex, out _));
-        var severity = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.SeverityIndex, out _));
         var error = reader.ReadString(Schemas.EtlProcessErrors.EtlProcessErrorsTable.ErrorIndex);
         var nextBatchRetryTimeTicks = *(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.NextBatchRetryTimeIndex, out _);
         var additionalInfo = reader.ReadString(Schemas.EtlProcessErrors.EtlProcessErrorsTable.AdditionalInfoIndex);
@@ -176,7 +171,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
             EtlProcessName = etlProcessName,
             AffectedDocumentsCount = affectedDocumentsCount,
             Step = step,
-            Severity = severity,
             Error = error,
             NextBatchRetryTime = nextBatchRetryTime,
             AdditionalInfo = additionalInfo
@@ -189,7 +183,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
         var etlProcessName = reader.ReadString(Schemas.EtlItemErrors.EtlItemErrorsTable.EtlProcessNameIndex);
         var documentId = reader.ReadString(Schemas.EtlItemErrors.EtlItemErrorsTable.DocumentIdIndex);
         var step = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlItemErrors.EtlItemErrorsTable.StepIndex, out _));
-        var severity = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlItemErrors.EtlItemErrorsTable.SeverityIndex, out _));
         var error = reader.ReadString(Schemas.EtlItemErrors.EtlItemErrorsTable.ErrorIndex);
         var additionalInfo = reader.ReadString(Schemas.EtlItemErrors.EtlItemErrorsTable.AdditionalInfoIndex);
         
@@ -198,7 +191,6 @@ public unsafe class EtlErrorsStorage(string databaseName)
             CreatedAt = createdAt,
             EtlProcessName = etlProcessName,
             DocumentId = documentId,
-            Severity = severity,
             Step = step,
             Error = error,
             AdditionalInfo = additionalInfo

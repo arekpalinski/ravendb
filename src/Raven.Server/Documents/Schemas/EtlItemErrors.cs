@@ -11,7 +11,6 @@ public static class EtlItemErrors
     public static TableSchema EtlItemErrorsSchemaBase = new();
 
     public static readonly Slice ByCreatedAt;
-    public static readonly Slice BySeverity;
     public static readonly Slice ByEtlProcessName;
 
     public const string EtlItemErrorsTree = "EtlItemErrors";
@@ -23,9 +22,8 @@ public static class EtlItemErrors
         public const int CreatedAtIndex = 2;
         public const int DocumentIdIndex = 3;
         public const int StepIndex = 4;
-        public const int SeverityIndex = 5;
-        public const int ErrorIndex = 6;
-        public const int AdditionalInfoIndex = 7;
+        public const int ErrorIndex = 5;
+        public const int AdditionalInfoIndex = 6;
     }
 
     static EtlItemErrors()
@@ -34,7 +32,6 @@ public static class EtlItemErrors
         {
             Slice.From(ctx, "ByEtlProcessName", ByteStringType.Immutable, out ByEtlProcessName);
             Slice.From(ctx, "ByCreatedAt", ByteStringType.Immutable, out ByCreatedAt);
-            Slice.From(ctx, "BySeverity", ByteStringType.Immutable, out BySeverity);
         }
 
         EtlItemErrorsSchemaBase.DefineKey(new TableSchema.IndexDef
@@ -53,12 +50,6 @@ public static class EtlItemErrors
         {
             StartIndex = EtlItemErrorsTable.CreatedAtIndex,
             Name = ByCreatedAt
-        });
-        
-        EtlItemErrorsSchemaBase.DefineIndex(new TableSchema.IndexDef
-        {
-            StartIndex = EtlItemErrorsTable.SeverityIndex,
-            Name = BySeverity
         });
     }
 }

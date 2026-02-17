@@ -11,7 +11,6 @@ public static class EtlProcessErrors
     public static TableSchema EtlProcessErrorsSchemaBase = new();
 
     public static readonly Slice ByCreatedAt;
-    public static readonly Slice BySeverity;
     public static readonly Slice ByEtlProcessName;
 
     public const string EtlProcessErrorsTree = "EtlProcessErrors";
@@ -23,10 +22,9 @@ public static class EtlProcessErrors
         public const int CreatedAtIndex = 2;
         public const int AffectedDocumentsCountIndex = 3;
         public const int StepIndex = 4;
-        public const int SeverityIndex = 5;
-        public const int ErrorIndex = 6;
-        public const int NextBatchRetryTimeIndex = 7;
-        public const int AdditionalInfoIndex = 8;
+        public const int ErrorIndex = 5;
+        public const int NextBatchRetryTimeIndex = 6;
+        public const int AdditionalInfoIndex = 7;
     }
 
     static EtlProcessErrors()
@@ -35,7 +33,6 @@ public static class EtlProcessErrors
         {
             Slice.From(ctx, "ByEtlProcessName", ByteStringType.Immutable, out ByEtlProcessName);
             Slice.From(ctx, "ByCreatedAt", ByteStringType.Immutable, out ByCreatedAt);
-            Slice.From(ctx, "BySeverity", ByteStringType.Immutable, out BySeverity);
         }
 
         EtlProcessErrorsSchemaBase.DefineKey(new TableSchema.IndexDef
@@ -54,12 +51,6 @@ public static class EtlProcessErrors
         {
             StartIndex = EtlProcessErrorsTable.CreatedAtIndex,
             Name = ByCreatedAt
-        });
-        
-        EtlProcessErrorsSchemaBase.DefineIndex(new TableSchema.IndexDef
-        {
-            StartIndex = EtlProcessErrorsTable.SeverityIndex,
-            Name = BySeverity
         });
     }
 }

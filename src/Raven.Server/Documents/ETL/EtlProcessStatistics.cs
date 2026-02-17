@@ -143,7 +143,6 @@ namespace Raven.Server.Documents.ETL
                 EtlProcessName = _processName,
                 DocumentId = documentId,
                 Step = EtlErrorStep.Transformation,
-                Severity = EtlErrorSeverity.Low,
                 Error = e.ToString()
             };
             
@@ -165,7 +164,6 @@ namespace Raven.Server.Documents.ETL
                 EtlProcessName = _processName,
                 DocumentId = documentId,
                 Step = EtlErrorStep.Load,
-                Severity = EtlErrorSeverity.Low,
                 Error = error
             };
             
@@ -188,7 +186,6 @@ namespace Raven.Server.Documents.ETL
                 EtlProcessName = _processName,
                 AffectedDocumentsCount = 0,
                 Step = EtlErrorStep.Configuration,
-                Severity = EtlErrorSeverity.High,
                 Error = error
             };
             
@@ -205,7 +202,6 @@ namespace Raven.Server.Documents.ETL
                 EtlProcessName = _processName,
                 AffectedDocumentsCount = count,
                 Step = EtlErrorStep.Load,
-                Severity = EtlErrorSeverity.Low,
                 Error = error,
                 NextBatchRetryTime = NextBatchRetryTime
             };
@@ -226,7 +222,6 @@ namespace Raven.Server.Documents.ETL
                 EtlProcessName = _processName,
                 AffectedDocumentsCount = 0,
                 Step = EtlErrorStep.Unknown,
-                Severity = EtlErrorSeverity.High,
                 Error = error
             };
             
