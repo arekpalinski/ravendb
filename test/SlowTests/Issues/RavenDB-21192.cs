@@ -1069,6 +1069,7 @@ public class RavenDB_21192 : RavenTestBase
                 etlEntries.TryGet($"{etlName1}/{transformationName1}", out BlittableJsonReaderArray firstProcessEntries);
                 var firstProcessOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(firstProcessEntries.ToString());
                 var firstProcessEtlErrorsOid = firstProcessOidsObjectList.Single(x => x.Description == "Number of task ETL errors").OID;
+                var firstProcessHealthStatusOid = firstProcessOidsObjectList.Single(x => x.Description == "Health status of particular ETL task").OID;
                 
                 result = Messenger.Get(VersionCode.V2,
                     endpoint,
@@ -1078,9 +1079,18 @@ public class RavenDB_21192 : RavenTestBase
                 
                 Assert.Equal(123, ((Integer32)result.Single().Data).ToInt32());
                 
+                result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(firstProcessHealthStatusOid))],
+                    10000);
+                
+                Assert.Equal("Failed", result.Single().Data.ToString());
+                
                 etlEntries.TryGet($"{etlName1}/{transformationName2}", out BlittableJsonReaderArray secondProcessEntries);
                 var secondProcessOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(secondProcessEntries.ToString());
                 var secondProcessEtlErrorsOid = secondProcessOidsObjectList.Single(x => x.Description == "Number of task ETL errors").OID;
+                var secondProcessHealthStatusOid = secondProcessOidsObjectList.Single(x => x.Description == "Health status of particular ETL task").OID;
                 
                 result = Messenger.Get(VersionCode.V2,
                     endpoint,
@@ -1089,6 +1099,14 @@ public class RavenDB_21192 : RavenTestBase
                     10000);
                 
                Assert.Equal(123, ((Integer32)result.Single().Data).ToInt32());
+               
+               result = Messenger.Get(VersionCode.V2,
+                   endpoint,
+                   new OctetString(communityString),
+                   [new Variable(new ObjectIdentifier(secondProcessHealthStatusOid))],
+                   10000);
+               
+               Assert.Equal("Failed", result.Single().Data.ToString());
             }
         }
     }

@@ -342,6 +342,7 @@ namespace Raven.Server.Monitoring.Snmp
                 return;
 
             _objectStore.Add(new DatabaseEtlErrorsOfTask(_databaseName, processName, _databaseLandlord, _databaseIndex, index));
+            _objectStore.Add(new DatabaseEtlHealthStatus(_databaseName, processName, _databaseLandlord, _databaseIndex, index));
 
             _loadedEtls[processName] = index;
         }

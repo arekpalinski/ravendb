@@ -855,6 +855,9 @@ namespace Raven.Server.Monitoring.Snmp
                 [Description("Number of task ETL errors")]
                 public const string EtlErrorsOfTask = "5.2.{0}.1.{{0}}.1";
                 
+                [Description("Health status of particular ETL task")]
+                public const string HealthStatus = "5.2.{0}.1.{{0}}.2";
+                
                 public static Dictionary<string, string> CreateMapping(long ignoreIndex)
                 {
                     var dictionary = new Dictionary<string, string>();
