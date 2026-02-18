@@ -8,11 +8,11 @@ using Sparrow.Json;
 
 namespace Raven.Server.Documents.ETL.Handlers.Processors;
 
-internal abstract class AbstractEtlHandlerProcessorForErrors<TRequestHandler, TOperationContext> : AbstractHandlerProxyReadProcessor<EtlErrors[], TRequestHandler, TOperationContext>
+internal abstract class AbstractEtlHandlerProcessorForGetErrors<TRequestHandler, TOperationContext> : AbstractHandlerProxyReadProcessor<EtlErrors[], TRequestHandler, TOperationContext>
     where TOperationContext : JsonOperationContext
     where TRequestHandler : AbstractDatabaseRequestHandler<TOperationContext>
 {
-    protected AbstractEtlHandlerProcessorForErrors([NotNull] TRequestHandler requestHandler) : base(requestHandler)
+    protected AbstractEtlHandlerProcessorForGetErrors([NotNull] TRequestHandler requestHandler) : base(requestHandler)
     {
     }
     

@@ -9,9 +9,9 @@ using Raven.Server.Web.Http;
 
 namespace Raven.Server.Documents.Sharding.Handlers.Processors.ETL;
 
-internal sealed class ShardedEtlHandlerProcessorForErrors : AbstractEtlHandlerProcessorForErrors<ShardedDatabaseRequestHandler, TransactionOperationContext>
+internal sealed class ShardedEtlHandlerProcessorForGetErrors : AbstractEtlHandlerProcessorForGetErrors<ShardedDatabaseRequestHandler, TransactionOperationContext>
 {
-    public ShardedEtlHandlerProcessorForErrors([NotNull] ShardedDatabaseRequestHandler requestHandler) : base(requestHandler)
+    public ShardedEtlHandlerProcessorForGetErrors([NotNull] ShardedDatabaseRequestHandler requestHandler) : base(requestHandler)
     {
     }
     

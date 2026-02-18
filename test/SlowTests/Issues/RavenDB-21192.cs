@@ -241,7 +241,7 @@ public class RavenDB_21192 : RavenTestBase
     }
     
     [RavenFact(RavenTestCategory.Etl)]
-    public void TestEtlErrorsEndpoint()
+    public void TestGetEtlErrorsEndpoint()
     {
         using (var src = GetDocumentStore())
         using (var dest = GetDocumentStore())
@@ -308,7 +308,7 @@ public class RavenDB_21192 : RavenTestBase
 
                 Assert.NotNull(res);
                 
-                res.TryGet(nameof(EtlHandlerProcessorForErrors.Response.Results), out BlittableJsonReaderArray results);
+                res.TryGet(nameof(EtlHandlerProcessorForGetErrors.Response.Results), out BlittableJsonReaderArray results);
                 var resultsObjectList = JsonConvert.DeserializeObject<List<EtlErrors>>(results.ToString());
 
                 var firstTaskErrors = resultsObjectList.Single(x => x.ProcessName == $"{etlName1}/{transformationName1}");
@@ -331,7 +331,7 @@ public class RavenDB_21192 : RavenTestBase
     
     [RavenTheory(RavenTestCategory.Etl)]
     [RavenData(DatabaseMode = RavenDatabaseMode.Sharded)]
-    public void TestEtlErrorsEndpointForShardedDatabase(Options options)
+    public void TestGetEtlErrorsEndpointForShardedDatabase(Options options)
     {
         const int shardNumber = 1;
         
@@ -400,7 +400,7 @@ public class RavenDB_21192 : RavenTestBase
 
                 Assert.NotNull(res);
                 
-                res.TryGet(nameof(EtlHandlerProcessorForErrors.Response.Results), out BlittableJsonReaderArray results);
+                res.TryGet(nameof(EtlHandlerProcessorForGetErrors.Response.Results), out BlittableJsonReaderArray results);
                 var resultsObjectList = JsonConvert.DeserializeObject<List<EtlErrors>>(results.ToString());
 
                 var firstTaskErrors = resultsObjectList.Single(x => x.ProcessName == $"{etlName1}/{transformationName1}");
@@ -420,7 +420,59 @@ public class RavenDB_21192 : RavenTestBase
             }
         }
     }
+    
+    [RavenFact(RavenTestCategory.Etl)]
+    public void TestDeleteEtlErrorsEndpoint()
+    {
+        using (var src = GetDocumentStore())
+        using (var dest = GetDocumentStore())
+        {
+            const string connectionStringName1 = "ConnectionString1";
+            const string etlName1 = "ETL1";
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   this.Name = 'James Doe';
+                                   throw new Error("dummy error");
+                                   loadToUsers(this);
+                                   """;
+            var collections1 = new List<string>() { "Users" };
+            
+                
+            var etlDone1 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName1}/{transformationName1}" && statistics.LoadErrors >= 5);
+                
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1], [script1], collections1);
+                
+            using (var bulkInsert = src.BulkInsert())
+            {
+                for (int i = 0; i < 5; i++)
+                    bulkInsert.Store(new User { Name = "Joe Doe" });
+            }
+                
+            etlDone1.Wait(TimeSpan.FromSeconds(10));
+            
+            using (var commands = src.Commands())
+            {
+                var deleteErrorsCommand = new DeleteEtlTaskErrorsCommand($"{etlName1}/{transformationName1}");
+                commands.Execute(deleteErrorsCommand);
 
+                var getErrorsCommand = new GetEtlTaskErrorsCommand([$"{etlName1}/{transformationName1}"]);
+                commands.Execute(getErrorsCommand);
+                
+                var res = getErrorsCommand.Result as BlittableJsonReaderObject;
+
+                Assert.NotNull(res);
+                
+                res.TryGet(nameof(EtlHandlerProcessorForGetErrors.Response.Results), out BlittableJsonReaderArray results);
+                var resultsObjectList = JsonConvert.DeserializeObject<List<EtlErrors>>(results.ToString());
+                
+                Assert.Single(resultsObjectList);
+                Assert.Equal($"{etlName1}/{transformationName1}", resultsObjectList.Single().ProcessName);
+                Assert.Empty(resultsObjectList.Single().ProcessErrors);
+                Assert.Empty(resultsObjectList.Single().ItemErrors);
+            }
+        }
+    }
+        
     [RavenFact(RavenTestCategory.Etl)]
     public void TestEtlHealthStatusUpdates()
     {
@@ -1143,6 +1195,53 @@ public class RavenDB_21192 : RavenTestBase
             return new HttpRequestMessage
             {
                 Method = HttpMethod.Get
+            };
+        }
+
+        public override void SetResponse(JsonOperationContext context, BlittableJsonReaderObject response, bool fromCache)
+        {
+            if (response == null)
+                ThrowInvalidResponse();
+
+            Result = response;
+        }
+
+        public override bool IsReadRequest => true;
+    }
+    
+    private class DeleteEtlTaskErrorsCommand : RavenCommand<object>
+    {
+        private readonly string _taskName;
+        private readonly bool _isSharded;
+        private readonly int _shardNumber;
+        
+        public DeleteEtlTaskErrorsCommand(string taskName, bool isSharded = false, int shardNumber = 0)
+        {
+            _taskName = taskName;
+            _isSharded = isSharded;
+            _shardNumber = shardNumber;
+        }
+
+        public override HttpRequestMessage CreateRequest(JsonOperationContext ctx, ServerNode node, out string url)
+        {
+            var baseUrl = $"{node.Url}/databases/{node.Database}/etl/errors";
+            
+            var queryParams = new Dictionary<string, string>
+            {
+                { "name", _taskName }
+            };
+
+            if (_isSharded)
+            {
+                queryParams.Add("nodeTag", node.ClusterTag);
+                queryParams.Add("shardNumber", _shardNumber.ToString());
+            }
+            
+            url = QueryHelpers.AddQueryString(baseUrl, queryParams);
+            
+            return new HttpRequestMessage
+            {
+                Method = HttpMethod.Delete
             };
         }
 

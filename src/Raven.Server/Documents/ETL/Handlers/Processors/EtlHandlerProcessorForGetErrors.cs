@@ -10,9 +10,9 @@ using Sparrow.Json;
 
 namespace Raven.Server.Documents.ETL.Handlers.Processors;
 
-internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessorForErrors<DatabaseRequestHandler, DocumentsOperationContext>
+internal sealed class EtlHandlerProcessorForGetErrors : AbstractEtlHandlerProcessorForGetErrors<DatabaseRequestHandler, DocumentsOperationContext>
 {
-    public EtlHandlerProcessorForErrors([NotNull] DatabaseRequestHandler requestHandler) : base(requestHandler)
+    public EtlHandlerProcessorForGetErrors([NotNull] DatabaseRequestHandler requestHandler) : base(requestHandler)
     {
     }
     
@@ -20,31 +20,27 @@ internal sealed class EtlHandlerProcessorForErrors : AbstractEtlHandlerProcessor
     
     protected override async ValueTask HandleCurrentNodeAsync()
     {
-        var names = GetNames();
-        
-        var etlsToReportOn = EtlHandlerProcessorForStats.GetProcessesToReportOn(RequestHandler.Database, names);
-        var storage = RequestHandler.Database.EtlErrorsStorage;
-        
         var response = new Response();
 
-        foreach (var etlKvp in etlsToReportOn)
+        var storage = RequestHandler.Database.EtlErrorsStorage;
+        var processNames = GetNames().ToList();
+        
+        if (processNames.Count == 0)
+            processNames = RequestHandler.Database.EtlLoader.Processes.Select(x => x.Name).ToList();
+        
+        foreach (var etlProcessName in processNames)
         {
-            foreach (var process in etlKvp.Value)
+            using (storage.ReadProcessErrorsOfEtl(etlProcessName, out var processErrors))
+            using (storage.ReadItemErrorsOfEtl(etlProcessName, out var itemErrors))
             {
-                var processName = process.Name;
-                
-                using (storage.ReadProcessErrorsOfEtl(processName, out var processErrors))
-                using (storage.ReadItemErrorsOfEtl(processName, out var itemErrors))
+                var etlProcessErrors = new EtlErrors()
                 {
-                    var etlProcessErrors = new EtlErrors()
-                    {
-                        ProcessName = processName,
-                        ProcessErrors = processErrors.Select(x => x.ToEtlProcessError()).ToArray(),
-                        ItemErrors = itemErrors.Select(x => x.ToEtlItemError()).ToArray()
-                    };
+                    ProcessName = etlProcessName,
+                    ProcessErrors = processErrors.Select(x => x.ToEtlProcessError()).ToArray(),
+                    ItemErrors = itemErrors.Select(x => x.ToEtlItemError()).ToArray()
+                };
                 
-                    response.Results.Add(etlProcessErrors);
-                }
+                response.Results.Add(etlProcessErrors);
             }
         }
 

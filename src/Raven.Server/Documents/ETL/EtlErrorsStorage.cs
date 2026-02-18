@@ -338,94 +338,12 @@ public unsafe class EtlErrorsStorage
             yield return error;
         }
     }
-
-    /*
-    public void DeleteErrorsOfProcess(string processName)
-    {
-        DeleteProcessErrorsOfEtl(processName);
-        DeleteItemErrorsOfEtl(processName);
-    }
     
-    private void DeleteProcessErrorsOfEtl(string etlProcessName)
+    public void DeleteErrorsOfEtl(string etlProcessName)
     {
-        using (var scope = new DisposableScope())
-        {
-            scope.EnsureDispose(_contextPool.AllocateOperationContext(out DocumentsOperationContext context));
-            scope.EnsureDispose(context.OpenWriteTransaction());
-
-            var tableName = GetProcessErrorsTableName(etlProcessName);
-            
-            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlProcessErrors.Current, tableName);
-            if (table == null)
-                return;
-
-            var idsToDelete = new List<string>();
-            
-            using (Slice.From(context.Transaction.InnerTransaction.Allocator, etlProcessName, out Slice taskNameSlice))
-            {
-                foreach (var tvr in table.SeekForwardFrom(Schemas.EtlProcessErrors.Current.Indexes[Schemas.EtlProcessErrors.ByEtlProcessName], taskNameSlice, 0))
-                {
-                    var error = ReadProcessError(ref tvr.Result.Reader);
-
-                    if (error.EtlProcessName != etlProcessName)
-                        break;
-
-                    idsToDelete.Add(error.Id);
-                }
-            }
-
-            foreach (var id in idsToDelete)
-            {
-                using (Slice.From(context.Transaction.InnerTransaction.Allocator, id, out Slice errorId))
-                {
-                    table.DeleteByKey(errorId);
-                }
-            }
-            
-            context.Transaction.Commit();
-        }
+        DeleteEtlErrorsTablesForProcess(etlProcessName);
+        CreateEtlErrorsTablesForProcess(etlProcessName);
     }
-
-    private void DeleteItemErrorsOfEtl(string etlProcessName)
-    {
-        using (var scope = new DisposableScope())
-        {
-            scope.EnsureDispose(_contextPool.AllocateOperationContext(out DocumentsOperationContext context));
-            scope.EnsureDispose(context.OpenWriteTransaction());
-
-            var tableName = GetProcessErrorsTableName(etlProcessName);
-            
-            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlItemErrors.Current, tableName);
-            if (table == null)
-                return;
-
-            var idsToDelete = new List<string>();
-            
-            using (Slice.From(context.Transaction.InnerTransaction.Allocator, etlProcessName, out Slice taskNameSlice))
-            {
-                foreach (var tvr in table.SeekForwardFrom(Schemas.EtlItemErrors.Current.Indexes[Schemas.EtlItemErrors.ByEtlProcessName], taskNameSlice, 0))
-                {
-                    var error = ReadItemError(ref tvr.Result.Reader);
-
-                    if (error.EtlProcessName != etlProcessName)
-                        break;
-
-                    idsToDelete.Add(error.Id);
-                }
-            }
-
-            foreach (var id in idsToDelete)
-            {
-                using (Slice.From(context.Transaction.InnerTransaction.Allocator, id, out Slice errorId))
-                {
-                    table.DeleteByKey(errorId);
-                }
-            }
-            
-            context.Transaction.Commit();
-        }
-    }
-    */
 
     private static void DeleteOldestProcessErrorOfTask<T>(Table table, TransactionOperationContext<T> context, string etlTaskName)
         where T : RavenTransaction
