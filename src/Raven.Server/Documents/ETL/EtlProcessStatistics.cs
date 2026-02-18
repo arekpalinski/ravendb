@@ -117,7 +117,6 @@ namespace Raven.Server.Documents.ETL
                 HealthStatus = errorsEwma switch
                 {
                     _ when errorsEwma > _etlConfiguration.ProcessHealthStatusFailedThreshold => EtlProcessHealthStatus.Failed,
-                    _ when errorsEwma > _etlConfiguration.ProcessHealthStatusDisruptedThreshold => EtlProcessHealthStatus.Disrupted,
                     _ when errorsEwma > _etlConfiguration.ProcessHealthStatusImpairedThreshold => EtlProcessHealthStatus.Impaired,
                     _ => EtlProcessHealthStatus.Healthy
                 };

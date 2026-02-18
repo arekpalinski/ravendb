@@ -476,7 +476,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(50, etlStats.LoadSuccesses);
             Assert.Equal(20, etlStats.TransformationErrors);
 
-            Assert.Equal(EtlProcessHealthStatus.Disrupted, etlStats.HealthStatus);
+            Assert.Equal(EtlProcessHealthStatus.Impaired, etlStats.HealthStatus);
 
             etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 950);
             
@@ -649,7 +649,7 @@ public class RavenDB_21192 : RavenTestBase
             Assert.Equal(50, etlStats.LoadSuccesses);
             Assert.Equal(20, etlStats.TransformationErrors);
             
-            AssertHealthStatusNotification(src, processTag, $"{etlName1}/{transformationName1}", EtlProcessHealthStatus.Disrupted);
+            AssertHealthStatusNotification(src, processTag, $"{etlName1}/{transformationName1}", EtlProcessHealthStatus.Impaired);
             
             etlDone = Etl.WaitForEtlToComplete(src, (_, statistics) => statistics.LoadSuccesses >= 1050);
             

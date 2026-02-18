@@ -71,11 +71,6 @@ namespace Raven.Server.Config.Categories
         [ConfigurationEntry("ETL.ProcessHealthStatusFailedThreshold", ConfigurationEntryScope.ServerWideOrPerDatabase)]
         public float ProcessHealthStatusFailedThreshold { get; set; }
         
-        [Description($"Weighted ratio threshold of errored items to successfully processed items above which the process health status will be set to '{nameof(EtlProcessHealthStatus.Disrupted)}'")]
-        [DefaultValue(0.5f)]
-        [ConfigurationEntry("ETL.ProcessHealthStatusDisruptedThreshold", ConfigurationEntryScope.ServerWideOrPerDatabase)]
-        public float ProcessHealthStatusDisruptedThreshold { get; set; }
-        
         [Description($"Weighted ratio threshold of errored items to successfully processed items above which the process health status will be set to '{nameof(EtlProcessHealthStatus.Impaired)}'")]
         [DefaultValue(0.1f)]
         [ConfigurationEntry("ETL.ProcessHealthStatusImpairedThreshold", ConfigurationEntryScope.ServerWideOrPerDatabase)]

@@ -198,6 +198,7 @@ public unsafe class EtlErrorsStorage
         };
     }
     
+    /*
     private static IEnumerable<EtlProcessErrorTableValue> ReadProcessErrorsByCreatedAtIndex(string etlProcessName, DocumentsOperationContext context)
     {
         var tableName = GetProcessErrorsTableName(etlProcessName);
@@ -251,7 +252,8 @@ public unsafe class EtlErrorsStorage
             return scope.Delay();
         }
     }
-
+    */
+    
     public IDisposable ReadAllProcessErrors(out List<EtlProcessErrorTableValue> errors)
     {
         errors = [];
@@ -348,6 +350,7 @@ public unsafe class EtlErrorsStorage
         }
     }
 
+    /*
     public void DeleteErrorsOfProcess(string processName)
     {
         DeleteProcessErrorsOfEtl(processName);
@@ -433,6 +436,7 @@ public unsafe class EtlErrorsStorage
             context.Transaction.Commit();
         }
     }
+    */
 
     private static void DeleteOldestProcessErrorOfTask<T>(Table table, TransactionOperationContext<T> context, string etlTaskName)
         where T : RavenTransaction
@@ -492,6 +496,7 @@ public unsafe class EtlErrorsStorage
         }
     }
 
+    /*
     internal void DeleteOldestItemErrorsOfProcess(string etlProcessName)
     {
         using (var scope = new DisposableScope())
@@ -509,7 +514,8 @@ public unsafe class EtlErrorsStorage
             table.DeleteForwardFrom(Schemas.EtlItemErrors.Current.Indexes[Schemas.EtlItemErrors.ByEtlProcessName], Slices.BeforeAllKeys, false, numberOfEntriesToDelete);
         }
     }
-
+    */
+    
     private static string GetProcessErrorsTableName(string etlProcessName)
     {
         return $"{Schemas.EtlProcessErrors.EtlProcessErrorsTree}.{etlProcessName.ToLowerInvariant()}";

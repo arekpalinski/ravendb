@@ -4,6 +4,5 @@ public enum EtlProcessHealthStatus
 {
     Healthy,
     Impaired,
-    Disrupted,
     Failed 
 }
