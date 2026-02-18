@@ -8,7 +8,6 @@ public abstract class EtlErrorTableValueBase
     public DateTime CreatedAt;
     public string EtlProcessName;
     public long Step;
-    public long Severity;
     public string Error;
     public string AdditionalInfo;
 

@@ -21,8 +21,6 @@ public unsafe class EtlErrorsStorage
     private DocumentsTransactionOperationsMerger _txMerger;
     private EtlLoader _etlLoader;
     
-    private static readonly long NextBatchRetryTimeNotSpecified = Bits.SwapBytes(long.MaxValue);
-    
     public void Initialize(StorageEnvironment environment, DocumentsContextPool contextPool, DocumentsTransactionOperationsMerger txMerger, EtlLoader etlLoader)
     {
         _environment = environment;
@@ -76,7 +74,6 @@ public unsafe class EtlErrorsStorage
         var createdAtTicks = Bits.SwapBytes(processError.CreatedAt.Ticks);
         var affectedDocumentsCountSwapped = Bits.SwapBytes(processError.AffectedDocumentsCount);
         var stepSwapped = Bits.SwapBytes((long)processError.Step);
-        var nextBatchRetryTimeTicks = processError.NextBatchRetryTime.HasValue ? Bits.SwapBytes(processError.NextBatchRetryTime.Value.Ticks) : NextBatchRetryTimeNotSpecified;
                             
         var id = context.GetLazyString(processError.Id);
         var etlProcessName = context.GetLazyString(processError.EtlProcessName);
@@ -99,7 +96,6 @@ public unsafe class EtlErrorsStorage
             tvb.Add((byte*)&affectedDocumentsCountSwapped, sizeof(long));
             tvb.Add((byte*)&stepSwapped, sizeof(long));
             tvb.Add(error.Buffer, error.Size);
-            tvb.Add((byte*)&nextBatchRetryTimeTicks, sizeof(long));
             tvb.Add(additionalInfo.Buffer, additionalInfo.Size);
             
             table.Set(tvb);
@@ -159,12 +155,7 @@ public unsafe class EtlErrorsStorage
         var affectedDocumentsCount = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.AffectedDocumentsCountIndex, out _));
         var step = Bits.SwapBytes(*(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.StepIndex, out _));
         var error = reader.ReadString(Schemas.EtlProcessErrors.EtlProcessErrorsTable.ErrorIndex);
-        var nextBatchRetryTimeTicks = *(long*)reader.Read(Schemas.EtlProcessErrors.EtlProcessErrorsTable.NextBatchRetryTimeIndex, out _);
         var additionalInfo = reader.ReadString(Schemas.EtlProcessErrors.EtlProcessErrorsTable.AdditionalInfoIndex);
-        
-        DateTime? nextBatchRetryTime = null;
-        if (nextBatchRetryTimeTicks != NextBatchRetryTimeNotSpecified)
-            nextBatchRetryTime = new DateTime(Bits.SwapBytes(nextBatchRetryTimeTicks));
         
         return new EtlProcessErrorTableValue
         {
@@ -173,7 +164,6 @@ public unsafe class EtlErrorsStorage
             AffectedDocumentsCount = affectedDocumentsCount,
             Step = step,
             Error = error,
-            NextBatchRetryTime = nextBatchRetryTime,
             AdditionalInfo = additionalInfo
         };
     }

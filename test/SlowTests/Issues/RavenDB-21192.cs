@@ -74,7 +74,6 @@ public class RavenDB_21192 : RavenTestBase
                 AffectedDocumentsCount = 1,
                 Step = EtlErrorStep.Transformation,
                 Error = "Test message",
-                NextBatchRetryTime = now.AddHours(5),
                 AdditionalInfo = "some additional info"
             };
 
@@ -101,7 +100,6 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(error1.AffectedDocumentsCount, errors[0].AffectedDocumentsCount);
                 Assert.Equal((long)error1.Step, errors[0].Step);
                 Assert.Equal(error1.Error, errors[0].Error);
-                Assert.Equal(error1.NextBatchRetryTime, errors[0].NextBatchRetryTime);
                 Assert.Equal(error1.AdditionalInfo, errors[0].AdditionalInfo);
                 
                 Assert.Equal(error2.CreatedAt, errors[1].CreatedAt);
@@ -109,7 +107,6 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.Equal(error2.AffectedDocumentsCount, errors[1].AffectedDocumentsCount);
                 Assert.Equal((long)error2.Step, errors[1].Step);
                 Assert.Equal(error2.Error, errors[1].Error);
-                Assert.Equal(error2.NextBatchRetryTime, errors[1].NextBatchRetryTime);
                 Assert.Equal(error2.AdditionalInfo, errors[1].AdditionalInfo);
             }
                 

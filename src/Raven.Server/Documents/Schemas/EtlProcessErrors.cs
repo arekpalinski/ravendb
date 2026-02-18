@@ -23,8 +23,7 @@ public static class EtlProcessErrors
         public const int AffectedDocumentsCountIndex = 3;
         public const int StepIndex = 4;
         public const int ErrorIndex = 5;
-        public const int NextBatchRetryTimeIndex = 6;
-        public const int AdditionalInfoIndex = 7;
+        public const int AdditionalInfoIndex = 6;
     }
 
     static EtlProcessErrors()

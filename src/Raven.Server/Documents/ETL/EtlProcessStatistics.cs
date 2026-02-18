@@ -202,8 +202,7 @@ namespace Raven.Server.Documents.ETL
                 EtlProcessName = _processName,
                 AffectedDocumentsCount = count,
                 Step = EtlErrorStep.Load,
-                Error = error,
-                NextBatchRetryTime = NextBatchRetryTime
+                Error = error
             };
             
             _etlErrorsStorage.EnqueueProcessError(etlError);
