@@ -86,7 +86,7 @@ namespace Raven.Server.Documents.ETL
         internal void OnBatchCompletion()
         {
             UpdateHealthStatusOnBatchCompletion();
-            _etlErrorsStorage.StoreItemErrors(_processName, _itemErrors);
+            _etlErrorsStorage.EnqueueItemErrors(_processName, _itemErrors);
             _itemErrors.Clear();
             
             AverageErrorsRatio.UpdateOnBatchCompletion(BatchErrors, BatchErrors + LoadSuccessesInCurrentBatch);

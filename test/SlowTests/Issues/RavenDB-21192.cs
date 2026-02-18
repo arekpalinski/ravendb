@@ -119,7 +119,7 @@ public class RavenDB_21192 : RavenTestBase
                 Error = "Item error"
             };
             
-            database.EtlErrorsStorage.StoreItemErrors(processName1, [itemError1]);
+            database.EtlErrorsStorage.EnqueueItemErrors(processName1, [itemError1]);
             
             using (database.EtlErrorsStorage.ReadAllItemErrors(out var itemErrorTableValues))
             {

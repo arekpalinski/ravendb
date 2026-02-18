@@ -102,25 +102,24 @@ public unsafe class EtlErrorsStorage
         }
     }
 
-    internal void StoreItemErrors(string processName, List<EtlItemError> itemErrors)
+    internal void EnqueueItemErrors(string processName, List<EtlItemError> itemErrors)
     {
-        using (_contextPool.AllocateOperationContext(out DocumentsOperationContext context))
-        {
-            using (var tx = context.OpenWriteTransaction())
-            {
-                var itemErrorsTableName = GetItemErrorsTableName(processName);
-                var table = tx.InnerTransaction.OpenTable(Schemas.EtlItemErrors.Current, itemErrorsTableName);
+        var tableName = GetItemErrorsTableName(processName);
+        
+        _txMerger.EnqueueSync(new StoreEtlItemErrorsCommand(itemErrors, tableName));
+    }
+    
+    internal static void StoreItemErrors<T>(TransactionOperationContext<T> context, List<EtlItemError> itemErrors, string tableName)
+        where T : RavenTransaction
+    {
+        var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlItemErrors.Current, tableName);
 
-                foreach (var itemError in itemErrors)
-                {
-                    StoreItemError(itemError, table, context);
-                }
-                
-                DeleteOldestItemErrorsOfProcess(processName, table, context);
-                
-                tx.Commit();
-            }
+        foreach (var itemError in itemErrors)
+        {
+            StoreItemError(itemError, table, context);
         }
+                
+        DeleteOldestItemErrorsOfEtl(table);
     }
     
     private static void StoreItemError(EtlItemError itemError, Table table, JsonOperationContext context)
@@ -453,58 +452,14 @@ public unsafe class EtlErrorsStorage
         }
     }
 
-    private static void DeleteOldestItemErrorsOfProcess(string processName, Table table, DocumentsOperationContext context)
+    private static void DeleteOldestItemErrorsOfEtl(Table table)
     {
-        var idsToDelete = new List<string>();
-            
-        using (Slice.From(context.Transaction.InnerTransaction.Allocator, processName, out Slice processNameSlice))
-        {
-            var numberOfDeletedErrors = 0;
-            var numberOfErrorsToDelete = table.GetCountOfMatchesFor(Schemas.EtlProcessErrors.Current.Indexes[Schemas.EtlProcessErrors.ByEtlProcessName], processNameSlice) - ErrorsLimitPerEtl;
-                
-            if (numberOfErrorsToDelete <= 0)
-                return;
-                
-            foreach (var tvr in table.SeekForwardFrom(Schemas.EtlItemErrors.Current.Indexes[Schemas.EtlItemErrors.ByEtlProcessName], processNameSlice, 0))
-            {
-                var error = ReadItemError(ref tvr.Result.Reader);
+        if (table == null || table.NumberOfEntries <= ErrorsLimitPerEtl)
+            return;
 
-                if (error.EtlProcessName != processName || numberOfDeletedErrors == numberOfErrorsToDelete)
-                    break;
-
-                idsToDelete.Add(error.Id);
-                numberOfDeletedErrors++;
-            }
-        }
-
-        foreach (var id in idsToDelete)
-        {
-            using (Slice.From(context.Transaction.InnerTransaction.Allocator, id, out Slice errorId))
-            {
-                table.DeleteByKey(errorId);
-            }
-        }
+        var numberOfEntriesToDelete = table.NumberOfEntries - ErrorsLimitPerEtl;
+        table.DeleteForwardFrom(Schemas.EtlItemErrors.Current.Indexes[Schemas.EtlItemErrors.ByEtlProcessName], Slices.BeforeAllKeys, false, numberOfEntriesToDelete);
     }
-
-    /*
-    internal void DeleteOldestItemErrorsOfProcess(string etlProcessName)
-    {
-        using (var scope = new DisposableScope())
-        {
-            scope.EnsureDispose(_contextPool.AllocateOperationContext(out DocumentsOperationContext context));
-            scope.EnsureDispose(context.OpenWriteTransaction());
-            
-            var itemErrorsTableName = GetItemErrorsTableName(etlProcessName);
-
-            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlItemErrors.Current, itemErrorsTableName);
-            if (table == null || table.NumberOfEntries <= ErrorsLimitPerEtl)
-                return;
-            
-            var numberOfEntriesToDelete = table.NumberOfEntries - ErrorsLimitPerEtl;
-            table.DeleteForwardFrom(Schemas.EtlItemErrors.Current.Indexes[Schemas.EtlItemErrors.ByEtlProcessName], Slices.BeforeAllKeys, false, numberOfEntriesToDelete);
-        }
-    }
-    */
     
     private static string GetProcessErrorsTableName(string etlProcessName)
     {
