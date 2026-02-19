@@ -156,5 +156,43 @@ namespace Raven.Server.Web.System
                 context.Write(writer, result.ToJson());
             }
         }
+        
+        [RavenAction("/admin/monitoring/v1/etls", "GET", AuthorizationStatus.Operator)]
+        public async Task MonitoringEtls()
+        {
+            ServerStore.LicenseManager.AssertCanUseMonitoringEndpoints();
+
+            var databases = GetDatabases();
+            
+            var result = new EtlsMetrics();
+
+            result.PublicServerUrl = Server.Configuration.Core.PublicServerUrl?.UriValue;
+            result.NodeTag = ServerStore.NodeTag;
+            
+            var provider = new MetricsProvider(Server);
+            
+            foreach (var documentDatabase in databases)
+            {
+                var perDatabaseMetrics = new PerDatabaseEtlMetrics { DatabaseName = documentDatabase.Name };
+
+                using (documentDatabase.DocumentsStorage.ContextPool.AllocateOperationContext(out DocumentsOperationContext context))
+                using (context.OpenReadTransaction())
+                {
+                    foreach (var etl in documentDatabase.EtlLoader.Processes)
+                    {
+                        var etlMetrics = provider.CollectEtlMetrics(etl, documentDatabase.EtlErrorsStorage);
+                        perDatabaseMetrics.Etls.Add(etlMetrics);
+                    }
+                }
+
+                result.Results.Add(perDatabaseMetrics);
+            }
+            
+            using (ServerStore.ContextPool.AllocateOperationContext(out JsonOperationContext context))
+            await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
+            {
+                context.Write(writer, result.ToJson());
+            }
+        }
     }
 }

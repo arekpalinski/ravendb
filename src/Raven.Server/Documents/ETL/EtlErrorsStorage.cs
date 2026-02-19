@@ -281,6 +281,45 @@ public unsafe class EtlErrorsStorage
         }
     }
 
+    public long ReadErrorsCountOfEtl(string etlProcessName)
+    {
+        return ReadProcessErrorsCountOfEtl(etlProcessName) + ReadItemErrorsCountOfEtl(etlProcessName);
+    }
+
+    private long ReadProcessErrorsCountOfEtl(string etlProcessName)
+    {
+        using (var scope = new DisposableScope())
+        {
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out DocumentsOperationContext context));
+            scope.EnsureDispose(context.OpenReadTransaction());
+
+            var tableName = GetProcessErrorsTableName(etlProcessName);
+                    
+            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlProcessErrors.Current, tableName);
+            if (table == null)
+                return 0;
+
+            return table.NumberOfEntries;
+        }
+    }
+    
+    private long ReadItemErrorsCountOfEtl(string etlProcessName)
+    {
+        using (var scope = new DisposableScope())
+        {
+            scope.EnsureDispose(_contextPool.AllocateOperationContext(out DocumentsOperationContext context));
+            scope.EnsureDispose(context.OpenReadTransaction());
+
+            var tableName = GetItemErrorsTableName(etlProcessName);
+                    
+            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlItemErrors.Current, tableName);
+            if (table == null)
+                return 0;
+
+            return table.NumberOfEntries;
+        }
+    }
+
     public IDisposable ReadProcessErrorsOfEtl(string etlProcessName, out IEnumerable<EtlProcessErrorTableValue> errors)
     {
         using (var scope = new DisposableScope())

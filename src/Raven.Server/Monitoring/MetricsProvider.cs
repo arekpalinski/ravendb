@@ -6,6 +6,7 @@ using Raven.Client;
 using Raven.Client.Documents.Indexes;
 using Raven.Client.Util;
 using Raven.Server.Documents;
+using Raven.Server.Documents.ETL;
 using Raven.Server.Documents.Indexes;
 using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Context;
@@ -451,6 +452,18 @@ public sealed class MetricsProvider
 
         result.Type = index.Type;
         result.EntriesCount = stats.EntriesCount;
+
+        return result;
+    }
+
+    public EtlMetrics CollectEtlMetrics(EtlProcess etl, EtlErrorsStorage errorsStorage)
+    {
+        var result = new EtlMetrics();
+        
+        result.ProcessName = etl.Name;
+        result.LastSuccessfulBatchTime = etl.Statistics.LastSuccessfulBatchTime;
+        result.HealthStatus = etl.Statistics.HealthStatus;
+        result.ErrorsCount = errorsStorage.ReadErrorsCountOfEtl(etl.Name);
 
         return result;
     }

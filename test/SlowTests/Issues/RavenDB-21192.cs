@@ -23,6 +23,7 @@ using Raven.Server.Documents.ETL.Stats;
 using Raven.Server.NotificationCenter.Notifications;
 using Raven.Server.NotificationCenter.Notifications.Details;
 using Raven.Server.ServerWide.Context;
+using Raven.Server.Utils.Monitoring;
 using Sparrow.Json;
 using Tests.Infrastructure;
 using Xunit;
@@ -930,9 +931,6 @@ public class RavenDB_21192 : RavenTestBase
     [RavenFact(RavenTestCategory.Etl)]
     public void TestScriptErrorsShouldNotBePersisted()
     {
-        //const string etlName = "simulate";
-        //const string transformationName = "Users";
-        
         using (var store = GetDocumentStore())
         {
             var user = new User() { Id = "users/1", Name = "Joe Doe" };
@@ -1149,6 +1147,71 @@ public class RavenDB_21192 : RavenTestBase
             }
         }
     }
+    
+    [RavenFact(RavenTestCategory.Monitoring | RavenTestCategory.Etl)]
+    public void EtlsMonitoringEndpointShouldWork()
+    {
+        using (var src = GetDocumentStore(new Options { CreateDatabase = true }))
+        using (var dest = GetDocumentStore(new Options { CreateDatabase = true }))
+        {
+            const string connectionStringName1 = "ConnectionString1";
+            const string etlName1 = "ETL1";
+
+            const string transformationName1 = "Transformation1";
+            const string script1 = """
+                                   if (this.Name == "James Doe") {
+                                       throw new Error("dummy error");
+                                   }
+
+                                   loadToUsers(this);
+                                   """;
+
+            const string transformationName2 = "Transformation2";
+            const string script2 = """
+                                   throw new Error("dummy error");
+                                   loadToUsers(this);
+                                   """;
+
+            var collections1 = new List<string>() { "Users" };
+            
+            AddEtlTask(src, dest, etlName1, connectionStringName1, [transformationName1, transformationName2], [script1, script2], collections1);
+
+            var etlDone1 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName1}/{transformationName1}" && statistics.LoadSuccesses == 123);
+            var etlDone2 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName1}/{transformationName2}" && statistics.TransformationErrors >= 123);
+            
+            using (var session = src.OpenSession())
+            {
+                for (int i = 0; i < 123; i++)
+                    session.Store(new User { Name = "Joe Doe", Value = 0 });
+                
+                session.SaveChanges();
+            }
+            
+            etlDone1.Wait(TimeSpan.FromSeconds(15));
+            etlDone2.Wait(TimeSpan.FromSeconds(15));
+            
+            using (var commands = src.Commands())
+            {
+                var cmd = new GetEtlsMonitoringDataCommand();
+
+                commands.Execute(cmd);
+
+                var resBjro = cmd.Result as BlittableJsonReaderObject;
+                var results = JsonConvert.DeserializeObject<EtlsMetrics>(resBjro.ToString()).Results;
+                var databaseResults = results.Single(x => x.DatabaseName == src.Database);
+                
+                var firstProcessResults = databaseResults.Etls.Single(x => x.ProcessName == $"{etlName1}/{transformationName1}");
+                Assert.Equal(EtlProcessHealthStatus.Healthy, firstProcessResults.HealthStatus);
+                Assert.NotNull(firstProcessResults.LastSuccessfulBatchTime);
+                Assert.Equal(0, firstProcessResults.ErrorsCount);
+                
+                var secondProcessResults = databaseResults.Etls.Single(x => x.ProcessName == $"{etlName1}/{transformationName2}");
+                Assert.Equal(EtlProcessHealthStatus.Failed, secondProcessResults.HealthStatus);
+                Assert.Null(secondProcessResults.LastSuccessfulBatchTime);
+                Assert.Equal(123, secondProcessResults.ErrorsCount);
+            }
+        }
+    }
 
     private EtlProcessStatistics GetEtlStats(IDocumentStore store, string etlName)
     {
@@ -1318,6 +1381,29 @@ public class RavenDB_21192 : RavenTestBase
         public override HttpRequestMessage CreateRequest(JsonOperationContext ctx, ServerNode node, out string url)
         {
             url = $"{node.Url}/monitoring/snmp/oids";
+            
+            return new HttpRequestMessage
+            {
+                Method = HttpMethod.Get
+            };
+        }
+    
+        public override void SetResponse(JsonOperationContext context, BlittableJsonReaderObject response, bool fromCache)
+        {
+            if (response == null)
+                ThrowInvalidResponse();
+    
+            Result = response;
+        }
+    
+        public override bool IsReadRequest => true;
+    }
+
+    private class GetEtlsMonitoringDataCommand : RavenCommand<object>
+    {
+        public override HttpRequestMessage CreateRequest(JsonOperationContext ctx, ServerNode node, out string url)
+        {
+            url = $"{node.Url}/admin/monitoring/v1/etls";
             
             return new HttpRequestMessage
             {
