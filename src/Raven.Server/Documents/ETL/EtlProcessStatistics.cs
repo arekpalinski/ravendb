@@ -70,6 +70,7 @@ namespace Raven.Server.Documents.ETL
         public EtlProcessHealthStatus HealthStatus { get; private set; }
         private bool SetHealthStatusToFailed { get; set; }
         public DateTime? NextBatchRetryTime { get; set; }
+        public DateTime? LastSuccessfulBatchTime { get; set; }
 
         public void TransformationSuccess()
         {
@@ -266,7 +267,8 @@ namespace Raven.Server.Documents.ETL
                 [nameof(LoadErrors)] = LoadErrors,
                 [nameof(AverageErrorsRatio)] = AverageErrorsRatio.GetRate(),
                 [nameof(HealthStatus)] = HealthStatus,
-                [nameof(NextBatchRetryTime)] = NextBatchRetryTime
+                [nameof(NextBatchRetryTime)] = NextBatchRetryTime,
+                [nameof(LastSuccessfulBatchTime)] = LastSuccessfulBatchTime,
             };
             return json;
         }

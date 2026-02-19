@@ -857,6 +857,9 @@ namespace Raven.Server.Monitoring.Snmp
                 
                 [Description("Health status of particular ETL task")]
                 public const string HealthStatus = "5.2.{0}.1.{{0}}.2";
+
+                [Description("Last successful batch time")]
+                public const string LastSuccessfulBatchTime = "5.2.{0}.1.{{0}}.3";
                 
                 public static Dictionary<string, string> CreateMapping(long ignoreIndex)
                 {

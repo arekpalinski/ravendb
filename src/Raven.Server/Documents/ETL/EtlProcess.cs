@@ -936,10 +936,12 @@ namespace Raven.Server.Documents.ETL
             }
         }
 
-        private static void RecordSuccessfulBatch(TStatsScope stats)
+        private void RecordSuccessfulBatch(TStatsScope stats)
         {
             const string message = "Successfully finished loading all batch items";
             stats.RecordBatchStopReason(message);
+            
+            Statistics.LastSuccessfulBatchTime = Database.Time.GetUtcNow();
         }
 
         protected void UpdateEtlProcessState(EtlProcessState state, DateTime? lastBatchTime = null)

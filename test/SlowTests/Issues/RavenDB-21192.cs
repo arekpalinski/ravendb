@@ -1001,12 +1001,17 @@ public class RavenDB_21192 : RavenTestBase
         using (var src = GetDocumentStore(new Options { CreateDatabase = true }))
         using (var dest = GetDocumentStore(new Options { CreateDatabase = true }))
         {
+            var database = GetDatabase(src.Database).GetAwaiter().GetResult();
+            
             const string connectionStringName1 = "ConnectionString1";
             const string etlName1 = "ETL1";
 
             const string transformationName1 = "Transformation1";
             const string script1 = """
-                                   throw new Error("dummy error");
+                                   if (this.Name == "James Doe") {
+                                       throw new Error("dummy error");
+                                   }
+                                   
                                    loadToUsers(this);
                                    """;
 
@@ -1034,6 +1039,20 @@ public class RavenDB_21192 : RavenTestBase
             etlDone1.Wait(TimeSpan.FromSeconds(15));
             etlDone2.Wait(TimeSpan.FromSeconds(15));
 
+            var etlDone3 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName1}/{transformationName1}" && statistics.LoadSuccesses == 4);
+            var etlDone4 = Etl.WaitForEtlToComplete(src, (name, statistics) => name == $"{etlName1}/{transformationName2}" && statistics.TransformationErrors >= 127);
+            
+            using (var session = src.OpenSession())
+            {
+                for (int i = 0; i < 4; i++)
+                    session.Store(new User { Name = "Joe Doe", Value = 0 });
+                
+                session.SaveChanges();
+            }
+            
+            etlDone3.Wait(TimeSpan.FromSeconds(15));
+            etlDone4.Wait(TimeSpan.FromSeconds(15));
+            
             var ip = new Uri(Server.WebUrl).Host;
             var endpoint = new IPEndPoint(IPAddress.Parse(ip), port);
             
@@ -1064,12 +1083,13 @@ public class RavenDB_21192 : RavenTestBase
                     [new Variable(new ObjectIdentifier(etlErrorsOid))],
                     10000);
                 
-                Assert.Equal(246, ((Integer32)result.Single().Data).ToInt32());
+                Assert.Equal(250, ((Integer32)result.Single().Data).ToInt32());
                 
                 etlEntries.TryGet($"{etlName1}/{transformationName1}", out BlittableJsonReaderArray firstProcessEntries);
                 var firstProcessOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(firstProcessEntries.ToString());
                 var firstProcessEtlErrorsOid = firstProcessOidsObjectList.Single(x => x.Description == "Number of task ETL errors").OID;
                 var firstProcessHealthStatusOid = firstProcessOidsObjectList.Single(x => x.Description == "Health status of particular ETL task").OID;
+                var firstProcessLastSuccessfulBatchTimeOid = firstProcessOidsObjectList.Single(x => x.Description == "Last successful batch time").OID;
                 
                 result = Messenger.Get(VersionCode.V2,
                     endpoint,
@@ -1087,10 +1107,20 @@ public class RavenDB_21192 : RavenTestBase
                 
                 Assert.Equal("Failed", result.Single().Data.ToString());
                 
+                result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(firstProcessLastSuccessfulBatchTimeOid))],
+                    10000);
+
+                var firstProcessStatistics = database.EtlLoader.Processes.Single(x => x.Name == $"{etlName1}/{transformationName1}").Statistics;
+                Assert.Equal(firstProcessStatistics.LastSuccessfulBatchTime.ToString(), result.Single().Data.ToString());
+                
                 etlEntries.TryGet($"{etlName1}/{transformationName2}", out BlittableJsonReaderArray secondProcessEntries);
                 var secondProcessOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(secondProcessEntries.ToString());
                 var secondProcessEtlErrorsOid = secondProcessOidsObjectList.Single(x => x.Description == "Number of task ETL errors").OID;
                 var secondProcessHealthStatusOid = secondProcessOidsObjectList.Single(x => x.Description == "Health status of particular ETL task").OID;
+                var secondProcessLastSuccessfulBatchTimeOid = secondProcessOidsObjectList.Single(x => x.Description == "Last successful batch time").OID;
                 
                 result = Messenger.Get(VersionCode.V2,
                     endpoint,
@@ -1098,7 +1128,7 @@ public class RavenDB_21192 : RavenTestBase
                     [new Variable(new ObjectIdentifier(secondProcessEtlErrorsOid))],
                     10000);
                 
-               Assert.Equal(123, ((Integer32)result.Single().Data).ToInt32());
+               Assert.Equal(127, ((Integer32)result.Single().Data).ToInt32());
                
                result = Messenger.Get(VersionCode.V2,
                    endpoint,
@@ -1107,6 +1137,15 @@ public class RavenDB_21192 : RavenTestBase
                    10000);
                
                Assert.Equal("Failed", result.Single().Data.ToString());
+               
+               result = Messenger.Get(VersionCode.V2,
+                   endpoint,
+                   new OctetString(communityString),
+                   [new Variable(new ObjectIdentifier(secondProcessLastSuccessfulBatchTimeOid))],
+                   10000);
+               
+               var secondProcessStatistics = database.EtlLoader.Processes.Single(x => x.Name == $"{etlName1}/{transformationName2}").Statistics;
+               Assert.Equal(secondProcessStatistics.LastSuccessfulBatchTime.ToString(), result.Single().Data.ToString());
             }
         }
     }
