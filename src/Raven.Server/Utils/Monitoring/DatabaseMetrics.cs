@@ -15,6 +15,7 @@ namespace Raven.Server.Utils.Monitoring
         public DatabaseStatistics Statistics { get; set; } 
         public DatabaseIndexesMetrics Indexes { get; set; }
         public DatabaseStorageMetrics Storage { get; set; }
+        public DatabaseEtlsMetrics Etls { get; set; }
 
         public DynamicJsonValue ToJson()
         {
@@ -27,7 +28,8 @@ namespace Raven.Server.Utils.Monitoring
                 [nameof(Counts)] = Counts.ToJson(),
                 [nameof(Statistics)] = Statistics.ToJson(),
                 [nameof(Indexes)] = Indexes.ToJson(),
-                [nameof(Storage)] = Storage.ToJson()
+                [nameof(Storage)] = Storage.ToJson(),
+                [nameof(Etls)] = Etls.ToJson()
             };
         }
     }
@@ -140,6 +142,27 @@ namespace Raven.Server.Utils.Monitoring
                 [nameof(ReadThroughputInKb)] = ReadThroughputInKb,
                 [nameof(WriteThroughputInKb)] = WriteThroughputInKb,
                 [nameof(QueueLength)] = QueueLength
+            };
+        }
+    }
+    
+    public sealed class DatabaseEtlsMetrics
+    {
+        public long Count { get; set; }
+        public long ErrorsCount { get; set; }
+        public long HealthyEtlsCount { get; set; }
+        public long ImpairedEtlsCount { get; set; }
+        public long FailedEtlsCount { get; set; }
+        
+        public DynamicJsonValue ToJson()
+        {
+            return new DynamicJsonValue
+            {
+                [nameof(Count)] = Count,
+                [nameof(ErrorsCount)] = ErrorsCount,
+                [nameof(HealthyEtlsCount)] = HealthyEtlsCount,
+                [nameof(ImpairedEtlsCount)] = ImpairedEtlsCount,
+                [nameof(FailedEtlsCount)] = FailedEtlsCount
             };
         }
     }

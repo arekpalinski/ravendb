@@ -284,6 +284,7 @@ public sealed class MetricsProvider
         result.Indexes = GetDatabaseIndexesMetrics(database);
         result.Storage = GetDatabaseStorageMetrics(database);
         result.Statistics = GetDatabaseStatistics(database);
+        result.Etls = GetDatabaseEtlsMetrics(database);
 
         return result;
     }
@@ -406,6 +407,29 @@ public sealed class MetricsProvider
         return result;
     }
 
+    private DatabaseEtlsMetrics GetDatabaseEtlsMetrics(DocumentDatabase database)
+    {
+        var result = new DatabaseEtlsMetrics();
+
+        var etls = database.EtlLoader.Processes;
+
+        result.Count = etls.Length;
+
+        var etlErrorsCount = database.EtlErrorsStorage.ReadErrorsCount();
+        result.ErrorsCount = etlErrorsCount;
+        
+        var healthyEtlsCount = etls.Count(x => x.Statistics.HealthStatus == EtlProcessHealthStatus.Healthy);
+        result.HealthyEtlsCount = healthyEtlsCount;
+        
+        var impairedEtlsCount = etls.Count(x => x.Statistics.HealthStatus == EtlProcessHealthStatus.Impaired);
+        result.ImpairedEtlsCount = impairedEtlsCount;
+        
+        var failedEtlsCount = etls.Count(x => x.Statistics.HealthStatus == EtlProcessHealthStatus.Failed);
+        result.FailedEtlsCount = failedEtlsCount;
+        
+        return result;
+    }
+    
     private DatabaseStatistics GetDatabaseStatistics(DocumentDatabase database)
     {
         var result = new DatabaseStatistics();

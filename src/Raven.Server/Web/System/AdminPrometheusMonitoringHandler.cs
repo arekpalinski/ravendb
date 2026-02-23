@@ -8,6 +8,7 @@ using Raven.Client.Documents.Indexes;
 using Raven.Client.ServerWide;
 using Raven.Server.Commercial;
 using Raven.Server.Documents;
+using Raven.Server.Documents.ETL;
 using Raven.Server.Monitoring;
 using Raven.Server.Routing;
 using Raven.Server.ServerWide.Context;
@@ -38,6 +39,7 @@ namespace Raven.Server.Web.System
             public static readonly string ArchivedDataProcessingBehavior = FormatEnumHelp<ArchivedDataProcessingBehavior>();
             public static readonly string IndexRunningStatus = FormatEnumHelp<IndexRunningStatus>();
             public static readonly string IndexType = FormatEnumHelp<IndexType>();
+            public static readonly string EtlHealthStatus = FormatEnumHelp<EtlProcessHealthStatus>();
             
             private static string FormatEnumHelp<TEnum>() where TEnum : struct, Enum
             {
@@ -57,6 +59,7 @@ namespace Raven.Server.Web.System
             var skipDatabases = GetBoolValueQueryString("skipDatabasesMetrics", false) ?? false;
             var skipIndexes = GetBoolValueQueryString("skipIndexesMetrics", false) ?? false;
             var skipCollections = GetBoolValueQueryString("skipCollectionsMetrics", false) ?? false;
+            var skipEtls = GetBoolValueQueryString("skipEtlMetrics", false) ?? false;
 
             var provider = new MetricsProvider(Server);
 
@@ -82,6 +85,11 @@ namespace Raven.Server.Web.System
             if (skipCollections == false)
             {
                 await WriteCollectionMetricsAsync(databases, responseStream);
+            }
+
+            if (skipEtls == false)
+            {
+                await WriteEtlMetricsAsync(provider, databases, responseStream);
             }
         }
 
@@ -284,6 +292,13 @@ namespace Raven.Server.Web.System
                     WriteGauges(writer, "Disk Write Throughput", "database_storage_write_throughput_bytes", metrics, x => KiloBytesToBytes(x.Storage.WriteThroughputInKb),
                         cachedTags);
                     WriteGauges(writer, "Disk Queue length", "database_storage_queue_length", metrics, x => x.Storage.QueueLength, cachedTags);
+                    
+                    // ETLs
+                    WriteGauges(writer, "Number of ETLs", "database_etls_count", metrics, x => x.Etls.Count, cachedTags);
+                    WriteGauges(writer, "Number of ETL errors", "database_etls_errors_count", metrics, x => x.Etls.ErrorsCount, cachedTags);
+                    WriteGauges(writer, "Number of healthy ETLs", "database_etls_healthy_count", metrics, x => x.Etls.HealthyEtlsCount, cachedTags);
+                    WriteGauges(writer, "Number of impaired ETLs", "database_etls_impaired_count", metrics, x => x.Etls.ImpairedEtlsCount, cachedTags);
+                    WriteGauges(writer, "Number of failed ETLs", "database_etls_failed_count", metrics, x => x.Etls.FailedEtlsCount, cachedTags);
                 }
 
                 ms.Position = 0;
@@ -333,7 +348,39 @@ namespace Raven.Server.Web.System
                 await ms.CopyToAsync(responseStream);
             }
         }
-        
+
+        private async Task WriteEtlMetricsAsync(MetricsProvider provider, List<DocumentDatabase> databases, Stream responseStream)
+        {
+            var metrics = new List<EtlMetrics>();
+            var cachedTags = new List<string>();
+
+            foreach (var database in databases)
+            {
+                foreach (var etl in database.EtlLoader.Processes)
+                {
+                    var etlMetrics = provider.CollectEtlMetrics(etl, database.EtlErrorsStorage);
+                    metrics.Add(etlMetrics);
+                    cachedTags.Add(SerializeTags(new Dictionary<string, string>
+                    {
+                        { "database_name", database.Name },
+                        { "etl_name", etl.Name }
+                    }));
+                }
+            }
+            
+            using (var ms = RecyclableMemoryStreamFactory.GetRecyclableStream())
+            {
+                await using (var writer = PrometheusWriter(ms))
+                {
+                    WriteGauges(writer, "Number of ETL errors", "etl_errors_count", metrics, x => x.ErrorsCount, cachedTags);
+                    WriteGauges(writer, "ETL health status, " + EnumHelp.EtlHealthStatus, "etl_health_status", metrics, x => (int)x.HealthStatus, cachedTags);
+                }
+
+                ms.Position = 0;
+                await ms.CopyToAsync(responseStream);
+            }
+        }
+
         private async Task WriteCollectionMetricsAsync(List<DocumentDatabase> databases, Stream responseStream)
         {
             var metrics = new List<CollectionMetrics>();

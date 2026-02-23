@@ -280,44 +280,53 @@ public unsafe class EtlErrorsStorage
             return scope.Delay();
         }
     }
+    
+    public long ReadErrorsCount()
+    {
+        var errorsCount = 0L;
+
+        foreach (var etlProcess in _etlLoader.Processes)
+        {
+            errorsCount += ReadErrorsCountOfEtl(etlProcess.Name);
+        }
+
+        return errorsCount;
+    }
 
     public long ReadErrorsCountOfEtl(string etlProcessName)
     {
-        return ReadProcessErrorsCountOfEtl(etlProcessName) + ReadItemErrorsCountOfEtl(etlProcessName);
-    }
-
-    private long ReadProcessErrorsCountOfEtl(string etlProcessName)
-    {
         using (var scope = new DisposableScope())
         {
             scope.EnsureDispose(_contextPool.AllocateOperationContext(out DocumentsOperationContext context));
             scope.EnsureDispose(context.OpenReadTransaction());
+            
+            var processErrorsCount = ReadProcessErrorsCountOfEtl(etlProcessName, context);
+            var itemErrorsCount = ReadItemErrorsCountOfEtl(etlProcessName, context);
 
-            var tableName = GetProcessErrorsTableName(etlProcessName);
-                    
-            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlProcessErrors.Current, tableName);
-            if (table == null)
-                return 0;
-
-            return table.NumberOfEntries;
+            return processErrorsCount + itemErrorsCount;
         }
+    }
+
+    private static long ReadProcessErrorsCountOfEtl(string etlProcessName, DocumentsOperationContext context)
+    {
+        var tableName = GetProcessErrorsTableName(etlProcessName);
+                    
+        var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlProcessErrors.Current, tableName);
+        if (table == null)
+            return 0;
+
+        return table.NumberOfEntries;
     }
     
-    private long ReadItemErrorsCountOfEtl(string etlProcessName)
+    private static long ReadItemErrorsCountOfEtl(string etlProcessName, DocumentsOperationContext context)
     {
-        using (var scope = new DisposableScope())
-        {
-            scope.EnsureDispose(_contextPool.AllocateOperationContext(out DocumentsOperationContext context));
-            scope.EnsureDispose(context.OpenReadTransaction());
-
-            var tableName = GetItemErrorsTableName(etlProcessName);
+        var tableName = GetItemErrorsTableName(etlProcessName);
                     
-            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlItemErrors.Current, tableName);
-            if (table == null)
-                return 0;
+        var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlItemErrors.Current, tableName);
+        if (table == null)
+            return 0;
 
-            return table.NumberOfEntries;
-        }
+        return table.NumberOfEntries;
     }
 
     public IDisposable ReadProcessErrorsOfEtl(string etlProcessName, out IEnumerable<EtlProcessErrorTableValue> errors)
