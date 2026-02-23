@@ -427,6 +427,42 @@ public unsafe class EtlErrorsStorage
         table.DeleteForwardFrom(Schemas.EtlItemErrors.Current.Indexes[Schemas.EtlItemErrors.ByEtlProcessName], Slices.BeforeAllKeys, false, numberOfEntriesToDelete);
     }
     
+    public bool DeleteProcessError(string id, string etlProcessName)
+    {
+        using (_contextPool.AllocateOperationContext(out DocumentsOperationContext context))
+        {
+            context.OpenReadTransaction();
+
+            var tableName = GetProcessErrorsTableName(etlProcessName);
+            var tx = context.Transaction.InnerTransaction;
+        
+            var table = tx.OpenTable(Schemas.EtlProcessErrors.Current, tableName);
+
+            using (Slice.From(tx.Allocator, id, out Slice idSlice))
+            {
+                return table.DeleteByKey(idSlice);
+            }
+        }
+    }
+    
+    public bool DeleteItemError(string id, string etlProcessName)
+    {
+        using (_contextPool.AllocateOperationContext(out DocumentsOperationContext context))
+        {
+            context.OpenReadTransaction();
+
+            var tableName = GetItemErrorsTableName(etlProcessName);
+            var tx = context.Transaction.InnerTransaction;
+        
+            var table = tx.OpenTable(Schemas.EtlItemErrors.Current, tableName);
+
+            using (Slice.From(tx.Allocator, id, out Slice idSlice))
+            {
+                return table.DeleteByKey(idSlice);
+            }
+        }
+    }
+    
     private static string GetProcessErrorsTableName(string etlProcessName)
     {
         return $"{Schemas.EtlProcessErrors.EtlProcessErrorsTree}.{etlProcessName.ToLowerInvariant()}";
