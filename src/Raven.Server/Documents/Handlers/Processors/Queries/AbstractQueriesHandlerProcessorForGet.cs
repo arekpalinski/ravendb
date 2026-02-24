@@ -333,6 +333,8 @@ internal abstract class AbstractQueriesHandlerProcessorForGet<TRequestHandler, T
 
         public bool IgnoreLimit;
 
+        public ulong? QueryHash; // TODO arek
+
         private QueryStringParameters([NotNull] HttpRequest httpRequest)
             : base(httpRequest)
         {
@@ -389,6 +391,12 @@ internal abstract class AbstractQueriesHandlerProcessorForGet<TRequestHandler, T
                 {
                     if (IsMatch(name, IncludeServerSideQueryQueryStringName))
                         IncludeServerSideQuery = GetBoolValue(name, pair.EncodedValue);
+                    return;
+                }
+                case 9:
+                {
+                    if (IsMatch(name, QueryHashQueryStringName))
+                        QueryHash = GetULongValue(name, pair.EncodedValue);
                     return;
                 }
                 case 24:

@@ -11,56 +11,95 @@ using SlowTests.Sharding.Cluster;
 using Tests.Infrastructure;
 using Xunit;
 
-namespace Tryouts;
+using System;
+using System.Linq;
+using Raven.Client.Documents;
+using Raven.Client.Documents.Linq;
 
-public static class Program
+namespace Tryouts
 {
-    static Program()
+    // --- POCOs (Plain Old CLR Objects) representing Northwind documents ---
+    
+    public class Address
     {
-        XunitLogging.RedirectStreams = false;
+        public string City { get; set; }
+        public string Country { get; set; }
     }
 
-    public static async Task Main(string[] args)
+    public class Employee
     {
-        Console.WriteLine(Process.GetCurrentProcess().Id);
+        public string Id { get; set; }
+        public string FirstName { get; set; }
+        public string LastName { get; set; }
+        public Address Address { get; set; }
+    }
 
-        for (int i = 0; i < 10; i++)
+    public class Product
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public decimal PricePerUnit { get; set; }
+        public int UnitsInStock { get; set; }
+    }
+
+    class Program
+    {
+        static void Main(string[] args)
         {
-            Console.WriteLine($"Starting to run {i}");
 
-            try
+            foreach (var dbName in new[] { "test", "aaa" })
             {
-                using (var testOutputHelper = new ConsoleTestOutputHelper())
-                using (var test = new RavenDB_21273(testOutputHelper))
+
+                // 1. Initialize the Document Store
+                // Make sure your local RavenDB server is running on localhost:8080
+                using var store = new DocumentStore
                 {
-                    DebuggerAttachedTimeout.DisableLongTimespan = true;
-                    //test.CanRoundTripSmallContainer("GreaterThan42B");
-                    await test.ExceptionWhenImportingDelayedExternalReplicationWithProLicense();
-                }
-            }
-            catch (Exception e)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine(e);
-                Console.ForegroundColor = ConsoleColor.White;
-            }
-        }
-    }
+                    Urls = new[] { "http://localhost:8080" },
+                    Database = dbName
+                }.Initialize();
 
-    private static void TryRemoveDatabasesFolder()
-    {
-        var p = System.AppDomain.CurrentDomain.BaseDirectory;
-        var dbPath = Path.Combine(p, "Databases");
-        if (Directory.Exists(dbPath))
-        {
-            try
-            {
-                Directory.Delete(dbPath, true);
-                Assert.False(Directory.Exists(dbPath), "Directory.Exists(dbPath)");
-            }
-            catch
-            {
-                Console.WriteLine($"Could not remove Databases folder on path '{dbPath}'");
+                Console.WriteLine($"Connected to RavenDB '{dbName}' database.");
+
+                // 2. Open a session to interact with the database
+                using (var session = store.OpenSession())
+                {
+                    Console.WriteLine("\n--- Query 1: Simple Filtering (Nested Property) ---");
+                    // Find all employees located in London
+                    var londonEmployees = session.Query<Employee>()
+                        .Where(e => e.Address.City == "London")
+                        .ToList();
+
+                    foreach (var emp in londonEmployees)
+                    {
+                        Console.WriteLine($"Employee: {emp.FirstName} {emp.LastName}, City: {emp.Address.City}");
+                    }
+
+                    Console.WriteLine("\n--- Query 2: Filtering, Ordering, and Paging ---");
+                    // Find the top 5 most expensive products that are currently in stock
+                    var expensiveProducts = session.Query<Product>()
+                        .Where(p => p.UnitsInStock > 0)
+                        .OrderByDescending(p => p.PricePerUnit)
+                        .Take(5)
+                        .ToList();
+
+                    foreach (var prod in expensiveProducts)
+                    {
+                        Console.WriteLine($"Product: {prod.Name}, Price: ${prod.PricePerUnit}, Stock: {prod.UnitsInStock}");
+                    }
+
+                    Console.WriteLine("\n--- Query 3: String Searching ---");
+                    // Find products where the name starts with "Ch"
+                    var specificProducts = session.Advanced.RawQuery<Product>(@"from index 'Product/Search' where search(Name, 'ch')")
+                        .ToList();
+
+                    foreach (var prod in specificProducts)
+                    {
+                        Console.WriteLine($"Product Name: {prod.Name}");
+                    }
+                }
+
+                Console.WriteLine("\nQueries executed successfully. Press any key to exit.");
+                Console.ReadKey();
             }
         }
     }

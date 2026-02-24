@@ -80,7 +80,9 @@ internal abstract class AbstractQueryStringParameters(HttpRequest httpRequest)
     protected static readonly ReadOnlyMemory<char> NumberOfReplicasToWaitForQueryStringName = "numberOfReplicasToWaitFor".AsMemory();
 
     protected static readonly ReadOnlyMemory<char> ThrowOnTimeoutInWaitForReplicasQueryStringName = "throwOnTimeoutInWaitForReplicas".AsMemory();
-    
+
+    protected static readonly ReadOnlyMemory<char> QueryHashQueryStringName = "queryHash".AsMemory();
+
     private Dictionary<string, List<ReadOnlyMemory<char>>> _tempStringValues;
 
     protected void Parse()
@@ -149,6 +151,15 @@ internal abstract class AbstractQueryStringParameters(HttpRequest httpRequest)
         return default;
     }
 
+    protected static ulong GetULongValue(ReadOnlyMemory<char> name, ReadOnlyMemory<char> value)
+    {
+        if (ulong.TryParse(value.Span, out var result))
+            return result;
+
+        ThrowInvalidULong(name, value);
+        return default;
+    }
+
     protected static bool TryGetEnumValue<TEnum>(ReadOnlyMemory<char> value, out TEnum outValue)
         where TEnum : struct
     {
@@ -180,5 +191,11 @@ internal abstract class AbstractQueryStringParameters(HttpRequest httpRequest)
     private static void ThrowInvalidInt(ReadOnlyMemory<char> name, ReadOnlyMemory<char> value)
     {
         throw new ArgumentException($"Could not parse query string '{name}' as int val {value}");
+    }
+
+    [DoesNotReturn]
+    private static void ThrowInvalidULong(ReadOnlyMemory<char> name, ReadOnlyMemory<char> value)
+    {
+        throw new ArgumentException($"Could not parse query string '{name}' as ulong val {value}");
     }
 }

@@ -213,6 +213,8 @@ function execute(doc, args){
 
         public readonly bool CanCache;
 
+        public ulong QueryHash => CacheKey;
+
         public string[] Includes;
 
         public string[] CompareExchangeValueIncludes;

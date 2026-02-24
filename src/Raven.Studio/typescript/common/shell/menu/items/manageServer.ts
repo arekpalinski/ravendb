@@ -280,6 +280,15 @@ function getManageServerMenuItem() {
             dynamicHash: appUrl.forRunningQueries
         }),
         new leafMenuItem({
+            route: 'admin/settings/queryMetadataCache',
+            moduleId: require('viewmodels/manage/queryMetadataCache'),
+            title: 'Query Metadata Cache',
+            nav: true,
+            css: 'icon-search',
+            dynamicHash: appUrl.forQueryMetadataCache,
+            requiredAccess: "Operator"
+        }),
+        new leafMenuItem({
             route: 'admin/settings/debug/advanced*details',
             moduleId: require('viewmodels/manage/debugAdvancedParent'),
             title: 'Advanced',

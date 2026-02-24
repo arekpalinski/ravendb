@@ -184,6 +184,10 @@ class appUrl {
         const databasePart = appUrl.getEncodedDbPart(db);
         return "#admin/settings/runningQueries?" + databasePart;
     }
+
+    static forQueryMetadataCache(): string {
+        return "#admin/settings/queryMetadataCache";
+    }
     
     static forCaptureStackTraces(): string {
         return "#admin/settings/captureStackTraces";

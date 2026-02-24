@@ -1,4 +1,6 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
@@ -26,6 +28,7 @@ internal abstract class AbstractQueriesDebugHandlerProcessorForQueriesCacheList<
         await using (var writer = new AsyncBlittableJsonTextWriterForDebug(context, ServerStore, RequestHandler.ResponseBodyStream()))
         {
             var queryCache = GetQueryMetadataCache().GetQueryCache();
+            var queryHashFilter = GetQueryHashFilter();
 
             var queriesList = new List<DynamicJsonValue>();
 
@@ -39,9 +42,13 @@ internal abstract class AbstractQueriesDebugHandlerProcessorForQueriesCacheList<
             {
                 if (item != null)
                 {
+                    if (queryHashFilter.HasValue && item.QueryHash != queryHashFilter.Value)
+                        continue;
+
                     var curDjvItem = new DynamicJsonValue();
                     queriesList.Add(curDjvItem);
 
+                    curDjvItem[nameof(QueryMetadata.QueryHash)] = item.QueryHash.ToString(CultureInfo.InvariantCulture); // ToString() to prevent overflow issues in JSON on ulong values
                     curDjvItem[nameof(QueryMetadata.CreatedAt)] = item.CreatedAt;
 
                     curDjvItem[nameof(QueryMetadata.LastQueriedAt)] = item.LastQueriedAt;
@@ -122,5 +129,23 @@ internal abstract class AbstractQueriesDebugHandlerProcessorForQueriesCacheList<
             writer.WriteArray("Results", queriesList, context);
             writer.WriteEndObject();
         }
+    }
+
+    private ulong? GetQueryHashFilter()
+    {
+        var queryHashValue = RequestHandler.HttpContext.Request.Query["queryHash"];
+        if (queryHashValue.Count == 0)
+            return null;
+
+        var rawValue = queryHashValue[0];
+        if (string.IsNullOrWhiteSpace(rawValue))
+            return null;
+
+        var trimmedValue = rawValue.Trim();
+
+        if (ulong.TryParse(trimmedValue, NumberStyles.None, CultureInfo.InvariantCulture, out var unsignedValue))
+            return unsignedValue;
+
+        throw new ArgumentException($"Could not parse query string 'queryHash' value {rawValue}");
     }
 }

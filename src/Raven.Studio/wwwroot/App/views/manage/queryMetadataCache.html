@@ -1,0 +1,33 @@
+<div class="flex-vertical absolute-fill content-margin query-hash-lookup">
+    <div class="flex-horizontal flex-shrink-0">
+        <div>
+            <input class="form-control filter" placeholder="Filter (Query Hash)" data-bind="textInput: queryHash">
+        </div>
+        <div class="btn-group">
+            <select id="visibleDbsSelector" size="5" multiple="multiple"
+                    data-bind="options: allDbNames, selectedOptions: selectedDbNames"></select>
+        </div>
+        <div>
+            <div class="text-muted info-block">
+                <div class="text-center"><small>Results:</small></div>
+                <div class="text-center">
+                    <small><strong data-bind="text: resultsCount"></strong></small>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="flex-grow">
+        <div class="scroll-stretch">
+            <div class="panel">
+                <virtual-grid class="resizable" params="controller: gridController, emptyTemplate: 'empty-query-hash-lookup-template'"></virtual-grid>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="text/html" id="empty-query-hash-lookup-template">
+    No cached query metadata found for the selected databases.
+</script>
+
+<div class="tooltip json-preview lg js-query-hash-lookup-tooltip" style="opacity: 0">
+</div>
