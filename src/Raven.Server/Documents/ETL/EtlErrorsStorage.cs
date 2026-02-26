@@ -386,6 +386,14 @@ public unsafe class EtlErrorsStorage
             yield return error;
         }
     }
+
+    public void DeleteAllEtlErrors()
+    {
+        foreach (var etlProcess in _etlLoader.Processes)
+        {
+            DeleteErrorsOfEtl(etlProcess.Name);
+        }
+    }
     
     public void DeleteErrorsOfEtl(string etlProcessName)
     {
@@ -425,42 +433,6 @@ public unsafe class EtlErrorsStorage
 
         var numberOfEntriesToDelete = table.NumberOfEntries - ErrorsLimitPerEtl;
         table.DeleteForwardFrom(Schemas.EtlItemErrors.Current.Indexes[Schemas.EtlItemErrors.ByEtlProcessName], Slices.BeforeAllKeys, false, numberOfEntriesToDelete);
-    }
-    
-    public bool DeleteProcessError(string id, string etlProcessName)
-    {
-        using (_contextPool.AllocateOperationContext(out DocumentsOperationContext context))
-        {
-            context.OpenReadTransaction();
-
-            var tableName = GetProcessErrorsTableName(etlProcessName);
-            var tx = context.Transaction.InnerTransaction;
-        
-            var table = tx.OpenTable(Schemas.EtlProcessErrors.Current, tableName);
-
-            using (Slice.From(tx.Allocator, id, out Slice idSlice))
-            {
-                return table.DeleteByKey(idSlice);
-            }
-        }
-    }
-    
-    public bool DeleteItemError(string id, string etlProcessName)
-    {
-        using (_contextPool.AllocateOperationContext(out DocumentsOperationContext context))
-        {
-            context.OpenReadTransaction();
-
-            var tableName = GetItemErrorsTableName(etlProcessName);
-            var tx = context.Transaction.InnerTransaction;
-        
-            var table = tx.OpenTable(Schemas.EtlItemErrors.Current, tableName);
-
-            using (Slice.From(tx.Allocator, id, out Slice idSlice))
-            {
-                return table.DeleteByKey(idSlice);
-            }
-        }
     }
     
     private static string GetProcessErrorsTableName(string etlProcessName)

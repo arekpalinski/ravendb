@@ -21,5 +21,5 @@ internal abstract class AbstractEtlHandlerProcessorForDeleteErrors<TRequestHandl
         return new DeleteEtlErrorsCommand(nodeTag, etlProcessName);
     }
 
-    protected string GetEtlProcessName() => RequestHandler.GetStringQueryString("name");
+    protected string GetEtlProcessName() => RequestHandler.GetStringQueryString("name", required: false);
 }

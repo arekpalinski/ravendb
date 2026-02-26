@@ -17,9 +17,10 @@ internal sealed class DeleteEtlErrorsCommand : RavenCommand
     
     public override HttpRequestMessage CreateRequest(JsonOperationContext ctx, ServerNode node, out string url)
     {
-        var baseUrl = $"{node.Url}/databases/{node.Database}/etl/errors";
+        url = $"{node.Url}/databases/{node.Database}/etl/errors";
         
-        url = QueryHelpers.AddQueryString(baseUrl, "name", _etlProcessName);
+        if (_etlProcessName != null)
+            url = QueryHelpers.AddQueryString(url, "name", _etlProcessName);
 
         return new HttpRequestMessage { Method = HttpMethod.Delete };
     }

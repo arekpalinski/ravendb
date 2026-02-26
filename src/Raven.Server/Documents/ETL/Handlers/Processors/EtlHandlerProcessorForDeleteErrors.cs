@@ -17,7 +17,10 @@ internal sealed class EtlHandlerProcessorForDeleteErrors : AbstractEtlHandlerPro
     {
         var etlProcessName = GetEtlProcessName();
         
-        RequestHandler.Database.EtlErrorsStorage.DeleteErrorsOfEtl(etlProcessName);
+        if (etlProcessName != null)
+            RequestHandler.Database.EtlErrorsStorage.DeleteErrorsOfEtl(etlProcessName);
+        else
+            RequestHandler.Database.EtlErrorsStorage.DeleteAllEtlErrors();
         
         return ValueTask.CompletedTask;
     }
