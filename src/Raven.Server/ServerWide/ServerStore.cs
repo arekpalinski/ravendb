@@ -139,7 +139,7 @@ namespace Raven.Server.ServerWide
         public readonly FeedbackSender FeedbackSender;
         public readonly StorageSpaceMonitor StorageSpaceMonitor;
         public readonly ServerLimitsMonitor ServerLimitsMonitor;
-        public readonly GcThreadContentionMonitor GcThreadContentionMonitor;
+        public readonly GcThreadContentionDetector GcThreadContentionDetector;
         public readonly SecretProtection Secrets;
         public readonly AsyncManualResetEvent InitializationCompleted;
         public readonly GlobalIndexingScratchSpaceMonitor GlobalIndexingScratchSpaceMonitor;
@@ -208,7 +208,7 @@ namespace Raven.Server.ServerWide
 
             ServerLimitsMonitor = new ServerLimitsMonitor(this, NotificationCenter, _notificationsStorage);
 
-            GcThreadContentionMonitor = new GcThreadContentionMonitor(this, NotificationCenter);
+            GcThreadContentionDetector = new GcThreadContentionDetector(this, NotificationCenter);
 
             DatabaseInfoCache = new DatabaseInfoCache(this);
 
@@ -2715,7 +2715,7 @@ namespace Raven.Server.ServerWide
                     {
                         StorageSpaceMonitor,
                         ServerLimitsMonitor,
-                        GcThreadContentionMonitor,
+                        GcThreadContentionDetector,
                         NotificationCenter,
                         LicenseManager,
                         DatabasesLandlord,

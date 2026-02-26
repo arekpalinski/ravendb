@@ -11,17 +11,17 @@ using Sparrow.Utils;
 
 namespace Raven.Server.Monitoring
 {
-    public sealed class GcThreadContentionMonitor : IDisposable
+    public sealed class GcThreadContentionDetector : IDisposable
     {
         private static readonly TimeSpan InitialCheckDelay = TimeSpan.FromSeconds(30);
         private const double CoreUtilizationThreshold = 0.5;
 
         private readonly ServerStore _serverStore;
         private readonly ServerNotificationCenter _notificationCenter;
-        private readonly Logger _logger = LoggingSource.Instance.GetLogger<GcThreadContentionMonitor>(nameof(GcThreadContentionMonitor));
+        private readonly Logger _logger = LoggingSource.Instance.GetLogger<GcThreadContentionDetector>(nameof(GcThreadContentionDetector));
         private Timer _timer;
 
-        public GcThreadContentionMonitor(ServerStore serverStore, ServerNotificationCenter notificationCenter)
+        public GcThreadContentionDetector(ServerStore serverStore, ServerNotificationCenter notificationCenter)
         {
             _serverStore = serverStore;
             _notificationCenter = notificationCenter;
