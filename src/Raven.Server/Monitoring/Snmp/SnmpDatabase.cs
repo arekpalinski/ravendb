@@ -103,6 +103,10 @@ namespace Raven.Server.Monitoring.Snmp
 
             _objectStore.Add(new DatabaseWritesPerSecond(_databaseName, _databaseLandlord, _databaseIndex));
             _objectStore.Add(new DatabaseDataWrittenPerSecond(_databaseName, _databaseLandlord, _databaseIndex));
+            
+            _objectStore.Add(new DatabaseHealthyEtls(_databaseName, _databaseLandlord, _databaseIndex));
+            _objectStore.Add(new DatabaseImpairedEtls(_databaseName, _databaseLandlord, _databaseIndex));
+            _objectStore.Add(new DatabaseFailedEtls(_databaseName, _databaseLandlord, _databaseIndex));
 
             //AddIndexesFromMappingDocument();
         }

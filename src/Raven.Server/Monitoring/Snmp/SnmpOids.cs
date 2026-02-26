@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using Lextm.SharpSnmpLib;
 using Raven.Client;
+using Raven.Server.Documents.ETL;
 using Raven.Server.Platform.Posix;
 using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Context;
@@ -753,6 +754,18 @@ namespace Raven.Server.Monitoring.Snmp
             [SnmpDataType(SnmpType.Gauge32)]
             [Description("Number of bytes written (documents, attachments, counters, timeseries)")]
             public const string DataWrittenPerSecond = "5.2.{0}.6.2";
+            
+            [SnmpDataType(SnmpType.Integer32)]
+            [Description($"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Healthy)} health status")]
+            public const string NumberOfHealthyEtls = "5.2.{0}.7.1";
+            
+            [SnmpDataType(SnmpType.Integer32)]
+            [Description($"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Impaired)} health status")]
+            public const string NumberOfImpairedEtls = "5.2.{0}.7.2";
+            
+            [SnmpDataType(SnmpType.Integer32)]
+            [Description($"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Failed)} health status")]
+            public const string NumberOfFailedEtls = "5.2.{0}.7.3";
 
             public sealed class Indexes
             {

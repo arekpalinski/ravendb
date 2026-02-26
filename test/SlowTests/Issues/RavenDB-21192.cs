@@ -1096,6 +1096,36 @@ public class RavenDB_21192 : RavenTestBase
                 
                 Assert.Equal(250, ((Integer32)result.Single().Data).ToInt32());
                 
+                var databaseHealthyEtlsCount = databaseOidsObjectList.Single(x => x.Description == $"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Healthy)} health status").OID;
+                
+                result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(databaseHealthyEtlsCount))],
+                    10000);
+                
+                Assert.Equal(0, ((Integer32)result.Single().Data).ToInt32());
+                
+                var databaseImpairedEtlsCount = databaseOidsObjectList.Single(x => x.Description == $"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Impaired)} health status").OID;
+                
+                result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(databaseImpairedEtlsCount))],
+                    10000);
+                
+                Assert.Equal(0, ((Integer32)result.Single().Data).ToInt32());
+                
+                var databaseFailedEtlsCount = databaseOidsObjectList.Single(x => x.Description == $"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Failed)} health status").OID;
+                
+                result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(databaseFailedEtlsCount))],
+                    10000);
+                
+                Assert.Equal(2, ((Integer32)result.Single().Data).ToInt32());
+                
                 etlEntries.TryGet($"{etlName1}/{transformationName1}", out BlittableJsonReaderArray firstProcessEntries);
                 var firstProcessOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(firstProcessEntries.ToString());
                 var firstProcessEtlErrorsOid = firstProcessOidsObjectList.Single(x => x.Description == "Number of task ETL errors").OID;
