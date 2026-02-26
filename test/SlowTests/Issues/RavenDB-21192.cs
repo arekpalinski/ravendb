@@ -1065,6 +1065,19 @@ public class RavenDB_21192 : RavenTestBase
                 Assert.NotNull(res);
                 
                 res.TryGet("Databases", out BlittableJsonReaderObject databases);
+                res.TryGet("Server", out BlittableJsonReaderArray server);
+                
+                var serverOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(server.ToString());
+
+                var serverEtlErrorsOid = serverOidsObjectList.Single(x => x.Description == "Number of ETL errors").OID;
+                
+                var result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(serverEtlErrorsOid))],
+                    10000);
+                
+                Assert.Equal(250, ((Integer32)result.Single().Data).ToInt32());
                 
                 databases.TryGet(src.Database, out BlittableJsonReaderObject databaseOids);
                 
@@ -1073,12 +1086,12 @@ public class RavenDB_21192 : RavenTestBase
                 
                 var databaseOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(generalEntries.ToString());
 
-                var etlErrorsOid = databaseOidsObjectList.Single(x => x.Description == "Number of ETL errors").OID;
+                var databaseEtlErrorsOid = databaseOidsObjectList.Single(x => x.Description == "Number of ETL errors").OID;
                 
-                var result = Messenger.Get(VersionCode.V2,
+                result = Messenger.Get(VersionCode.V2,
                     endpoint,
                     new OctetString(communityString),
-                    [new Variable(new ObjectIdentifier(etlErrorsOid))],
+                    [new Variable(new ObjectIdentifier(databaseEtlErrorsOid))],
                     10000);
                 
                 Assert.Equal(250, ((Integer32)result.Single().Data).ToInt32());

@@ -516,6 +516,8 @@ namespace Raven.Server.Monitoring.Snmp
             store.Add(new MonitorLockContentionCount());
 
             store.Add(new ServerLongestTransaction(server.ServerStore));
+            
+            store.Add(new ServerEtlErrors(server.ServerStore));
 
             return store;
 

@@ -403,6 +403,10 @@ namespace Raven.Server.Monitoring.Snmp
             [SnmpDataType(SnmpType.TimeTicks)]
             [Description("Time since creation of oldest transaction")]
             public const string ServerLongestTransaction = "1.19.1";
+            
+            [SnmpDataType(SnmpType.Integer32)]
+            [Description("Number of ETL errors")]
+            public const string EtlErrors = "1.20.1";
 
             public static Dictionary<string, string> CreateMapping()
             {
@@ -511,8 +515,6 @@ namespace Raven.Server.Monitoring.Snmp
                             break;
                     }
                 }
-
-
             }
         }
 
@@ -884,28 +886,28 @@ namespace Raven.Server.Monitoring.Snmp
                         return djv;
 
                     foreach (var elasticSearchEtl in record.ElasticSearchEtls)
-                        Temp(elasticSearchEtl.Name);
+                        ProcessEtl(elasticSearchEtl.Name);
                     
                     foreach (var sqlEtl in record.SqlEtls)
-                        Temp(sqlEtl.Name);
+                        ProcessEtl(sqlEtl.Name);
 
                     foreach (var olapEtl in record.OlapEtls)
-                        Temp(olapEtl.Name);
+                        ProcessEtl(olapEtl.Name);
                     
                     foreach (var queueEtl in record.QueueEtls)
-                        Temp(queueEtl.Name);
+                        ProcessEtl(queueEtl.Name);
 
                     foreach (var ravenEtl in record.RavenEtls)
                     {
                         foreach (var transformation in ravenEtl.Transforms)
                         {
-                            Temp($"{ravenEtl.Name}/{transformation.Name}");
+                            ProcessEtl($"{ravenEtl.Name}/{transformation.Name}");
                         }
                     }
                     
                     return djv;
 
-                    void Temp(string name)
+                    void ProcessEtl(string name)
                     {
                         if (mapping.TryGetValue(name, out var index) == false)
                             return;
