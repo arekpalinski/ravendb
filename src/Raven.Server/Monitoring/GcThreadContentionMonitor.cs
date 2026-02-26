@@ -13,10 +13,7 @@ namespace Raven.Server.Monitoring
 {
     public sealed class GcThreadContentionMonitor : IDisposable
     {
-        private const string Source = "gc-thread-contention";
         private static readonly TimeSpan InitialCheckDelay = TimeSpan.FromSeconds(30);
-
-        // Alert when utilized cores are less than 50% of total cores
         private const double CoreUtilizationThreshold = 0.5;
 
         private readonly ServerStore _serverStore;
@@ -29,38 +26,35 @@ namespace Raven.Server.Monitoring
             _serverStore = serverStore;
             _notificationCenter = notificationCenter;
 
-            // Check once after startup - core configuration doesn't change at runtime
             _timer = new Timer(CheckGcThreadContention, null, InitialCheckDelay, Timeout.InfiniteTimeSpan);
         }
 
         private void CheckGcThreadContention(object state)
         {
-            if (_notificationCenter.IsInitialized == false)
-                return;
-
             try
             {
-                var totalCores = ProcessorInfo.ProcessorCount;
-                var utilizedCores = _serverStore.LicenseManager.GetNumberOfUtilizedCores();
+                System.Diagnostics.Debug.Assert(_notificationCenter.IsInitialized, "NotificationCenter must be initialized at this point");
 
-                // Only alert if we're using Server GC and significantly underutilizing cores
                 if (GCSettings.IsServerGC == false)
                     return;
 
-                // Check if we're significantly underutilizing cores
-                if (utilizedCores >= totalCores * CoreUtilizationThreshold)
-                {
-                    // Cores are adequately utilized, no alert needed
-                    return;
-                }
+                var totalCores = ProcessorInfo.ProcessorCount;
+                var utilizedCores = _serverStore.LicenseManager.GetNumberOfUtilizedCores();
 
-                // We have a potential GC thread contention issue
+                if (utilizedCores >= totalCores * CoreUtilizationThreshold)
+                    return;
+
                 RaiseAlert(totalCores, utilizedCores);
             }
             catch (Exception e)
             {
                 if (_logger.IsOperationsEnabled)
                     _logger.Operations("Failed to check GC thread contention", e);
+            }
+            finally
+            {
+                _timer?.Dispose();
+                _timer = null;
             }
         }
 
@@ -83,10 +77,9 @@ namespace Raven.Server.Monitoring
                 details.Message,
                 AlertType.GcThreadContention,
                 NotificationSeverity.Warning,
-                key: Source,
                 details: details);
 
-            _notificationCenter.Add(alert, updateExisting: true);
+            _notificationCenter.Add(alert);
 
             if (_logger.IsOperationsEnabled)
             {
