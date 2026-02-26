@@ -118,6 +118,11 @@ namespace Raven.Server.Documents.ETL
                 return new EtlProcessState();
             }
         }
+        
+        public void ForceBatchRetry()
+        {
+            FallbackTime = null;
+        }
     }
 
     public abstract class EtlProcess<TExtracted, TTransformed, TConfiguration, TConnectionString, TStatsScope, TEtlPerformanceOperation> : EtlProcess, ILowMemoryHandler where TExtracted : ExtractedItem
