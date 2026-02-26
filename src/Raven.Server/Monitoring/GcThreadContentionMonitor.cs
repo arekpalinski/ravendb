@@ -75,7 +75,7 @@ namespace Raven.Server.Monitoring
                           $"With Server GC enabled, .NET creates one GC thread per core ({totalCores} threads), but all threads are forced to run on {utilizedCores} core(s). " +
                           $"This can cause severe GC pauses due to thread contention. " +
                           $"To resolve this, configure the 'System.GC.HeapCount' setting in your Raven.Server.runtimeconfig.json file to match your utilized cores ({utilizedCores}). " +
-                          $"See https://ravendb.net/l/gc-thread-contention for detailed instructions."
+                          $"For more information, see the documentation on runtime configuration."
             };
 
             var alert = AlertRaised.Create(
