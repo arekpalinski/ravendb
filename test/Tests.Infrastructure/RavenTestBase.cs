@@ -63,6 +63,21 @@ namespace FastTests
             LicenseHelper = new LicenseTestBase(this);
         }
 
+        /// <summary>
+        /// Skips the test if running on x86 (32-bit) architecture.
+        /// This is useful for tests that require 64-bit architecture.
+        /// Call this method at the beginning of a test to skip it dynamically at runtime.
+        /// </summary>
+        /// <param name="reason">Optional reason for skipping the test</param>
+        protected void SkipTestIfRunningOnX86(string reason = null)
+        {
+            if (RuntimeInformation.ProcessArchitecture == Architecture.X86)
+            {
+                var skipMessage = reason ?? "Test is not supported on x86 (32-bit) architecture.";
+                throw new SkipTestException(skipMessage);
+            }
+        }
+
         public async ValueTask<DatabaseRecord> GetDatabaseRecordAsync(IDocumentStore store, string database = null)
         {
             return await store.Maintenance.Server.SendAsync(new GetDatabaseRecordOperation(database ?? store.Database));

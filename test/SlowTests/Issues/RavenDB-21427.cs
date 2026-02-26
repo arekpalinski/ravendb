@@ -307,6 +307,7 @@ namespace SlowTests.Issues
         [RavenMultiLicenseRequiredFact(RavenTestCategory.Licensing | RavenTestCategory.Indexes)]
         public async Task Prevent_License_Downgrade_Index_Additional_Assemblies()
         {
+            SkipTestIfRunningOnX86("Test requires 64-bit architecture for Additional Assemblies feature.");
             DoNotReuseServer();
             using (var store = GetDocumentStore())
             {
@@ -326,6 +327,7 @@ namespace SlowTests.Issues
         [RavenMultiLicenseRequiredFact(RavenTestCategory.Licensing | RavenTestCategory.Indexes)]
         public async Task Prevent_Put_Index_Additional_Assemblies()
         {
+            SkipTestIfRunningOnX86("Test requires 64-bit architecture for Additional Assemblies feature.");
             DoNotReuseServer();
             using (var store = GetDocumentStore())
             {
