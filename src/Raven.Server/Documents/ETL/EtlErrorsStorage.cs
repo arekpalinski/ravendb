@@ -387,6 +387,27 @@ public unsafe class EtlErrorsStorage
         }
     }
 
+    internal EtlProcessErrorTableValue ReadLatestProcessErrorOfEtl(string etlProcessName)
+    {
+        var tableName = GetProcessErrorsTableName(etlProcessName);
+
+        using (_contextPool.AllocateOperationContext(out DocumentsOperationContext context))
+        using (context.OpenReadTransaction())
+        {
+            var table = context.Transaction.InnerTransaction.OpenTable(Schemas.EtlProcessErrors.Current, tableName);
+
+            if (table == null)
+                return null;
+
+            var tvh = table.SeekOneForwardFromPrefix(Schemas.EtlProcessErrors.Current.Indexes[Schemas.EtlProcessErrors.ByCreatedAt], Slices.BeforeAllKeys);
+            
+            if (tvh == null)
+                return null;
+            
+            return ReadProcessError(ref tvh.Reader);
+        }
+    }
+
     public void DeleteAllEtlErrors()
     {
         foreach (var etlProcess in _etlLoader.Processes)

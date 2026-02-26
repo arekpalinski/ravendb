@@ -1211,7 +1211,7 @@ namespace Raven.Server.Documents.ETL
                             var results = ravenEtl.Transform(new[] { ravenEtlItem }, context, new EtlStatsScope(new EtlRunStats()),
                                 new EtlProcessState { SkippedTimeSeriesDocs = new HashSet<string> { testScript.DocumentId } });
 
-                            var etlItemErrors = ravenEtl.Statistics.ReadInMemoryItemErrorsOfProcess($"{testScript.Configuration.Name}/{testScript.Configuration.Transforms.First().Name}");
+                            var etlItemErrors = ravenEtl.Statistics.ReadInMemoryItemErrors();
                             
                             return new RavenEtlTestScriptResult
                             {
@@ -1277,7 +1277,7 @@ namespace Raven.Server.Documents.ETL
                                 }
                             }
                             
-                            var etlItemErrors = olapElt.Statistics.ReadInMemoryItemErrorsOfProcess($"{testScript.Configuration.Name}/{testScript.Configuration.Transforms.First().Name}");
+                            var etlItemErrors = olapElt.Statistics.ReadInMemoryItemErrors();
 
                             return new OlapEtlTestScriptResult
                             {

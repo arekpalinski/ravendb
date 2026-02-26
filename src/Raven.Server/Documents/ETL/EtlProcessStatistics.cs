@@ -71,6 +71,7 @@ namespace Raven.Server.Documents.ETL
         private bool SetHealthStatusToFailed { get; set; }
         public DateTime? NextBatchRetryTime { get; set; }
         public DateTime? LastSuccessfulBatchTime { get; set; }
+        public EtlProcessError BatchStopReason { get; private set; }
 
         public void TransformationSuccess()
         {
@@ -92,6 +93,8 @@ namespace Raven.Server.Documents.ETL
             
             AverageErrorsRatio.UpdateOnBatchCompletion(BatchErrors, BatchErrors + LoadSuccessesInCurrentBatch);
             ResetBatchStatistics();
+            
+            BatchStopReason = ReadLatestProcessError();
             
             return;
             
@@ -250,9 +253,14 @@ namespace Raven.Server.Documents.ETL
             LastSlowSqlWarningsInCurrentBatch.Statements.Clear();
         }
         
-        internal List<EtlItemError> ReadInMemoryItemErrorsOfProcess(string processName)
+        internal List<EtlItemError> ReadInMemoryItemErrors()
         {
-            return _itemErrors.Where(itemError => itemError.EtlProcessName == processName).ToList();
+            return _itemErrors.ToList();
+        }
+
+        private EtlProcessError ReadLatestProcessError()
+        {
+            return _etlErrorsStorage.ReadLatestProcessErrorOfEtl(_processName)?.ToEtlProcessError();
         }
 
         public DynamicJsonValue ToJson()
@@ -269,6 +277,7 @@ namespace Raven.Server.Documents.ETL
                 [nameof(HealthStatus)] = HealthStatus,
                 [nameof(NextBatchRetryTime)] = NextBatchRetryTime,
                 [nameof(LastSuccessfulBatchTime)] = LastSuccessfulBatchTime,
+                [nameof(BatchStopReason)] = BatchStopReason.ToJson(),
             };
             return json;
         }
