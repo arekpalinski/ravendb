@@ -56,6 +56,7 @@ public sealed class MetricsProvider
         result.Certificate = GetCertificateMetrics();
         result.Cluster = GetClusterMetrics();
         result.Databases = GetAllDatabasesMetrics();
+        result.Etl = GetServerEtlMetrics();
 
         return result;
     }
@@ -247,6 +248,36 @@ public sealed class MetricsProvider
         result.CurrentTerm = _serverStore.Engine.CurrentTerm;
         result.Index = _serverStore.LastRaftCommitIndex;
         result.Id = _serverStore.Engine.ClusterId;
+
+        return result;
+    }
+
+    private ServerEtlMetrics GetServerEtlMetrics()
+    {
+        var result = new ServerEtlMetrics();
+
+        var etlsCount = 0;
+        var errorsCount = 0L;
+        var healthyEtlsCount = 0;
+        var impairedEtlsCount = 0;
+        var failedEtlsCount = 0;
+        
+        foreach (var db in _serverStore.DatabasesLandlord.DatabasesCache)
+        {
+            var dbResult = db.Value.GetAwaiter().GetResult();
+
+            etlsCount += dbResult.EtlLoader.Processes.Length;
+            errorsCount += dbResult.EtlErrorsStorage.ReadErrorsCount();
+            healthyEtlsCount += dbResult.EtlLoader.Processes.Count(x => x.Statistics.HealthStatus == EtlProcessHealthStatus.Healthy);
+            impairedEtlsCount += dbResult.EtlLoader.Processes.Count(x => x.Statistics.HealthStatus == EtlProcessHealthStatus.Impaired);
+            failedEtlsCount += dbResult.EtlLoader.Processes.Count(x => x.Statistics.HealthStatus == EtlProcessHealthStatus.Failed);
+        }
+
+        result.Count = etlsCount;
+        result.ErrorsCount = errorsCount;
+        result.HealthyEtlsCount = healthyEtlsCount;
+        result.ImpairedEtlsCount = impairedEtlsCount;
+        result.FailedEtlsCount = failedEtlsCount;
 
         return result;
     }

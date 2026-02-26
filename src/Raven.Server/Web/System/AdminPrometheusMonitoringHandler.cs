@@ -197,6 +197,13 @@ namespace Raven.Server.Web.System
                     WriteGaugeWithHelp(writer, "Server license expiration left", "license_expiration_left_seconds", serverMetrics.License.ExpirationLeftInSec);
                     WriteGaugeWithHelp(writer, "Server license utilized CPU cores", "license_utilized_cpu_cores", serverMetrics.License.UtilizedCpuCores);
                     WriteGaugeWithHelp(writer, "Server license max CPU cores", "license_max_cores", serverMetrics.License.MaxCores);
+                    
+                    // ETLs
+                    WriteCounterWithHelp(writer, "Number of ETLs", "server_etls_count", serverMetrics.Etl.Count);
+                    WriteCounterWithHelp(writer, "Number of ETL errors", "server_etls_errors_count", serverMetrics.Etl.ErrorsCount);
+                    WriteCounterWithHelp(writer, "Number of healthy ETLs", "server_etls_healthy_count", serverMetrics.Etl.HealthyEtlsCount);
+                    WriteCounterWithHelp(writer, "Number of impaired ETLs", "server_etls_impaired_count", serverMetrics.Etl.ImpairedEtlsCount);
+                    WriteCounterWithHelp(writer, "Number of failed ETLs", "server_etls_failed_count", serverMetrics.Etl.FailedEtlsCount);
                 }
 
                 ms.Position = 0;
