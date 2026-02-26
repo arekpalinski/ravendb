@@ -518,6 +518,9 @@ namespace Raven.Server.Monitoring.Snmp
             store.Add(new ServerLongestTransaction(server.ServerStore));
             
             store.Add(new ServerEtlErrors(server.ServerStore));
+            store.Add(new ServerHealthyEtls(server.ServerStore));
+            store.Add(new ServerImpairedEtls(server.ServerStore));
+            store.Add(new ServerFailedEtls(server.ServerStore));
 
             return store;
 

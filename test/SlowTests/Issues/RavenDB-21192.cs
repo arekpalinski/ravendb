@@ -1079,6 +1079,36 @@ public class RavenDB_21192 : RavenTestBase
                 
                 Assert.Equal(250, ((Integer32)result.Single().Data).ToInt32());
                 
+                var serverHealthyEtlsCount = serverOidsObjectList.Single(x => x.Description == $"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Healthy)} health status").OID;
+                
+                result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(serverHealthyEtlsCount))],
+                    10000);
+                
+                Assert.Equal(0, ((Integer32)result.Single().Data).ToInt32());
+                
+                var serverImpairedEtlsCount = serverOidsObjectList.Single(x => x.Description == $"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Impaired)} health status").OID;
+                
+                result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(serverImpairedEtlsCount))],
+                    10000);
+                
+                Assert.Equal(0, ((Integer32)result.Single().Data).ToInt32());
+                
+                var serverFailedEtlsCount = serverOidsObjectList.Single(x => x.Description == $"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Failed)} health status").OID;
+                                
+                result = Messenger.Get(VersionCode.V2,
+                    endpoint,
+                    new OctetString(communityString),
+                    [new Variable(new ObjectIdentifier(serverFailedEtlsCount))],
+                    10000);
+                                
+                Assert.Equal(2, ((Integer32)result.Single().Data).ToInt32());
+                
                 databases.TryGet(src.Database, out BlittableJsonReaderObject databaseOids);
                 
                 databaseOids.TryGet("@General", out BlittableJsonReaderArray generalEntries);

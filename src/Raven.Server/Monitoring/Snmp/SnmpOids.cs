@@ -408,6 +408,18 @@ namespace Raven.Server.Monitoring.Snmp
             [SnmpDataType(SnmpType.Integer32)]
             [Description("Number of ETL errors")]
             public const string EtlErrors = "1.20.1";
+            
+            [SnmpDataType(SnmpType.Integer32)]
+            [Description($"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Healthy)} health status")]
+            public const string NumberOfHealthyEtls = "1.20.2";
+            
+            [SnmpDataType(SnmpType.Integer32)]
+            [Description($"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Impaired)} health status")]
+            public const string NumberOfImpairedEtls = "1.20.3";
+            
+            [SnmpDataType(SnmpType.Integer32)]
+            [Description($"Number of ETL tasks with {nameof(EtlProcessHealthStatus.Failed)} health status")]
+            public const string NumberOfFailedEtls = "1.20.4";
 
             public static Dictionary<string, string> CreateMapping()
             {

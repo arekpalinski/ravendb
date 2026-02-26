@@ -5,7 +5,7 @@ using Raven.Server.Documents.ETL;
 
 namespace Raven.Server.Monitoring.Snmp.Objects.Database;
 
-public class DatabaseFailedEtls : DatabaseScalarObjectBase<Integer32>
+public sealed class DatabaseFailedEtls : DatabaseScalarObjectBase<Integer32>
 {
     public DatabaseFailedEtls(string databaseName, DatabasesLandlord landlord, int index) : base(databaseName, landlord, SnmpOids.Databases.NumberOfFailedEtls, index)
     {
