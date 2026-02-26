@@ -14,7 +14,7 @@ namespace SlowTests.Server.NotificationCenter
     public class GcThreadContentionTests : ClusterTestBase
     {
         private const int LicenseInitializationDelayMs = 1000;
-        
+
         public GcThreadContentionTests(ITestOutputHelper output) : base(output)
         {
         }
@@ -39,7 +39,7 @@ namespace SlowTests.Server.NotificationCenter
                 // Note: The monitor checks every 5 minutes, which is too long for a test.
                 // This test primarily validates that the monitor is properly initialized and integrated.
                 // The actual alert generation logic is tested separately in other test methods.
-                
+
                 // Validate that the monitor is properly integrated
                 Assert.NotNull(store.GcThreadContentionMonitor);
             }
@@ -57,7 +57,7 @@ namespace SlowTests.Server.NotificationCenter
             // This test verifies that the AlertType exists and can be used
             var alertType = AlertType.GcThreadContention;
             Assert.True(System.Enum.IsDefined(typeof(AlertType), alertType));
-            
+
             // In actual runtime, if Workstation GC is used, the monitor's CheckGcThreadContention
             // method returns early and never raises an alert
             // This behavior is tested indirectly - the monitor exists but won't alert without Server GC
@@ -75,7 +75,7 @@ namespace SlowTests.Server.NotificationCenter
             };
 
             var json = details.ToJson();
-            
+
             Assert.NotNull(json);
             Assert.Equal(32, json[nameof(GcThreadContentionDetails.TotalCores)]);
             Assert.Equal(4, json[nameof(GcThreadContentionDetails.UtilizedCores)]);

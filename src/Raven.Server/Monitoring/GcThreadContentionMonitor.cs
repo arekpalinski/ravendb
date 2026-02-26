@@ -15,10 +15,10 @@ namespace Raven.Server.Monitoring
     {
         private const string Source = "gc-thread-contention";
         private static readonly TimeSpan CheckFrequency = TimeSpan.FromMinutes(5);
-        
+
         // Alert when utilized cores are less than 50% of total cores
         private const double CoreUtilizationThreshold = 0.5;
-        
+
         private readonly ServerStore _serverStore;
         private readonly ServerNotificationCenter _notificationCenter;
         private readonly Logger _logger = LoggingSource.Instance.GetLogger<GcThreadContentionMonitor>(nameof(GcThreadContentionMonitor));
@@ -28,7 +28,7 @@ namespace Raven.Server.Monitoring
         {
             _serverStore = serverStore;
             _notificationCenter = notificationCenter;
-            
+
             // Start monitoring after initial delay
             _timer = new Timer(CheckGcThreadContention, null, CheckFrequency, CheckFrequency);
         }
@@ -42,11 +42,11 @@ namespace Raven.Server.Monitoring
             {
                 var totalCores = ProcessorInfo.ProcessorCount;
                 var utilizedCores = _serverStore.LicenseManager.GetNumberOfUtilizedCores();
-                
+
                 // Only alert if we're using Server GC and significantly underutilizing cores
                 if (GCSettings.IsServerGC == false)
                     return;
-                
+
                 // Check if we're significantly underutilizing cores
                 if (utilizedCores >= totalCores * CoreUtilizationThreshold)
                 {
@@ -54,7 +54,7 @@ namespace Raven.Server.Monitoring
                     DismissAlert();
                     return;
                 }
-                
+
                 // We have a potential GC thread contention issue
                 RaiseAlert(totalCores, utilizedCores);
             }

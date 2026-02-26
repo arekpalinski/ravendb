@@ -7,7 +7,7 @@ namespace Raven.Server.NotificationCenter.Notifications
         Etl_Warning,
         Etl_TransformationError,
         Etl_LoadError,
-        
+
         QueueSink_Error,
         QueueSink_Warning,
         QueueSink_ScriptError,
@@ -84,18 +84,18 @@ namespace Raven.Server.NotificationCenter.Notifications
         LowSwapSize,
 
         UnrecoverableClusterError,
-        
+
         MicrosoftLogsConfigurationLoadError,
-        
+
         MismatchedReferenceLoad,
 
         BlockingTombstones,
         ServerLimits,
 
         ConflictRevisionsExceeded,
-        
+
         SqlConnectionString_DeprecatedFactoryReplaced,
-        
+
         GcThreadContention,
     }
 }
