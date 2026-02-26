@@ -33,10 +33,11 @@ namespace SlowTests.Server.NotificationCenter
 
             try
             {
-                // Wait for license limits to be initialized
+                // Wait for license limits to be initialized and the monitor to run its check
+                // The monitor checks once at startup (30 seconds after initialization)
                 await Task.Delay(LicenseInitializationDelayMs);
 
-                // Note: The monitor checks every 5 minutes, which is too long for a test.
+                // Note: The monitor checks once at startup, not repeatedly.
                 // This test primarily validates that the monitor is properly initialized and integrated.
                 // The actual alert generation logic is tested separately in other test methods.
 

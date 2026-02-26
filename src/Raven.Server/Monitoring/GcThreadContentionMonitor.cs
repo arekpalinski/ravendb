@@ -14,7 +14,7 @@ namespace Raven.Server.Monitoring
     public sealed class GcThreadContentionMonitor : IDisposable
     {
         private const string Source = "gc-thread-contention";
-        private static readonly TimeSpan CheckFrequency = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan InitialCheckDelay = TimeSpan.FromSeconds(30);
 
         // Alert when utilized cores are less than 50% of total cores
         private const double CoreUtilizationThreshold = 0.5;
@@ -29,8 +29,8 @@ namespace Raven.Server.Monitoring
             _serverStore = serverStore;
             _notificationCenter = notificationCenter;
 
-            // Start monitoring after initial delay
-            _timer = new Timer(CheckGcThreadContention, null, CheckFrequency, CheckFrequency);
+            // Check once after startup - core configuration doesn't change at runtime
+            _timer = new Timer(CheckGcThreadContention, null, InitialCheckDelay, Timeout.InfiniteTimeSpan);
         }
 
         private void CheckGcThreadContention(object state)
@@ -50,8 +50,7 @@ namespace Raven.Server.Monitoring
                 // Check if we're significantly underutilizing cores
                 if (utilizedCores >= totalCores * CoreUtilizationThreshold)
                 {
-                    // Cores are adequately utilized, dismiss any existing alert
-                    DismissAlert();
+                    // Cores are adequately utilized, no alert needed
                     return;
                 }
 
@@ -94,12 +93,6 @@ namespace Raven.Server.Monitoring
                 _logger.Operations($"GC thread contention detected: {totalCores} total cores but only {utilizedCores} utilized core(s). " +
                                   $"Consider configuring System.GC.HeapCount={utilizedCores} in runtimeconfig.json");
             }
-        }
-
-        private void DismissAlert()
-        {
-            var alertKey = AlertRaised.GetKey(AlertType.GcThreadContention, Source);
-            _notificationCenter.Dismiss(alertKey);
         }
 
         public void Dispose()
