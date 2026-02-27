@@ -516,9 +516,12 @@ public sealed class MetricsProvider
         var result = new EtlMetrics();
         
         result.ProcessName = etl.Name;
-        result.LastSuccessfulBatchTime = etl.Statistics.LastSuccessfulBatchTime;
         result.HealthStatus = etl.Statistics.HealthStatus;
         result.ErrorsCount = errorsStorage.ReadErrorsCountOfEtl(etl.Name);
+        
+        result.LastSuccessfulBatchTimeInSec = etl.Statistics.LastSuccessfulBatchTime.HasValue
+            ? (SystemTime.UtcNow - etl.Statistics.LastSuccessfulBatchTime.Value).TotalSeconds
+            : null;
 
         return result;
     }

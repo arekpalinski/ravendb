@@ -1,11 +1,12 @@
 using System;
 using System.Linq;
 using Lextm.SharpSnmpLib;
+using Raven.Client.Util;
 using Raven.Server.Documents;
 
 namespace Raven.Server.Monitoring.Snmp.Objects.Database;
 
-public class DatabaseEtlLastSuccessfulBatchTime : DatabaseEtlScalarObjectBase<OctetString>
+public class DatabaseEtlLastSuccessfulBatchTime : DatabaseEtlScalarObjectBase<TimeTicks>
 {
     public DatabaseEtlLastSuccessfulBatchTime(string databaseName, string etlName, DatabasesLandlord landlord, int databaseIndex, int etlIndex)
         : base(databaseName, etlName, landlord, databaseIndex, etlIndex, SnmpOids.Databases.Etls.LastSuccessfulBatchTime)
@@ -22,14 +23,15 @@ public class DatabaseEtlLastSuccessfulBatchTime : DatabaseEtlScalarObjectBase<Oc
 
                 var lastSuccessfulBatchTime = database.EtlLoader.Processes.Single(x => x.Name == EtlName).Statistics.LastSuccessfulBatchTime;
 
-                return new OctetString(lastSuccessfulBatchTime.ToString());
+                if (lastSuccessfulBatchTime.HasValue)
+                    return SnmpValuesHelper.TimeSpanToTimeTicks(SystemTime.UtcNow - lastSuccessfulBatchTime.Value);
             }
 
             return null;
         }
     }
 
-    protected override OctetString GetData(DocumentDatabase database)
+    protected override TimeTicks GetData(DocumentDatabase database)
     {
         throw new NotSupportedException();
     }

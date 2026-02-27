@@ -1183,9 +1183,8 @@ public class RavenDB_21192 : RavenTestBase
                     new OctetString(communityString),
                     [new Variable(new ObjectIdentifier(firstProcessLastSuccessfulBatchTimeOid))],
                     10000);
-
-                var firstProcessStatistics = database.EtlLoader.Processes.Single(x => x.Name == $"{etlName1}/{transformationName1}").Statistics;
-                Assert.Equal(firstProcessStatistics.LastSuccessfulBatchTime.ToString(), result.Single().Data.ToString());
+                
+                Assert.Equal(SnmpType.TimeTicks, result.Single().Data.TypeCode);
                 
                 etlEntries.TryGet($"{etlName1}/{transformationName2}", out BlittableJsonReaderArray secondProcessEntries);
                 var secondProcessOidsObjectList = JsonConvert.DeserializeObject<List<SnmpEntry>>(secondProcessEntries.ToString());
@@ -1215,8 +1214,7 @@ public class RavenDB_21192 : RavenTestBase
                    [new Variable(new ObjectIdentifier(secondProcessLastSuccessfulBatchTimeOid))],
                    10000);
                
-               var secondProcessStatistics = database.EtlLoader.Processes.Single(x => x.Name == $"{etlName1}/{transformationName2}").Statistics;
-               Assert.Equal(secondProcessStatistics.LastSuccessfulBatchTime.ToString(), result.Single().Data.ToString());
+               Assert.Equal(SnmpType.Null, result.Single().Data.TypeCode);
             }
         }
     }
@@ -1275,12 +1273,12 @@ public class RavenDB_21192 : RavenTestBase
                 
                 var firstProcessResults = databaseResults.Etls.Single(x => x.ProcessName == $"{etlName1}/{transformationName1}");
                 Assert.Equal(EtlProcessHealthStatus.Healthy, firstProcessResults.HealthStatus);
-                Assert.NotNull(firstProcessResults.LastSuccessfulBatchTime);
+                Assert.NotNull(firstProcessResults.LastSuccessfulBatchTimeInSec);
                 Assert.Equal(0, firstProcessResults.ErrorsCount);
                 
                 var secondProcessResults = databaseResults.Etls.Single(x => x.ProcessName == $"{etlName1}/{transformationName2}");
                 Assert.Equal(EtlProcessHealthStatus.Failed, secondProcessResults.HealthStatus);
-                Assert.Null(secondProcessResults.LastSuccessfulBatchTime);
+                Assert.Null(secondProcessResults.LastSuccessfulBatchTimeInSec);
                 Assert.Equal(123, secondProcessResults.ErrorsCount);
             }
         }

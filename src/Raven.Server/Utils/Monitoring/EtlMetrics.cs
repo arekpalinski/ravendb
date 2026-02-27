@@ -11,7 +11,7 @@ public sealed class EtlMetrics
     public string ProcessName { get; set; }
     public long ErrorsCount { get; set; }
     public EtlProcessHealthStatus HealthStatus { get; set; }
-    public DateTime? LastSuccessfulBatchTime { get; set; }
+    public double? LastSuccessfulBatchTimeInSec { get; set; }
     
     public EtlMetrics()
     {
@@ -25,7 +25,7 @@ public sealed class EtlMetrics
             [nameof(ProcessName)] = ProcessName,
             [nameof(ErrorsCount)] = ErrorsCount,
             [nameof(HealthStatus)] = HealthStatus,
-            [nameof(LastSuccessfulBatchTime)] = LastSuccessfulBatchTime
+            [nameof(LastSuccessfulBatchTimeInSec)] = LastSuccessfulBatchTimeInSec
         };
     }
 }

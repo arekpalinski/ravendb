@@ -381,6 +381,7 @@ namespace Raven.Server.Web.System
                 {
                     WriteGauges(writer, "Number of ETL errors", "etl_errors_count", metrics, x => x.ErrorsCount, cachedTags);
                     WriteGauges(writer, "ETL health status, " + EnumHelp.EtlHealthStatus, "etl_health_status", metrics, x => (int)x.HealthStatus, cachedTags);
+                    WriteGauges(writer, "Time elapsed since Last successful batch (in seconds)", "etl_last_successful_batch_time_in_seconds", metrics, x => x.LastSuccessfulBatchTimeInSec, cachedTags);
                 }
 
                 ms.Position = 0;
