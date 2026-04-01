@@ -996,9 +996,7 @@ namespace Voron
 
             return generator.Generate(new ReportInput
             {
-                // we need to use the actual file size (not the disk size), because we are looking at the max
-                // size that the file has been allocated as
-                ActualSizeInBytes = tx.LowLevelTransaction.CurrentStateRecord.DataPagerState.TotalFileSize,
+                ActualSizeInBytes = tx.LowLevelTransaction.CurrentStateRecord.DataPagerState.TotalDiskSpace,
                 NumberOfAllocatedPages = numberOfAllocatedPages,
                 NumberOfFreePages = numberOfFreePages,
                 NextPageNumber = NextPageNumber,
