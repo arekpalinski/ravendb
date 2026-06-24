@@ -147,7 +147,12 @@ Prereqs:
 1. Extract `QAWorkloadClient/Databases.zip` -> `QAWorkloadClient/Databases/` (contains `RookDB-TMI-PROD`, `RookDB-TMI-CORE-PROD`). The `Databases/` folder is NOT in git; it must be extracted.
 2. Build: `dotnet build -c Release` (net8.0; references RavenDB.Client 7.0.0).
 
-Compat pre-flight (RUN BEFORE relying on it): point the client at the 8.0 dev server with `config` + a small `deployDocuments`, confirm docs land. If 7.0->8.0 incompatibility breaks it, either bump `RavenDB.Client` to 8.0 in `QAWorkloadClient.csproj` and rebuild, or use the orchestrator's in-harness load generator instead.
+Compat pre-flight: CONFIRMED on Windows - the 7.0 client writes the car-dealership collections to the 8.0 server (exit 0). Linux should re-verify once (`di` + a small `dd`). If 7.0->8.0 ever breaks, bump `RavenDB.Client` to 8.0 in `QAWorkloadClient.csproj` and rebuild.
+
+Headless setup (committed fixes - needed to drive the client under redirected output / CI):
+- Two `Console.Clear()` calls (`AppCommandManager.cs`, `ThreadHelper.cs`) throw `IOException` when stdout is redirected; both are now guarded with `if (Console.IsOutputRedirected == false)`.
+- Extract `Databases.zip` into the build OUTPUT dir (`bin/Release/net8.0/Databases/`), NOT the source tree - the analyzer `.cs` files under `Databases/` break compilation if compiled.
+- Always pass `-db <name>` to non-config commands (else they prompt). The orchestrator writes `appConfig.json` into the QA bin itself, so the interactive `config` is never needed.
 
 Workflow (heavy profile):
 ```
@@ -162,7 +167,7 @@ QAWorkloadClient rq -th 25 -db RookDB-TMI-PROD                              # in
 ```
 Windows exe: `QAWorkloadClient.exe ...`. Linux: `dotnet QAWorkloadClient.dll ...` or `./QAWorkloadClient ...` from the build output.
 
-The orchestrator (section 8) uses its own in-harness concurrent CRUD generator for the unattended 25x torture loop (no dataset/compat dependency). Use the QA client for the realistic-dataset manual runs.
+The orchestrator (section 8) can drive EITHER its own in-harness CRUD generator (`scenario`, no dataset/compat dependency) OR the real QA client against the car-dealership data (`carscenario`, automates the seed + ro/rq load + crash + integrity loop).
 
 ---
 
@@ -177,8 +182,17 @@ Commands:
 # Quick: print selected WriteMode from a running server
 dotnet run -c Release --project test/Tryouts -- node-info http://127.0.0.1:8080
 
-# Full crash+integrity torture loop for one config
-dotnet run -c Release --project test/Tryouts -- scenario --mode IoRing --queue 1024 --iterations 25 --load-seconds 30
+# Full crash+integrity torture loop for one config (synthetic in-harness load)
+dotnet run -c Release --project test/Tryouts -- scenario --mode IoRing --queue 1024 --iterations 3 --load-seconds 30
+
+# Same loop but driven by the REAL car-dealership QA workload (seed via dca/di/dd, then ro+rq load each iteration)
+dotnet run -c Release --project test/Tryouts -- carscenario --mode IoRing --queue 256 --iterations 3 --load-seconds 30 --seed-docs 500
+# add --encrypt (server built -p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP) or --vary-kill for the extended profile
+
+# "Numbers and units" alternative dataset: create it (5M Numbers + 5M Users + indexes), then crash-matrix per mode
+dotnet run -c Release --project test/Tryouts -- numbers-seed --count 5000000 --indexes <abs path to Numbers_and_units-Indexes.ravendbdump>
+dotnet run -c Release --project test/Tryouts -- numbers-scenario --mode IoRing --iterations 3 --seed-count 5000000 --load-seconds 20 --indexes <dump> [--final-integrity]
+# verify count+index per iteration (export/import too slow per-iter at 10M); one deep export/import via the `integrity` command at the end
 
 # Negative config: expect fail-to-start, capture the error
 dotnet run -c Release --project test/Tryouts -- negative --mode VectoredFileIo
@@ -189,6 +203,8 @@ dotnet run -c Release --project test/Tryouts -- negative --mode IoRing --queue 0
 dotnet run -c Release --project test/Tryouts -- integrity --url http://127.0.0.1:8080 --db <name>
 ```
 Each `scenario` iteration: start server -> assert mode via node-info -> concurrent CRUD for N seconds -> hard kill -> restart same data dir -> wait recovery -> Smuggler export to .ravendump -> import into fresh db -> assert both succeed + doc counts match. Logs PASS/FAIL per iteration and a final summary.
+
+`carscenario` does the same crash/recover/integrity loop but seeds the car-dealership DBs once (`dca` analyzer, `di` indexes, `dd` docs for RookDB-TMI-PROD + RookDB-TMI-CORE-PROD) and then drives real `ro` (create/update/delete) + `rq` (queries) load per iteration. It warms the DB (one count call) before launching `ro`/`rq` so they don't hit a still-loading DB and exit. Locate the QA client via `--qa-dir <dir>` or the `QA_CLIENT_DIR` env var (default is the Windows bin path); on Linux point it at `.../bin/Release/net8.0` (the launcher auto-uses `./QAWorkloadClient` or `dotnet QAWorkloadClient.dll`). Artifacts go under `D:\temp\ravendb-24528` on Windows, system temp elsewhere.
 
 ---
 
