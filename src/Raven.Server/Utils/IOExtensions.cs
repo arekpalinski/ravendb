@@ -97,6 +97,11 @@ namespace Raven.Server.Utils
                     Directory.Move(src, dst);
                     return;
                 }
+                catch (IOException e) when (Directory.Exists(src) && IsCrossDeviceMove(e, src, dst))
+                {
+                    CopyDirectoryAndDeleteSource(src, dst);
+                    return;
+                }
                 catch (Exception)
                 {
                     if (i == Retries - 1)
@@ -104,6 +109,88 @@ namespace Raven.Server.Utils
 
                     RunGc(src, i);
                 }
+            }
+        }
+
+        internal static bool IsCrossDeviceMove(IOException e, string src, string dst)
+        {
+            return IsCrossDeviceMove(e, src, dst, PlatformDetails.RunningOnPosix);
+        }
+
+        internal static bool IsCrossDeviceMove(IOException e, string src, string dst, bool runningOnPosix)
+        {
+            if (runningOnPosix)
+                return e.HResult == (int)Errno.EXDEV;
+
+            const int errorNotSameDevice = unchecked((int)0x80070011); // HRESULT_FROM_WIN32(ERROR_NOT_SAME_DEVICE), thrown when a rename crosses volumes through a junction / mount point
+
+            if (e.HResult == errorNotSameDevice)
+                return true;
+
+            // Directory.Move throws a generic IOException (COR_E_IO) from its own path-root pre-check before any syscall,
+            // so a root mismatch is the only signal for the different-drive-letters case
+            return string.Equals(Path.GetPathRoot(src), Path.GetPathRoot(dst), StringComparison.OrdinalIgnoreCase) == false;
+        }
+
+        internal static void CopyDirectoryAndDeleteSource(string src, string dst)
+        {
+            if (PlatformDetails.RunningOnWindows)
+                (src, dst) = NormalizeLongPathPrefixOnWindows(src, dst); // also called directly (not only via MoveDirectory), e.g. from tests
+
+            try
+            {
+                DeleteDirectory(dst);
+                CopyDirectory(src, dst);
+            }
+            catch
+            {
+                DeleteDirectory(dst); // do not leave a partially copied destination behind
+                throw;
+            }
+
+            DeleteDirectory(src);
+        }
+
+        private static void CopyDirectory(string src, string dst)
+        {
+            Directory.CreateDirectory(dst);
+
+            string lastCopiedFile = null;
+
+            foreach (var file in Directory.GetFiles(src))
+            {
+                var dstFile = Path.Combine(dst, Path.GetFileName(file));
+                File.Copy(file, dstFile);
+
+                using (var fs = new FileStream(dstFile, FileMode.Open, FileAccess.ReadWrite))
+                    fs.Flush(flushToDisk: true);
+
+                lastCopiedFile = dstFile;
+            }
+
+            if (lastCopiedFile != null && PlatformDetails.RunningOnPosix)
+                Syscall.FsyncDirectoryFor(lastCopiedFile);
+
+            foreach (var directory in Directory.GetDirectories(src))
+                CopyDirectory(directory, Path.Combine(dst, Path.GetFileName(directory)));
+        }
+
+        internal static string TryGetResolvedDirectoryLinkTarget(string path)
+        {
+            try
+            {
+                if (Directory.ResolveLinkTarget(path, returnFinalTarget: true) is not DirectoryInfo target)
+                    return null;
+
+                // a volume root (e.g. \\?\Volume{guid}\ from a mount point) cannot host the sibling directories we derive from this path
+                if (target.Exists == false || target.Parent == null)
+                    return null;
+
+                return target.FullName;
+            }
+            catch
+            {
+                return null;
             }
         }
 
