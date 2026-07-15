@@ -4993,7 +4993,7 @@ namespace Raven.Server.Documents.Indexes
             }
         }
 
-        public void Compact(Action<IOperationProgress> onProgress, CompactionResult result, bool shouldSkipOptimization, CancellationToken token)
+        public void Compact(Action<IOperationProgress> onProgress, CompactionResult result, bool shouldSkipOptimization, PathSetting compactionTempPath, CancellationToken token)
         {
             if (IndexPersistence is CoraxIndexPersistence)
                 throw new NotSupportedInCoraxException($"{nameof(Compact)} is not supported for Corax indexes.");
@@ -5053,7 +5053,7 @@ namespace Raven.Server.Documents.Indexes
 
                         InitializeOptions(srcOptions, DocumentDatabase, Name, schemaUpgrader: false);
 
-                        compactPath = Configuration.StoragePath.Combine(IndexDefinitionBaseServerSide.GetIndexNameSafeForFileSystem(Name) + "_Compact");
+                        compactPath = (compactionTempPath ?? Configuration.StoragePath).Combine(IndexDefinitionBaseServerSide.GetIndexNameSafeForFileSystem(Name) + "_Compact");
                         tempPath = Configuration.TempPath?.Combine(IndexDefinitionBaseServerSide.GetIndexNameSafeForFileSystem(Name) + "_Temp_Compact");
 
                         using (var compactOptions = (StorageEnvironmentOptions.DirectoryStorageEnvironmentOptions)

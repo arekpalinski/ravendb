@@ -2271,6 +2271,10 @@ namespace Raven.Server.Documents
 
             internal Action CompactionAfterDatabaseUnload;
 
+            internal Action CompactionAfterOriginalDataPurge;
+
+            internal bool CompactionForceCrossDeviceMove;
+
             internal Action AfterTxMergerDispose;
 
             internal Action BeforeExecutingClusterTransactions;

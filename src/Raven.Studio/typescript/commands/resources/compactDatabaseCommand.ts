@@ -24,7 +24,9 @@ class compactDatabaseCommand extends commandBase {
             DatabaseName: this.databaseName,
             Documents: this.compactDocuments,
             Indexes: this.indexesToCompact,
-            SkipOptimizeIndexes: this.skipOptimizeIndexes
+            SkipOptimizeIndexes: this.skipOptimizeIndexes,
+            TempPath: null,
+            DeleteOriginalBeforeCopyBack: false
         };
 
         const url = endpoints.global.adminDatabases.adminCompact;

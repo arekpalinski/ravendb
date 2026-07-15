@@ -34,6 +34,11 @@ namespace Raven.Server.Config.Categories
         [ConfigurationEntry("Storage.TempPath", ConfigurationEntryScope.ServerWideOrPerDatabase)]
         public PathSetting TempPath { get; set; }
 
+        [Description("Optional path to a directory (can be on a different drive) that will host the temporary data of a database compaction. Use when the drive holding the database does not have enough free space to compact in place. The compacted data is written there and copied back into the database directory afterwards, which is slower than compacting in place. By default it is empty, which means that the compaction runs next to the database directory. Can be overridden per operation via the compact settings.")]
+        [DefaultValue(null)]
+        [ConfigurationEntry("Storage.Compaction.TempPath", ConfigurationEntryScope.ServerWideOrPerDatabase)]
+        public PathSetting CompactionTempPath { get; set; }
+
         [Description("Use the 32 bits memory mapped pager, even when running in 64 bits")]
         [DefaultValue(false)]
         [ConfigurationEntry("Storage.ForceUsing32BitsPager", ConfigurationEntryScope.ServerWideOnly)]

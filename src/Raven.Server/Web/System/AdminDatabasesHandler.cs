@@ -1161,11 +1161,22 @@ namespace Raven.Server.Web.System
                 }
 
                 var database = await ServerStore.DatabasesLandlord.TryGetOrCreateResourceStore(compactSettings.DatabaseName).ConfigureAwait(false);
+
+                var compactionTempRoot = string.IsNullOrEmpty(compactSettings.TempPath) == false
+                    ? new PathSetting(compactSettings.TempPath, ServerStore.Configuration.Core.DataDirectory.FullPath)
+                    : database.Configuration.Storage.CompactionTempPath;
+
+                if (compactSettings.DeleteOriginalBeforeCopyBack && compactionTempRoot == null)
+                    throw new InvalidOperationException(
+                        $"{nameof(compactSettings.DeleteOriginalBeforeCopyBack)} is set but no compaction temp path was provided. It applies only when the compaction runs on a different path - set {nameof(compactSettings.TempPath)} or the '{RavenConfiguration.GetKey(x => x.Storage.CompactionTempPath)}' configuration option.");
+
                 var token = CreateBackgroundOperationToken();
                 var compactDatabaseTask = new CompactDatabaseTask(
                     ServerStore,
                     compactSettings.DatabaseName,
-                    token.Token);
+                    token.Token,
+                    compactionTempRoot,
+                    compactSettings.DeleteOriginalBeforeCopyBack);
 
                 var operationId = ServerStore.Operations.GetNextOperationId();
 
@@ -1189,50 +1200,62 @@ namespace Raven.Server.Web.System
                                     using (database.PreventFromUnloadingByIdleOperations())
                                     using (var indexCts = CancellationTokenSource.CreateLinkedTokenSource(token.Token, database.DatabaseShutdown))
                                     {
-                                        // first fill in data 
+                                        // first fill in data
                                         foreach (var indexName in compactSettings.Indexes)
                                         {
                                             var indexCompactionResult = new CompactionResult(indexName);
                                             overallResult.IndexesResults.Add(indexName, indexCompactionResult);
                                         }
 
-                                        // then do actual compaction
-                                        foreach (var indexName in compactSettings.Indexes)
+                                        var indexesCompactionTempPath = compactionTempRoot?.Combine(compactSettings.DatabaseName + "-indexes-compacting");
+
+                                        try
                                         {
-                                            indexCts.Token.ThrowIfCancellationRequested();
-
-                                            var index = database.IndexStore.GetIndex(indexName);
-                                            var indexCompactionResult = (CompactionResult)overallResult.IndexesResults[indexName];
-
-                                            if (index == null)
+                                            // then do actual compaction
+                                            foreach (var indexName in compactSettings.Indexes)
                                             {
-                                                indexCompactionResult.Skipped = true;
+                                                indexCts.Token.ThrowIfCancellationRequested();
+
+                                                var index = database.IndexStore.GetIndex(indexName);
+                                                var indexCompactionResult = (CompactionResult)overallResult.IndexesResults[indexName];
+
+                                                if (index == null)
+                                                {
+                                                    indexCompactionResult.Skipped = true;
+                                                    indexCompactionResult.Processed = true;
+
+                                                    indexCompactionResult.AddInfo($"Index '{indexName}' does not exist.");
+                                                    continue;
+                                                }
+
+                                                // we want to send progress of entire operation (indexes and documents), but we should update stats only for index compaction
+                                                try
+                                                {
+                                                    index.Compact(progress => onProgress(overallResult.Progress), indexCompactionResult, compactSettings.SkipOptimizeIndexes,
+                                                        indexesCompactionTempPath, indexCts.Token);
+                                                }
+                                                catch (NotSupportedInCoraxException)
+                                                {
+                                                    indexCompactionResult.Skipped = true;
+                                                    indexCompactionResult.AddInfo(
+                                                        $"Skipping data compaction of '{indexName}' index because data compaction of Corax indexes isn't supported.");
+                                                }
+                                                catch (Exception e)
+                                                {
+                                                    indexCompactionResult.Skipped = true;
+                                                    indexCompactionResult.AddInfo(
+                                                        $"Skipping data compaction of '{indexName}' index because of encountered error: {e.Message}. Stacktrace: {e.StackTrace}");
+                                                }
+
                                                 indexCompactionResult.Processed = true;
-
-                                                indexCompactionResult.AddInfo($"Index '{indexName}' does not exist.");
-                                                continue;
                                             }
-
-                                            // we want to send progress of entire operation (indexes and documents), but we should update stats only for index compaction
-                                            try
-                                            {
-                                                index.Compact(progress => onProgress(overallResult.Progress), indexCompactionResult, compactSettings.SkipOptimizeIndexes,
-                                                    indexCts.Token);
-                                            }
-                                            catch (NotSupportedInCoraxException)
-                                            {
-                                                indexCompactionResult.Skipped = true;
-                                                indexCompactionResult.AddInfo(
-                                                    $"Skipping data compaction of '{indexName}' index because data compaction of Corax indexes isn't supported.");
-                                            }
-                                            catch (Exception e)
-                                            {
-                                                indexCompactionResult.Skipped = true;
-                                                indexCompactionResult.AddInfo(
-                                                    $"Skipping data compaction of '{indexName}' index because of encountered error: {e.Message}. Stacktrace: {e.StackTrace}");
-                                            }
-                                            
-                                            indexCompactionResult.Processed = true;
+                                        }
+                                        finally
+                                        {
+                                            // Index.Compact removes only its own '<index>_Compact' leaf, so the per-database parent it creates
+                                            // under the custom temp root has to be cleaned up here (index compaction runs sequentially)
+                                            if (indexesCompactionTempPath != null)
+                                                IOExtensions.DeleteDirectory(indexesCompactionTempPath.FullPath);
                                         }
                                     }
                                 }

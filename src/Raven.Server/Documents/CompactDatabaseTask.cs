@@ -30,13 +30,19 @@ namespace Raven.Server.Documents
 
         private readonly ServerStore _serverStore;
         private readonly string _database;
+        private readonly PathSetting _compactionTempRoot;
+        private readonly bool _deleteOriginalBeforeCopyBack;
         private CancellationToken _token;
         private bool _isCompactionInProgress;
+        private bool _originalDeleted;
+        private DocumentDatabase.TestingStuff _forTestingPurposes;
 
-        public CompactDatabaseTask(ServerStore serverStore, string database, CancellationToken token)
+        public CompactDatabaseTask(ServerStore serverStore, string database, CancellationToken token, PathSetting compactionTempRoot = null, bool deleteOriginalBeforeCopyBack = false)
         {
             _serverStore = serverStore;
             _database = database;
+            _compactionTempRoot = compactionTempRoot;
+            _deleteOriginalBeforeCopyBack = deleteOriginalBeforeCopyBack;
             _token = token;
             _logger = RavenLogManager.Instance.GetLoggerForDatabase<CompactDatabaseTask>(database);
         }
@@ -51,6 +57,7 @@ namespace Raven.Server.Documents
 
             _isCompactionInProgress = true;
             bool done = false;
+            string basePath = null;
             string compactDirectory = null;
             string tmpDirectory = null;
             string compactTempDirectory = null;
@@ -59,6 +66,8 @@ namespace Raven.Server.Documents
             {
                 var documentDatabase = await _serverStore.DatabasesLandlord.TryGetOrCreateResourceStore(_database);
                 var configuration = _serverStore.DatabasesLandlord.CreateDatabaseConfiguration(_database);
+
+                _forTestingPurposes = documentDatabase.ForTestingPurposes;
 
                 DatabaseRecord databaseRecord = documentDatabase.ReadDatabaseRecord();
 
@@ -81,14 +90,16 @@ namespace Raven.Server.Documents
                     InitializeOptions(src, configuration, documentDatabase, encryptionKey);
                     DirectoryExecUtils.SubscribeToOnDirectoryInitializeExec(src, configuration.Storage, documentDatabase.Name, DirectoryExecUtils.EnvironmentType.Compaction, _logger);
 
-                    var basePath = configuration.Core.DataDirectory.FullPath;
+                    basePath = configuration.Core.DataDirectory.FullPath;
 
                     // when the database directory is a symlink / junction, operate on the real directory: the sibling '-compacting' / '-old'
                     // directories end up on the device that actually holds the data (where the free space is, renames stay cheap)
                     // and the link itself is never renamed or deleted during the swap
                     basePath = IOExtensions.TryGetResolvedDirectoryLinkTarget(basePath) ?? basePath;
 
-                    compactDirectory = basePath + "-compacting";
+                    compactDirectory = _compactionTempRoot != null
+                        ? _compactionTempRoot.Combine(_database + "-compacting").FullPath
+                        : basePath + "-compacting";
                     tmpDirectory = basePath + "-old";
 
                     EnsureDirectoriesPermission(basePath, compactDirectory, tmpDirectory);
@@ -152,17 +163,37 @@ namespace Raven.Server.Documents
                     EnsureDirectoriesPermission(basePath, compactDirectory, tmpDirectory);
                     IOExtensions.DeleteDirectory(tmpDirectory);
 
-                    SwitchDatabaseDirectories(basePath, tmpDirectory, compactDirectory);
+                    if (_compactionTempRoot != null)
+                    {
+                        result.AddMessage($"Copying compacted data from '{compactDirectory}' back to '{basePath}'");
+                        onProgress?.Invoke(result.Progress);
+                    }
+
+                    SwitchDatabaseDirectories(basePath, tmpDirectory, compactDirectory, _forTestingPurposes?.CompactionForceCrossDeviceMove == true);
                     done = true;
                 }
             }
             catch (Exception e)
             {
-                throw new InvalidOperationException($"Failed to execute compaction for {_database}", e);
+                var message = $"Failed to execute compaction for {_database}";
+
+                if (_originalDeleted && Directory.Exists(compactDirectory))
+                    message += $". The original data was already deleted and the compacted data is preserved at '{compactDirectory}'. To restore the database, move its contents to '{basePath}' manually";
+
+                throw new InvalidOperationException(message, e);
             }
             finally
             {
-                IOExtensions.DeleteDirectory(compactDirectory);
+                if (_originalDeleted && done == false)
+                {
+                    // the original data was already purged from the '-old' directory, so the compacted data
+                    // is the only remaining copy of the database - keep it for manual recovery
+                }
+                else
+                {
+                    IOExtensions.DeleteDirectory(compactDirectory);
+                }
+
                 if (done)
                 {
                     IOExtensions.DeleteDirectory(tmpDirectory);
@@ -218,28 +249,62 @@ namespace Raven.Server.Documents
             options.MaxNumberOfRecyclableJournals = documentDatabase.Configuration.Storage.MaxNumberOfRecyclableJournals;
         }
 
-        private static void SwitchDatabaseDirectories(string basePath, string backupDirectory, string compactDirectory)
+        private void SwitchDatabaseDirectories(string basePath, string backupDirectory, string compactDirectory, bool forceCrossDeviceMove)
         {
-            foreach (var moveDir in new(string Src, string Dst, bool Optional)[]
+            var moves = new (string Src, string Dst, bool Optional)[]
             {
                 (basePath, backupDirectory, false),
                 (compactDirectory, basePath, false),
                 (new PathSetting(backupDirectory).Combine("Indexes").FullPath, new PathSetting(basePath).Combine("Indexes").FullPath, true),
                 (new PathSetting(backupDirectory).Combine("Configuration").FullPath, new PathSetting(basePath).Combine("Configuration").FullPath, true)
-            })
+            };
+
+            for (var i = 0; i < moves.Length; i++)
             {
+                var moveDir = moves[i];
+
                 if (moveDir.Optional && Directory.Exists(moveDir.Src) == false)
                     continue; // e.g. indexes stored outside the database directory (Indexing.StoragePath)
 
                 try
                 {
-                    IOExtensions.MoveDirectory(moveDir.Src, moveDir.Dst);
+                    if (forceCrossDeviceMove)
+                        IOExtensions.CopyDirectoryAndDeleteSource(moveDir.Src, moveDir.Dst);
+                    else
+                        IOExtensions.MoveDirectory(moveDir.Src, moveDir.Dst);
                 }
                 catch (Exception e)
                 {
                     ThrowCantMoveDirectory(moveDir.Src, moveDir.Dst, e, basePath);
                 }
+
+                if (i == 0 && _deleteOriginalBeforeCopyBack)
+                    PurgeOriginalDataFromBackupDirectory(backupDirectory);
             }
+        }
+
+        private void PurgeOriginalDataFromBackupDirectory(string backupDirectory)
+        {
+            // frees the original documents data before the compacted data is copied back, so the database drive
+            // only needs to hold the compacted copy; Indexes and Configuration are kept - they still have to be
+            // moved into the new database directory
+            _originalDeleted = true;
+
+            foreach (var entry in Directory.GetFileSystemEntries(backupDirectory))
+            {
+                var name = Path.GetFileName(entry);
+
+                if (string.Equals(name, "Indexes", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(name, "Configuration", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (Directory.Exists(entry))
+                    IOExtensions.DeleteDirectory(entry);
+                else
+                    File.Delete(entry);
+            }
+
+            _forTestingPurposes?.CompactionAfterOriginalDataPurge?.Invoke();
         }
 
         [DoesNotReturn]
