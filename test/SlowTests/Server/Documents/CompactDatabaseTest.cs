@@ -108,6 +108,45 @@ namespace SlowTests.Server.Documents
 
         }
 
+        [RavenMultiplatformFact(RavenTestCategory.Core, RavenPlatform.Linux)]
+        public async Task CanCompactDatabaseWhenDataDirectoryIsSymbolicLink()
+        {
+            var target = NewDataPath(suffix: "-target", forceCreateDir: true);
+            var link = NewDataPath(suffix: "-link");
+            Directory.CreateSymbolicLink(link, target);
+
+            using (var store = GetDocumentStore(new Options
+            {
+                Path = link
+            }))
+            {
+                using (var session = store.OpenSession())
+                {
+                    session.Store(new User
+                    {
+                        Name = "EGR"
+                    }, "users/1");
+                    session.SaveChanges();
+                }
+
+                var operation = await store.Maintenance.Server.SendAsync(new CompactDatabaseOperation(new CompactSettings
+                {
+                    DatabaseName = store.Database,
+                    Documents = true
+                }));
+                await operation.WaitForCompletionAsync(TimeSpan.FromSeconds(60));
+
+                var linkInfo = new DirectoryInfo(link);
+                Assert.True(linkInfo.LinkTarget != null, "the database directory is no longer a symbolic link after compaction");
+                Assert.Equal(new DirectoryInfo(target).FullName, Directory.ResolveLinkTarget(link, returnFinalTarget: true).FullName);
+
+                using (var session = store.OpenSession())
+                {
+                    Assert.NotNull(session.Load<User>("users/1"));
+                }
+            }
+        }
+
         [RavenFact(RavenTestCategory.Core)]
         public async Task CanCompactDatabaseWithTxThatSurpassedMaxScratchBufferSize()
         {

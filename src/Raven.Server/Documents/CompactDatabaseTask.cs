@@ -82,6 +82,12 @@ namespace Raven.Server.Documents
                     DirectoryExecUtils.SubscribeToOnDirectoryInitializeExec(src, configuration.Storage, documentDatabase.Name, DirectoryExecUtils.EnvironmentType.Compaction, _logger);
 
                     var basePath = configuration.Core.DataDirectory.FullPath;
+
+                    // when the database directory is a symlink / junction, operate on the real directory: the sibling '-compacting' / '-old'
+                    // directories end up on the device that actually holds the data (where the free space is, renames stay cheap)
+                    // and the link itself is never renamed or deleted during the swap
+                    basePath = IOExtensions.TryGetResolvedDirectoryLinkTarget(basePath) ?? basePath;
+
                     compactDirectory = basePath + "-compacting";
                     tmpDirectory = basePath + "-old";
 
@@ -214,14 +220,17 @@ namespace Raven.Server.Documents
 
         private static void SwitchDatabaseDirectories(string basePath, string backupDirectory, string compactDirectory)
         {
-            foreach (var moveDir in new(string Src, string Dst)[]
+            foreach (var moveDir in new(string Src, string Dst, bool Optional)[]
             {
-                (basePath, backupDirectory),
-                (compactDirectory, basePath),
-                (new PathSetting(backupDirectory).Combine("Indexes").FullPath, new PathSetting(basePath).Combine("Indexes").FullPath),
-                (new PathSetting(backupDirectory).Combine("Configuration").FullPath, new PathSetting(basePath).Combine("Configuration").FullPath)
+                (basePath, backupDirectory, false),
+                (compactDirectory, basePath, false),
+                (new PathSetting(backupDirectory).Combine("Indexes").FullPath, new PathSetting(basePath).Combine("Indexes").FullPath, true),
+                (new PathSetting(backupDirectory).Combine("Configuration").FullPath, new PathSetting(basePath).Combine("Configuration").FullPath, true)
             })
             {
+                if (moveDir.Optional && Directory.Exists(moveDir.Src) == false)
+                    continue; // e.g. indexes stored outside the database directory (Indexing.StoragePath)
+
                 try
                 {
                     IOExtensions.MoveDirectory(moveDir.Src, moveDir.Dst);
