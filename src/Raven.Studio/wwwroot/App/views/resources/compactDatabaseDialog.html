@@ -47,6 +47,28 @@
                             </div>
                         </div>
                     </div>
+                    <div class="form-group" title="Optional directory (can be on a different drive) that will host the temporary compaction data. Use when this drive does not have enough free space to compact in place. The compacted data is copied back afterwards, which is slower than compacting in place.">
+                        <label class="control-label">Temp path</label>
+                        <div class="flex-grow">
+                            <input class="form-control" placeholder="Optional path for the compaction work, e.g. a drive with more free space" data-bind="textInput: tempPath" />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label">&nbsp;</label>
+                        <div class="flex-grow">
+                            <div class="toggle" title="Delete the original data before the compacted data is copied back, minimizing the free space required on this drive">
+                                <input id="deleteOriginalBeforeCopyBack" type="checkbox" data-bind="checked: deleteOriginalBeforeCopyBack" />
+                                <label for="deleteOriginalBeforeCopyBack">Delete original data before copy back</label>
+                            </div>
+                            <div data-bind="visible: deleteOriginalBeforeCopyBack">
+                                <small class="text-warning">
+                                    <i class="icon-warning"></i>
+                                    Requires a compaction temp path (above or the <code>Storage.Compaction.TempPath</code> configuration).
+                                    If copying the compacted data back fails, the database must be restored manually from the data preserved at the temp path.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
                     <div class="form-group" data-bind="visible: !allIndexes().length">
                         <label class="control-label">&nbsp;</label>
                         <div class="text-center text-muted">

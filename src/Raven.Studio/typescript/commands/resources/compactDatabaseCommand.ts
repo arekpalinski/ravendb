@@ -11,12 +11,19 @@ class compactDatabaseCommand extends commandBase {
 
     private readonly skipOptimizeIndexes: boolean = false;
 
-    constructor(databaseName: string, compactDocuments: boolean, indexesToCompact: Array<string>, skipOptimizeIndexes = false) {
+    private readonly tempPath: string = null;
+
+    private readonly deleteOriginalBeforeCopyBack: boolean = false;
+
+    constructor(databaseName: string, compactDocuments: boolean, indexesToCompact: Array<string>, skipOptimizeIndexes = false,
+                tempPath: string = null, deleteOriginalBeforeCopyBack = false) {
         super();
         this.skipOptimizeIndexes = skipOptimizeIndexes;
         this.indexesToCompact = indexesToCompact;
         this.compactDocuments = compactDocuments;
         this.databaseName = databaseName;
+        this.tempPath = tempPath;
+        this.deleteOriginalBeforeCopyBack = deleteOriginalBeforeCopyBack;
     }
 
     execute(): JQueryPromise<operationIdDto> {
@@ -25,8 +32,8 @@ class compactDatabaseCommand extends commandBase {
             Documents: this.compactDocuments,
             Indexes: this.indexesToCompact,
             SkipOptimizeIndexes: this.skipOptimizeIndexes,
-            TempPath: null,
-            DeleteOriginalBeforeCopyBack: false
+            TempPath: this.tempPath,
+            DeleteOriginalBeforeCopyBack: this.deleteOriginalBeforeCopyBack
         };
 
         const url = endpoints.global.adminDatabases.adminCompact;

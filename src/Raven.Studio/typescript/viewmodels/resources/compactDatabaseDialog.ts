@@ -25,6 +25,9 @@ class compactDatabaseDialog extends dialogViewModelBase {
 
     skipOptimizeIndexes = ko.observable<boolean>(false);
 
+    tempPath = ko.observable<string>();
+    deleteOriginalBeforeCopyBack = ko.observable<boolean>(false);
+
     filterText = ko.observable<string>();
     filteredIndexes: KnockoutComputed<Array<string>>;
 
@@ -114,7 +117,9 @@ class compactDatabaseDialog extends dialogViewModelBase {
     compactDatabase() {
         if (this.isValid(this.validationGroup)) {
             const effectiveDbName = this.database.isSharded ? this.database.name + "$" + this.shard() : this.database.name;
-            new compactDatabaseCommand(effectiveDbName, this.compactDocuments(), this.indexesToCompact(), this.skipOptimizeIndexes())
+            const tempPath = this.tempPath() ? this.tempPath().trim() || null : null;
+            new compactDatabaseCommand(effectiveDbName, this.compactDocuments(), this.indexesToCompact(), this.skipOptimizeIndexes(),
+                tempPath, this.deleteOriginalBeforeCopyBack())
                 .execute()
                 .done(result => {
                     notificationCenter.instance.monitorOperation(null, result.OperationId)
