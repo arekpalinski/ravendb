@@ -1,13 +1,18 @@
 using System;
 using System.IO;
+using FastTests;
 using Raven.Server.Utils;
 using Tests.Infrastructure;
 using Xunit;
 
-namespace FastTests.Utils
+namespace SlowTests.Issues
 {
-    public class IOExtensionsTests(ITestOutputHelper output) : NoDisposalNeeded(output)
+    public class RavenDB_26698_IOExtensionsTests : NoDisposalNeeded
     {
+        public RavenDB_26698_IOExtensionsTests(ITestOutputHelper output) : base(output)
+        {
+        }
+
         [RavenFact(RavenTestCategory.Core)]
         public void IsCrossDeviceMove_OnPosix_ClassifiesByExDevErrno()
         {
@@ -25,7 +30,7 @@ namespace FastTests.Utils
             Assert.True(IOExtensions.IsCrossDeviceMove(notSameDevice, @"C:\data\db", @"C:\mount\db", runningOnPosix: false));
         }
 
-        [RavenMultiplatformFact(RavenTestCategory.Core, RavenPlatform.Windows)]
+        [RavenMultiplatformFact(RavenTestCategory.Core, RavenPlatform.Windows)] // Path.GetPathRoot cannot parse Windows roots on other platforms
         public void IsCrossDeviceMove_OnWindows_ClassifiesByPathRootMismatch()
         {
             // Directory.Move pre-checks path roots and throws with a generic HResult, so classification falls back to comparing roots
