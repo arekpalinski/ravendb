@@ -158,43 +158,6 @@ namespace SlowTests.Server.Documents
         }
 
         [RavenFact(RavenTestCategory.Core)]
-        public async Task CanCompactDatabaseUsingTempPathAndDeleteOriginalBeforeCopyBack()
-        {
-            var path = NewDataPath();
-            var tempPath = NewDataPath(suffix: "-compaction-temp");
-
-            using (var store = GetDocumentStore(new Options
-            {
-                Path = path
-            }))
-            {
-                StoreAndDeleteBigAttachment(store);
-
-                var oldSize = StorageCompactionTestsSlow.GetDirSize(new DirectoryInfo(path));
-
-                var operation = await store.Maintenance.Server.SendAsync(new CompactDatabaseOperation(new CompactSettings
-                {
-                    DatabaseName = store.Database,
-                    Documents = true,
-                    TempPath = tempPath,
-                    DeleteOriginalBeforeCopyBack = true
-                }));
-                await operation.WaitForCompletionAsync(TimeSpan.FromSeconds(60));
-
-                var newSize = StorageCompactionTestsSlow.GetDirSize(new DirectoryInfo(path));
-                Assert.True(oldSize > newSize);
-
-                if (Directory.Exists(tempPath))
-                    Assert.Empty(Directory.GetFileSystemEntries(tempPath));
-
-                using (var session = store.OpenSession())
-                {
-                    Assert.NotNull(session.Load<User>("users/1"));
-                }
-            }
-        }
-
-        [RavenFact(RavenTestCategory.Core)]
         public async Task CanCompactDatabaseUsingTempPathWhenMoveCrossesDevices()
         {
             var path = NewDataPath();

@@ -97,7 +97,7 @@ namespace Raven.Server.Utils
                     Directory.Move(src, dst);
                     return;
                 }
-                catch (IOException e) when (Directory.Exists(src) && IsCrossDeviceMove(e, src, dst))
+                catch (IOException e) when (Directory.Exists(src) && IsCrossDeviceMove(e, src, dst, PlatformDetails.RunningOnPosix))
                 {
                     CopyDirectoryAndDeleteSource(src, dst);
                     return;
@@ -110,11 +110,6 @@ namespace Raven.Server.Utils
                     RunGc(src, i);
                 }
             }
-        }
-
-        internal static bool IsCrossDeviceMove(IOException e, string src, string dst)
-        {
-            return IsCrossDeviceMove(e, src, dst, PlatformDetails.RunningOnPosix);
         }
 
         internal static bool IsCrossDeviceMove(IOException e, string src, string dst, bool runningOnPosix)

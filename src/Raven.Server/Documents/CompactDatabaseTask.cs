@@ -169,7 +169,7 @@ namespace Raven.Server.Documents
                         onProgress?.Invoke(result.Progress);
                     }
 
-                    SwitchDatabaseDirectories(basePath, tmpDirectory, compactDirectory, _forTestingPurposes?.CompactionForceCrossDeviceMove == true);
+                    SwitchDatabaseDirectories(basePath, tmpDirectory, compactDirectory);
                     done = true;
                 }
             }
@@ -184,15 +184,10 @@ namespace Raven.Server.Documents
             }
             finally
             {
-                if (_originalDeleted && done == false)
-                {
-                    // the original data was already purged from the '-old' directory, so the compacted data
-                    // is the only remaining copy of the database - keep it for manual recovery
-                }
-                else
-                {
+                // unless the original data was already purged from the '-old' directory and the swap did not complete -
+                // then the compacted data is the only remaining copy of the database, keep it for manual recovery
+                if (_originalDeleted == false || done)
                     IOExtensions.DeleteDirectory(compactDirectory);
-                }
 
                 if (done)
                 {
@@ -249,8 +244,10 @@ namespace Raven.Server.Documents
             options.MaxNumberOfRecyclableJournals = documentDatabase.Configuration.Storage.MaxNumberOfRecyclableJournals;
         }
 
-        private void SwitchDatabaseDirectories(string basePath, string backupDirectory, string compactDirectory, bool forceCrossDeviceMove)
+        private void SwitchDatabaseDirectories(string basePath, string backupDirectory, string compactDirectory)
         {
+            var forceCrossDeviceMove = _forTestingPurposes?.CompactionForceCrossDeviceMove == true;
+
             var moves = new (string Src, string Dst, bool Optional)[]
             {
                 (basePath, backupDirectory, false),
