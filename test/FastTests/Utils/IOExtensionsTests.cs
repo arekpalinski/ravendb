@@ -25,7 +25,7 @@ namespace FastTests.Utils
             Assert.True(IOExtensions.IsCrossDeviceMove(notSameDevice, @"C:\data\db", @"C:\mount\db", runningOnPosix: false));
         }
 
-        [RavenFact(RavenTestCategory.Core)]
+        [RavenMultiplatformFact(RavenTestCategory.Core, RavenPlatform.Windows)]
         public void IsCrossDeviceMove_OnWindows_ClassifiesByPathRootMismatch()
         {
             // Directory.Move pre-checks path roots and throws with a generic HResult, so classification falls back to comparing roots
