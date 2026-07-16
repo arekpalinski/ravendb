@@ -1162,6 +1162,10 @@ namespace Raven.Server.Web.System
 
                 var database = await ServerStore.DatabasesLandlord.TryGetOrCreateResourceStore(compactSettings.DatabaseName).ConfigureAwait(false);
 
+                if (string.IsNullOrEmpty(compactSettings.TempPath) == false && Path.IsPathFullyQualified(compactSettings.TempPath) == false)
+                    throw new InvalidOperationException(
+                        $"{nameof(compactSettings.TempPath)} must be an absolute path but was '{compactSettings.TempPath}'. A relative path would resolve under the server data directory, which defeats the purpose of compacting on a different disk.");
+
                 var compactionTempRoot = string.IsNullOrEmpty(compactSettings.TempPath) == false
                     ? new PathSetting(compactSettings.TempPath, ServerStore.Configuration.Core.DataDirectory.FullPath)
                     : database.Configuration.Storage.CompactionTempPath;
@@ -1252,10 +1256,21 @@ namespace Raven.Server.Web.System
                                         }
                                         finally
                                         {
-                                            // Index.Compact removes only its own '<index>_Compact' leaf, so the per-database parent it creates
-                                            // under the custom temp root has to be cleaned up here (index compaction runs sequentially)
+                                            // Index.Compact removes its own '<index>_Compact' leaf; remove the shared per-database parent only when
+                                            // it is already empty - a recursive delete here would sweep the working files of a concurrent compact operation
                                             if (indexesCompactionTempPath != null)
-                                                IOExtensions.DeleteDirectory(indexesCompactionTempPath.FullPath);
+                                            {
+                                                try
+                                                {
+                                                    Directory.Delete(indexesCompactionTempPath.FullPath);
+                                                }
+                                                catch (IOException)
+                                                {
+                                                }
+                                                catch (UnauthorizedAccessException)
+                                                {
+                                                }
+                                            }
                                         }
                                     }
                                 }

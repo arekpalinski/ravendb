@@ -16,6 +16,7 @@ namespace Raven.Client.ServerWide
         /// Optional path to a directory (can be on a different drive) that will host the temporary data of the compaction.
         /// Use when the drive holding the database does not have enough free space to compact in place.
         /// The compacted data is written there and copied back into the database directory afterwards, which is slower than compacting in place.
+        /// The path must be absolute.
         /// </summary>
         public string TempPath { get; set; }
 

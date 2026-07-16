@@ -211,6 +211,25 @@ namespace SlowTests.Server.Documents
         }
 
         [RavenFact(RavenTestCategory.Core)]
+        public async Task CompactionRejectsRelativeTempPath()
+        {
+            using (var store = GetDocumentStore(new Options
+            {
+                Path = NewDataPath()
+            }))
+            {
+                var e = await Assert.ThrowsAnyAsync<Exception>(() => store.Maintenance.Server.SendAsync(new CompactDatabaseOperation(new CompactSettings
+                {
+                    DatabaseName = store.Database,
+                    Documents = true,
+                    TempPath = "C"
+                })));
+
+                Assert.Contains("must be an absolute path", e.Message);
+            }
+        }
+
+        [RavenFact(RavenTestCategory.Core)]
         public async Task CanCompactDatabaseUsingCompactionTempPathFromConfiguration()
         {
             var path = NewDataPath();
