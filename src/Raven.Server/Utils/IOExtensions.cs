@@ -117,20 +117,19 @@ namespace Raven.Server.Utils
             if (runningOnPosix)
                 return e.HResult == (int)Errno.EXDEV;
 
-            const int errorNotSameDevice = unchecked((int)0x80070011); // HRESULT_FROM_WIN32(ERROR_NOT_SAME_DEVICE), thrown when a rename crosses volumes through a junction / mount point
+            const int errorNotSameDevice = unchecked((int)0x80070011); // HRESULT_FROM_WIN32(ERROR_NOT_SAME_DEVICE)
 
             if (e.HResult == errorNotSameDevice)
                 return true;
 
-            // Directory.Move throws a generic IOException (COR_E_IO) from its own path-root pre-check before any syscall,
-            // so a root mismatch is the only signal for the different-drive-letters case
+            // for different drive letters Directory.Move throws a generic IOException from its own path-root pre-check, before any syscall
             return string.Equals(Path.GetPathRoot(src), Path.GetPathRoot(dst), StringComparison.OrdinalIgnoreCase) == false;
         }
 
         internal static void CopyDirectoryAndDeleteSource(string src, string dst)
         {
             if (PlatformDetails.RunningOnWindows)
-                (src, dst) = NormalizeLongPathPrefixOnWindows(src, dst); // also called directly (not only via MoveDirectory), e.g. from tests
+                (src, dst) = NormalizeLongPathPrefixOnWindows(src, dst); // also called directly, not only via MoveDirectory
 
             try
             {
@@ -139,7 +138,7 @@ namespace Raven.Server.Utils
             }
             catch
             {
-                DeleteDirectory(dst); // do not leave a partially copied destination behind
+                DeleteDirectory(dst);
                 throw;
             }
 

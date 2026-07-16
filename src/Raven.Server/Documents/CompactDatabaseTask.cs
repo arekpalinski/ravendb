@@ -92,9 +92,8 @@ namespace Raven.Server.Documents
 
                     basePath = configuration.Core.DataDirectory.FullPath;
 
-                    // when the database directory is a symlink / junction, operate on the real directory: the sibling '-compacting' / '-old'
-                    // directories end up on the device that actually holds the data (where the free space is, renames stay cheap)
-                    // and the link itself is never renamed or deleted during the swap
+                    // when the database directory is a symlink / junction, operate on the real directory: the '-compacting' / '-old' siblings
+                    // stay on the device that actually holds the data and the link itself is never renamed or deleted during the swap
                     basePath = IOExtensions.TryGetResolvedDirectoryLinkTarget(basePath) ?? basePath;
 
                     compactDirectory = _compactionTempRoot != null
@@ -184,8 +183,7 @@ namespace Raven.Server.Documents
             }
             finally
             {
-                // unless the original data was already purged from the '-old' directory and the swap did not complete -
-                // then the compacted data is the only remaining copy of the database, keep it for manual recovery
+                // unless the swap failed after the original data was purged - then the compacted data is the only remaining copy, keep it for manual recovery
                 if (_originalDeleted == false || done)
                     IOExtensions.DeleteDirectory(compactDirectory);
 
@@ -282,9 +280,8 @@ namespace Raven.Server.Documents
 
         private void PurgeOriginalDataFromBackupDirectory(string backupDirectory)
         {
-            // frees the original documents data before the compacted data is copied back, so the database drive
-            // only needs to hold the compacted copy; Indexes and Configuration are kept - they still have to be
-            // moved into the new database directory
+            // Indexes and Configuration are kept - they still have to be moved into the new database directory;
+            // everything else is deleted so the database drive only needs to hold the compacted copy
             _originalDeleted = true;
 
             foreach (var entry in Directory.GetFileSystemEntries(backupDirectory))

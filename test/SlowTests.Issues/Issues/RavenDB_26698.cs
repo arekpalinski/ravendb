@@ -60,7 +60,6 @@ namespace SlowTests.Issues
                 var newSize = GetDirSize(new DirectoryInfo(path));
                 Assert.True(oldSize > newSize);
 
-                // nothing may be left behind under the compaction temp root
                 if (Directory.Exists(tempPath))
                     Assert.Empty(Directory.GetFileSystemEntries(tempPath));
 
@@ -203,7 +202,6 @@ namespace SlowTests.Issues
                 var e = await Assert.ThrowsAnyAsync<Exception>(() => operation.WaitForCompletionAsync(TimeSpan.FromSeconds(60)));
                 Assert.Contains("preserved", e.Message);
 
-                // the compacted data is the only remaining copy - it must survive the failure for manual recovery
                 var compactDirectory = Directory.GetDirectories(tempPath).Single(d => d.EndsWith("-compacting", StringComparison.Ordinal));
                 Assert.Contains(Directory.GetFiles(compactDirectory), f => Path.GetFileName(f).Equals("Raven.voron", StringComparison.OrdinalIgnoreCase));
             }
