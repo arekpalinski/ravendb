@@ -1,60 +1,14 @@
-#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
 using System;
 using System.Diagnostics;
-using System.IO;
 using System.Threading.Tasks;
-using FastTests;
-using FastTests.Client;
-using Raven.Server.Utils;
-using SlowTests.Server.Documents.AI;
-using Tests.Infrastructure;
-using Xunit;
 
 namespace Tryouts;
 
 public static class Program
 {
-    static Program()
+    public static async Task<int> Main(string[] args)
     {
-        // XunitLogging removed in xUnit v3 migration
-    }
-
-    public static async Task Main(string[] args)
-    {
-        Console.WriteLine(Process.GetCurrentProcess().Id);
-
-        for (int i = 0; i < 1000; i++)
-            try
-            {
-                using (var testOutputHelper = new ConsoleTestOutputHelper())
-                await using (var test = new CRUD(testOutputHelper))
-                {
-                    DebuggerAttachedTimeout.DisableLongTimespan = true;
-
-                    test.CRUD_Operations(RavenTestBase.Options.ForMode(RavenDatabaseMode.Single), true);
-                }
-            }
-            catch (Exception e)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine(e);
-                Console.ForegroundColor = ConsoleColor.White;
-            }
-    }
-
-    private static void TryRemoveDatabasesFolder()
-    {
-        string p = AppDomain.CurrentDomain.BaseDirectory;
-        string dbPath = Path.Combine(p, "Databases");
-        if (Directory.Exists(dbPath))
-            try
-            {
-                Directory.Delete(dbPath, true);
-                Assert.False(Directory.Exists(dbPath), "Directory.Exists(dbPath)");
-            }
-            catch
-            {
-                Console.WriteLine($"Could not remove Databases folder on path '{dbPath}'");
-            }
+        Console.WriteLine($"pid: {Process.GetCurrentProcess().Id}");
+        return await RavenDB_24520.Harness.RunAsync(args);
     }
 }
