@@ -12,7 +12,23 @@ Run this whenever the fixes change. Branch must contain the fix commits (verify:
 - [x] **F-3 AV loop: 0 crashes.** Loop the e2e repro; pre-fix baseline was ~40-60% ACCESS_VIOLATION (exit `0xC0000005`):
       `dotnet test test/SlowTests -c Release --no-build --filter "FullyQualifiedName~RavenDB_27156_e2e.TornJournalWrite_OnSharedRoot"`
       -> **14/14 PASS, 0 AV** on this branch (2026-08-04). Fix confirmed on Windows.
-- [ ] Scenario 1 corruption matrix re-run against the fixed build (below) - blast radius (F-1) expected unchanged, poisoning/unload behavior may differ.
+- [~] **Scenario 1 corruption matrix re-run against the fixed build: 9/15 cells done (2026-08-04), PAUSED.** Golden re-seeded with the fixed binaries; baseline identical to pre-fix (130,534 docs / 136,534 after burst, 9 inode groups, entries Questions/Search 13857, Users/Search 122677, Questions/Tags 5350). **No server crash in any cell.** Results (`reset` = indexes that came back with entries=0):
+
+  | Cell | Op | Owner | Which | File | DB | reset | vs pre-fix |
+  |---|---|---|---|---|---|---|---|
+  | 1A-branch-unsynced | payload | Questions_Tags | last | shared | LOADED | 4 | same pattern (cascade) |
+  | 1A-synced-first | payload | Questions_Tags | first | inode:first | LOADED | 1 | same (old journal -> 1 index) |
+  | 1A-root | payload | @SharedJournals | last | shared | LOADED | 4 | same pattern (cascade) |
+  | 1A-other-env | payload | Users_Search | first | shared | LOADED | 5 | same pattern (cascade) |
+  | 1B-marker-tail | marker | Users_Search | last | shared | LOADED | 1 | pre-fix was clean/0 - see note |
+  | 1B-marker-mid | marker | Users_Search | first | shared | LOADED | 5 | same pattern (cascade) |
+  | 1C-hash | hash | Questions_Search | last | shared | LOADED | 0 clean | pre-fix reset 1 - see note |
+  | 1C-txid | txid | Questions_Search | last | shared | LOADED | 0 clean | (not run pre-fix) |
+  | 1C-journalid | journalid | Questions_Search | last | shared | LOADED | 0 clean | same (F-2 silent drop) |
+
+  Note on the two deltas (1B-marker-tail, 1C-hash): both are tail-tx cells, whose outcome depends on *which* transaction happens to land last in the active journal - and that varies between seeds. Treat as layout-dependent, not a confirmed behavior change, until re-run on the same layout. Everything structural (cascade blast radius = envs linked to the journal, F-1) reproduced unchanged, as expected since the fixes did not touch recovery-side validation.
+
+- [ ] Remaining 6 cells: `1D-zeroblock`, `1D-trunc-tail`, `1D-trunc-mid`, `1E-linkrec`, `1F-delete-active`, `1F-diverge`.
 - [ ] Real disk-full re-run on F: (below) - expected still graceful.
 
 ## Phase 0 - Baseline
