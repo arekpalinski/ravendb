@@ -2,7 +2,7 @@
 
 **Severity:** design / blast-radius (data is not lost, but damage crosses index boundaries)
 **Status:** open - not filed yet, needs a decision on whether to change hot recovery code.
-**Evidence:** observed (13-cell matrix + deterministic Voron test) + derived (code path).
+**Evidence:** observed (13-cell pre-fix matrix + 15-cell post-fix re-run + deterministic Voron test) + derived (code path).
 **Shared context:** see [README.md](README.md). This is the root cause behind ticket answers Q1.1 and Q2.2 (see [ticket-answers.md](ticket-answers.md)), and it is why [F-3](F-3-write-failure-access-violation.md)'s blast radius was the whole database.
 
 ## Claim
@@ -64,4 +64,8 @@ A deterministic Voron-level version (root + 2 branches sharing one journal, corr
 
 - Is the current behavior acceptable (documents safe, indexes rebuildable) or worth changing?
 - Candidate change (hot code, plan required): a branch replaying the shared journal could skip / tolerate hash failures on transactions whose `JournalId` isn't its own, limiting damage to the owning index. Risk: the owner-filter currently runs after validation for a reason (sequence checks, `LinkedJournalsRecord` handling, legacy `Guid.Empty` txs) - need to confirm reordering is safe for the root's own recovery and for tx-sequence verification.
+  - **Implementation constraint (verified):** skipping a foreign tx unvalidated still needs its *size* to advance the cursor, and the size fields live in the same unprotected header (`_readAt4Kb += GetTransactionSizeIn4Kb(current) - 1`). A garbage size therefore desyncs the scan. Survivable, because the reader already resyncs by advancing 4 KB at a time hunting the header marker, but any patch here must be tested against a corrupted-size case, not only a corrupted-payload case.
+  - Counter-argument to the whole idea: a corrupt journal is evidence the *file* is damaged, so faulting every sharer is the conservative read. Skipping foreign txs loses early detection - though the owning env would detect it itself on its own recovery, so arguably nothing is actually lost.
 - Cheaper alternative: leave the behavior, document it, and make the operator-facing message say explicitly that *all* indexes sharing the journal need a reset (today each faulted index reports individually).
+
+**Current recommendation (mine, 2026-08-05):** don't reorder. Index data is rebuildable, documents are never touched, and this is hot recovery code - "reset everything sharing the file" is safe-by-default. Take the operator-message improvement instead. The one argument *for* real isolation is cost, not correctness: on a large production DB, needlessly rebuilding 6+ big indexes after a single bad transaction is a long outage. If that cost is judged unacceptable, the reorder becomes worth the risk.
