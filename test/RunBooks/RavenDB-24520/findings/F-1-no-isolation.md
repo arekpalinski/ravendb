@@ -36,6 +36,21 @@ So a transaction owned by index X that fails its hash makes index Y's recovery t
 
 Documents are never lost (separate env); the DB still loads. Damage is confined to index envs (which then reset - see Q1.2 in [ticket-answers.md](ticket-answers.md)).
 
+## Position rule (observed, full 15-cell matrix, 2026-08-04)
+
+Re-running the whole matrix against the fixed build (RavenDB-27156 + RavenDB-27166 in place) showed the outcome is determined by the corrupted transaction's **position in the file**, not by the corruption kind nor by which env owns it:
+
+| Target position | Outcome | reset count observed |
+|---|---|---|
+| early / mid transaction (branch, root, or `LinkedJournalsRecord` alike) | **cascade** - every env linked to that journal that has a later valid tx of its own faults | 4-5 of 6 |
+| the file's **final** transaction | **benign** - recovery truncates there; identical for hash / txid / zero-block / truncate ops | 0 |
+| a tx in an older journal linked by only one env | isolated to that env | 1 |
+| `JournalId` flip on the final tx | clean load, no error, tx silently dropped ([F-2](F-2-silent-journalid-loss.md)) | 0 |
+
+So the practical blast radius is "every env linked to this journal that still has unreplayed work after the damage point". Corrupting the very last transaction is indistinguishable from a torn tail and is handled correctly.
+
+The fixes did **not** change any of this (they touch the write-failure path, not recovery-side validation) - as expected. F-1 remains open.
+
 ## Repro
 
 Server-level (blast radius across real indexes):

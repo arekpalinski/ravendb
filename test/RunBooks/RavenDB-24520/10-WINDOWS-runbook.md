@@ -12,23 +12,36 @@ Run this whenever the fixes change. Branch must contain the fix commits (verify:
 - [x] **F-3 AV loop: 0 crashes.** Loop the e2e repro; pre-fix baseline was ~40-60% ACCESS_VIOLATION (exit `0xC0000005`):
       `dotnet test test/SlowTests -c Release --no-build --filter "FullyQualifiedName~RavenDB_27156_e2e.TornJournalWrite_OnSharedRoot"`
       -> **14/14 PASS, 0 AV** on this branch (2026-08-04). Fix confirmed on Windows.
-- [~] **Scenario 1 corruption matrix re-run against the fixed build: 9/15 cells done (2026-08-04), PAUSED.** Golden re-seeded with the fixed binaries; baseline identical to pre-fix (130,534 docs / 136,534 after burst, 9 inode groups, entries Questions/Search 13857, Users/Search 122677, Questions/Tags 5350). **No server crash in any cell.** Results (`reset` = indexes that came back with entries=0):
+- [x] **Scenario 1 corruption matrix re-run against the fixed build: all 15 cells (2026-08-04).** Golden re-seeded with the fixed binaries; baseline identical to pre-fix (130,534 docs / 136,534 after burst, 9 inode groups; entries Questions/Search 13857, Users/Search 122677, Questions/Tags 5350). **DB loaded in every cell and no server process crashed in any cell** - the pre-fix campaign's AV never appeared.
 
-  | Cell | Op | Owner | Which | File | DB | reset | vs pre-fix |
-  |---|---|---|---|---|---|---|---|
-  | 1A-branch-unsynced | payload | Questions_Tags | last | shared | LOADED | 4 | same pattern (cascade) |
-  | 1A-synced-first | payload | Questions_Tags | first | inode:first | LOADED | 1 | same (old journal -> 1 index) |
-  | 1A-root | payload | @SharedJournals | last | shared | LOADED | 4 | same pattern (cascade) |
-  | 1A-other-env | payload | Users_Search | first | shared | LOADED | 5 | same pattern (cascade) |
-  | 1B-marker-tail | marker | Users_Search | last | shared | LOADED | 1 | pre-fix was clean/0 - see note |
-  | 1B-marker-mid | marker | Users_Search | first | shared | LOADED | 5 | same pattern (cascade) |
-  | 1C-hash | hash | Questions_Search | last | shared | LOADED | 0 clean | pre-fix reset 1 - see note |
-  | 1C-txid | txid | Questions_Search | last | shared | LOADED | 0 clean | (not run pre-fix) |
-  | 1C-journalid | journalid | Questions_Search | last | shared | LOADED | 0 clean | same (F-2 silent drop) |
+  `reset` = number of indexes that came back with entries=0. Offsets are into the active shared journal `...009.journal`, whose final transaction sits at offset 11,571,200 (Questions_Search txId=13).
 
-  Note on the two deltas (1B-marker-tail, 1C-hash): both are tail-tx cells, whose outcome depends on *which* transaction happens to land last in the active journal - and that varies between seeds. Treat as layout-dependent, not a confirmed behavior change, until re-run on the same layout. Everything structural (cascade blast radius = envs linked to the journal, F-1) reproduced unchanged, as expected since the fixes did not touch recovery-side validation.
+  | Cell | Op | Target owner | Offset | reset | Outcome class |
+  |---|---|---|---|---|---|
+  | 1A-branch-unsynced | payload | Questions_Tags | 200,704 (mid) | 4 | cascade |
+  | 1A-synced-first | payload | Questions_Tags | 0 of old journal `...001` (linked by 1 env) | 1 | isolated to owner |
+  | 1A-root | payload | @SharedJournals | 0 (first) | 4 | cascade |
+  | 1A-other-env | payload | Users_Search | 4,096 (early) | 5 | cascade |
+  | 1B-marker-mid | marker | Users_Search | 4,096 (early) | 5 | cascade |
+  | 1E-linkrec | linkrecord | `<link-record>` | 8,192 (early) | 5 | cascade (link-records are not special) |
+  | 1B-marker-tail | marker | Users_Search | 11,563,008 (Users_Search's last, but Questions_Search txs follow) | 1 | only the env whose txs follow (Questions/Search) |
+  | 1C-hash | hash | Questions_Search | 11,571,200 (**file's final tx**) | 0 | clean - EOF truncation |
+  | 1C-txid | txid | Questions_Search | 11,571,200 (final) | 0 | clean - EOF truncation |
+  | 1C-journalid | journalid | Questions_Search | 11,571,200 (final) | 0 | clean load, **silent tx drop** (F-2) |
+  | 1D-zeroblock | zero-block | Questions_Search | 11,571,200 (final) | 0 | clean - EOF truncation |
+  | 1D-trunc-mid | truncate-mid | Questions_Search | 11,571,200 (final) | 0 | clean - EOF truncation |
+  | 1D-trunc-tail | truncate-tail | (last 4KB of file) | tail | 0 | clean - incomplete trailing tx dropped |
+  | 1F-delete-active | delete | (whole active journal file) | n/a | 0 | clean - inode survives via branch links |
+  | 1F-diverge | diverge | (break inode sharing, same bytes) | n/a | 0 | clean - identical content, own inode |
 
-- [ ] Remaining 6 cells: `1D-zeroblock`, `1D-trunc-tail`, `1D-trunc-mid`, `1E-linkrec`, `1F-delete-active`, `1F-diverge`.
+  **Predictive rule this run established (sharper than the pre-fix table):** the outcome is determined by the corrupted transaction's *position*, not by the corruption kind or the owning env:
+  - corrupt an **early/mid** transaction (any owner - branch, root, or link-record) -> **cascade**: every env hard-linked to that journal that has a valid transaction after the damage faults and resets. This is F-1, unchanged by the fixes (they did not touch recovery-side validation).
+  - corrupt the **file's final** transaction -> **benign**: no env has a later valid tx of its own, so recovery truncates at that point. Every op class (hash, txid, zero-block, truncate) lands here identically.
+  - corrupt a tx in an **older journal** linked by only one env -> damage isolated to that env.
+  - `JournalId` flip on the final tx is the one silent case: clean load, no error, transaction dropped by everyone (F-2).
+
+  This also explains the three apparent deltas vs the pre-fix table (`1B-marker-tail`, `1C-hash`, `1D-zeroblock`): in this seed's layout `Questions_Search last` happens to *be* the file's final transaction, so those cells landed in the benign class, whereas in the pre-fix layout a later valid tx of another env followed. **Layout-dependent selection, not a behavior change** - confirmed by mapping the journal and checking each cell's actual target offset, not assumed.
+
 - [ ] Real disk-full re-run on F: (below) - expected still graceful.
 
 ## Phase 0 - Baseline
