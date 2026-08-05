@@ -499,15 +499,57 @@ public static class Harness
             outcome = $"threw: {e.GetType().Name}: {FirstLine(e.Message)}";
         }
 
-        Console.WriteLine($"[diskfull] OUTCOME: {outcome}");
-        Console.WriteLine($"[diskfull] server alive: {server.HasExited == false}");
+        var crashed = server.HasExited;
+        Console.WriteLine($"[diskfull] index-state poller: {outcome}");
+        Console.WriteLine($"[diskfull] server alive: {crashed == false}");
 
         if (File.Exists(balloon))
             File.Delete(balloon);
         server.Kill();
         await Task.Delay(1500); // let the process release its log handle before scanning
+
+        // The index-state poller alone is NOT the verdict: a disk-full usually surfaces in the logs
+        // (DiskFullException / catastrophic failure -> DB unload) without any index sitting in Error
+        // by the time we poll. Decide from the logs, and say so explicitly when the disk never
+        // actually filled - otherwise an inconclusive run reads like a pass.
+        var logHits = CountLogMatches("not enough space", "DiskFullException", "Errno: 112");
+        var fatalHits = CountLogMatches("FATAL");
+        Console.WriteLine($"[diskfull] VERDICT: {(crashed ? "SERVER CRASHED (F-3-class regression!)" : logHits > 0 ? $"ENOSPC reached and handled gracefully ({logHits} disk-full log entries, {fatalHits} FATAL, server alive)" : "INCONCLUSIVE - the disk never actually filled (no disk-full entries in the logs); re-run with a smaller leaveMB")}");
+
         ScanServerLogs();
         return 0;
+    }
+
+    private static int CountLogMatches(params string[] needles)
+    {
+        if (Directory.Exists(LogsDir) == false)
+            return 0;
+        var count = 0;
+        foreach (var file in Directory.GetFiles(LogsDir, "*.log"))
+        {
+            try
+            {
+                using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(fs);
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    foreach (var n in needles)
+                    {
+                        if (line.Contains(n, StringComparison.OrdinalIgnoreCase))
+                        {
+                            count++;
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (IOException)
+            {
+                // still held by a process; skip
+            }
+        }
+        return count;
     }
 
     // ---------------------------------------------------------------- helpers

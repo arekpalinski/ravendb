@@ -93,14 +93,29 @@ For each row confirm the Q1.1/Q1.2 answers: recovery without full reset? which i
 
 ### Real disk-full (external F:, NTFS, 16 GB)
 
-Pre-fix result (2026-07-23): **graceful, no crash.** Ballooned F: to ~40 MB free, RESET all 6 indexes to force rebuilds -> `DiskFullException` (Errno 112) on index scratch-buffer growth + on the DOCUMENTS tx merger opening a new journal -> graceful catastrophic-failure DB unload, server stayed alive. After freeing space + restart: DB loaded, all indexes rebuilt to Normal with full entries, documents intact. Did NOT reproduce F-3 (a gradual fill fails at an earlier allocation than the shared-journal write).
+**Methodology warning (learned 2026-08-04): a full disk does not necessarily produce ENOSPC.** Voron preallocates - the shared root keeps a 16 MB journal (`--Storage.MaxJournalFileSizeInMb=16`) and the index scratch buffers are already sized - so writes that fit inside already-allocated files succeed no matter how little free space is left. Three runs on a small (`RAVEN_24520_SAMPLE=500`, ~19k docs) golden with 40 MB, 8 MB and even **1 MB** free all finished with **no disk-full at all**: the 6 index rebuilds fit inside the preallocated journal. Those runs are **inconclusive, not passes.**
 
-- [ ] `set RAVEN_24520_BASE=F:\rdb24520` `set RAVEN_24520_SAMPLE=500` then `... -- seed 2`  (small golden ON F:, so hard links form on F:)
-- [ ] `... -- restore-work`
-- [ ] `... -- diskfull F:\rdb24520\work 40`
-- [ ] Observe: server crash (would mean F-3 regressed) vs graceful DB unload; `HandleDiskFullErrors` retry (x10, FlushAndSync); which env errors first.
-- [ ] `... -- verify F:\rdb24520\work` after the balloon is freed - confirm recovery + integrity.
-- [ ] Remember to `Remove-Item Env:\RAVEN_24520_BASE, Env:\RAVEN_24520_SAMPLE` afterwards.
+To actually force ENOSPC the workload has to need *new* allocation: use a big enough dataset (`RAVEN_24520_SAMPLE=50`, ~130k docs) so rebuilding the 6 indexes rolls journals and grows scratch beyond the free space. `diskfull` now prints an explicit `VERDICT:` line (crash / graceful-ENOSPC / INCONCLUSIVE) derived from the server logs, not from the index-state poller - the poller commonly shows `errored=0/6` even in a run where the logs are full of `DiskFullException`, so never read the poller as the verdict.
+
+Pre-fix result (2026-07-23): graceful, no crash, but the failure landed on index scratch-buffer growth / the DOCUMENTS tx merger rather than on the shared-journal write, so it did not exercise the F-3 path.
+
+**POST-FIX RESULT (2026-08-05): PASS - real ENOSPC hit the shared-journal write and was handled gracefully.**
+
+Recipe that actually reaches ENOSPC (`RAVEN_24520_BASE=F:\rdb24520`, `RAVEN_24520_SAMPLE=50` -> ~130k docs, then `seed 2` / `restore-work` / `diskfull F:\rdb24520\work 100`):
+
+- `VERDICT: ENOSPC reached and handled gracefully (10 disk-full log entries, 9 FATAL, server alive)`.
+- The failure hit the journal write itself: `Voron.Impl.Journal.WriteAheadJournal | The disk is full! | Sparrow.Server.Exceptions.DiskFullException: Failed to increase file 'F:\rdb24520\work\Databases\...'`.
+- **The RavenDB-27156 poisoning fired on a real disk-full, on all participants**: both the root env (`so.Indexes.@SharedJournals`) and a *branch* index env (`Users/Search`) logged `CatastrophicFailure state, about to throw`. Pre-fix only the root would have been poisoned while branches kept running on corrupted scratch state.
+- One `CatastrophicFailureHandler` unload for the database -> clients see `DatabaseDisabledException: The database 'so' has been unloaded and locked because CatastrophicFailure`.
+- **Server process stayed alive - no ACCESS_VIOLATION.**
+- Recovery after the balloon was freed (`... -- verify F:\rdb24520\work`): DB loaded, docs **152,534** (= baseline 136,534 + the 16,000 primed by `diskfull`, exact), all 6 indexes State=Normal with full entries (Users/Search 130,677; Questions/Search 21,857), **0 index errors**. No data loss.
+
+Re-run checklist:
+- [x] `set RAVEN_24520_BASE=F:\rdb24520` `set RAVEN_24520_SAMPLE=50` then `... -- seed 2` (golden ON F:, so hard links form on F:)
+- [x] `... -- restore-work`
+- [x] `... -- diskfull F:\rdb24520\work 100` -> expect `VERDICT: ENOSPC reached and handled gracefully`
+- [x] `... -- verify F:\rdb24520\work` after the balloon is freed -> clean recovery, no data loss
+- Clear the env vars afterwards with `$env:RAVEN_24520_BASE = $null` (note: `Remove-Item Env:\...` can be blocked by the agent sandbox because it resolves the variable's `F:` value).
 
 ## Scenario 3 - extra nasty
 

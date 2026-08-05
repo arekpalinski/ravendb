@@ -56,6 +56,16 @@ dotnet test test/SlowTests -c Release --filter "FullyQualifiedName~RavenDB_27156
 ```
 Crash-dump capture (if it ever returns): `DOTNET_DbgEnableMiniDump=1`, `DOTNET_DbgMiniDumpType=2`, then `dotnet-dump analyze <dmp>` + `clrstack -all`. For a native heap UAF, PageHeap / Application Verifier (`gflags /p /enable Raven.Server.exe /full`) pins the exact invalid free/use.
 
-## Post-fix verification (this branch, Windows)
+## Post-fix verification (this branch, Windows, 2026-08-04/05)
 
-See `../10-WINDOWS-runbook.md` "Post-fix retest" for the recorded results.
+1. **Fix tests**: `RavenDB_27156` + `RavenDB_27156_e2e` + `RavenDB_27166` -> 8/8 green.
+2. **Injection AV loop**: the e2e torn-write repro run 14x -> **14/14 PASS, 0 ACCESS_VIOLATION** (pre-fix baseline ~40-60% crashed).
+3. **Corruption matrix (15 cells)**: DB loaded in every cell, no process crash anywhere.
+4. **Real ENOSPC at the shared-journal write (the strongest validation, 2026-08-05)**: with a ~130k-doc golden on external F: and only 100 MB free, forcing all 6 index rebuilds produced a genuine `DiskFullException` inside `WriteAheadJournal` ("The disk is full! ... Failed to increase file ...").
+   - **The fix fired on all participants**: both the root env (`so.Indexes.@SharedJournals`) and a *branch* index env (`Users/Search`) entered `CatastrophicFailure` state. Pre-fix, only the root was poisoned while branches kept running on corrupted scratch state - the exact condition that produced the AV.
+   - Single `CatastrophicFailureHandler` DB unload (`DatabaseDisabledException` to clients), **server process alive, no ACCESS_VIOLATION**.
+   - After freeing the space: DB loaded, doc count exact (152,534 = 136,534 baseline + 16,000 primed), all 6 indexes Normal with full entries, 0 index errors - **no data loss**.
+
+Note this supersedes the pre-fix scope note above: a real gradual disk-full *can* reach the shared-journal write, it just needs a workload large enough to force new allocation. On a small dataset Voron's preallocated 16 MB journal and scratch buffers absorb everything, so runs at 40 MB / 8 MB / even 1 MB free produced no failure at all (inconclusive, not passes). See the methodology warning in `../10-WINDOWS-runbook.md`.
+
+See `../10-WINDOWS-runbook.md` "Post-fix retest" + "Real disk-full" for the full recorded results and re-run recipes.
