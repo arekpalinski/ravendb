@@ -1,8 +1,8 @@
 # F-1 - No per-index isolation: a corrupted transaction faults every index sharing the journal
 
 **Severity:** design / blast-radius (data is not lost, but damage crosses index boundaries)
-**Status:** open - not filed yet, needs a decision on whether to change hot recovery code.
-**Evidence:** observed (13-cell pre-fix matrix + 15-cell post-fix re-run + deterministic Voron test) + derived (code path).
+**Status:** filed as [RavenDB-27278](http://issues.ravendb.net/issue/RavenDB-27278) (2026-08-05) - decision: current behavior is NOT acceptable for databases with many indexes (a single index's corruption damaging 200 indexes is critical). Fix implemented on the `RavenDB-27278` branch (together with the unit tests): `JournalReader.TryPeekSkippableForeignTransaction` skips foreign transactions before hash validation, guarded so the skip only happens when it lands exactly on a following transaction header (a corrupted size falls back to full validation and keeps failing loudly).
+**Evidence:** observed (13-cell pre-fix matrix + 15-cell post-fix re-run + deterministic failing unit test) + derived (code path).
 **Shared context:** see [README.md](README.md). This is the root cause behind ticket answers Q1.1 and Q2.2 (see [ticket-answers.md](ticket-answers.md)), and it is why [F-3](F-3-write-failure-access-violation.md)'s blast radius was the whole database.
 
 ## Claim
@@ -53,19 +53,27 @@ The fixes did **not** change any of this (they touch the write-failure path, not
 
 ## Repro
 
+**Deterministic unit tests (2026-08-05)** - `test/FastTests/Voron/SharedJournal/RavenDB_27278.cs` (written as the failing repro, now green with the fix; a second test pins that a corrupted foreign *size* field still fails loudly instead of silently losing the sibling's data):
+```bash
+dotnet test test/FastTests -c Release --filter "FullyQualifiedName~RavenDB_27278"
+```
+Setup: root + branches A and B share one physical journal (hard-linked three ways); the file holds `[root txs] [A bootstrap] [link record] [B bootstrap] [b1(B)] [victim(A)] [b2(B)] [a2(A)]`; one payload byte of `victim` is flipped (header incl. `JournalId` intact - the clean fixable case). Pinned desired behavior: root recovers, branch B recovers with b1+b2, only branch A (the owner) throws. Current result, verified deterministic across runs:
+- The root recovers its own data (it has no own tx after the victim, so it takes the torn-tail path; the "hard-linked or owned by a branch - roll to new file" guard in `WriteAheadJournal` also prevents it from zeroing the tail, so b2/a2 survive on disk).
+- **Branch B fails to open with `InvalidJournalException`** ("Got invalid transaction at position X ... further reading found a valid transaction at position Y") where X is A's corrupted tx and Y is B's own perfectly valid b2 - B dies purely because of A's bytes. This is the failing assert.
+- Bare-Voron nuance: without an `OnRecoveryError` subscriber the failure surfaces even earlier, as `InvalidDataException` from `InvokeRecoveryError` inside `ValidatePagesHash`; the test subscribes no-op handlers like the server does (see `SharedJournalsEventsConfig`), so the reader's own logic decides the outcome.
+
 Server-level (blast radius across real indexes):
 ```bash
 dotnet run --project test/Tryouts -c Release --no-build -- cell 1A payload Questions_Tags_ByMonths last shared
 # -> multiple indexes go to State=Error though only one index's tx was corrupted
 ```
-A deterministic Voron-level version (root + 2 branches sharing one journal, corrupt branch A's first tx, assert the **root** - a different env - chokes on it) was written during the campaign but not kept; it is straightforward to re-add if F-1 is filed.
 
-## Open decision
+## Decision (2026-08-05)
 
-- Is the current behavior acceptable (documents safe, indexes rebuildable) or worth changing?
-- Candidate change (hot code, plan required): a branch replaying the shared journal could skip / tolerate hash failures on transactions whose `JournalId` isn't its own, limiting damage to the owning index. Risk: the owner-filter currently runs after validation for a reason (sequence checks, `LinkedJournalsRecord` handling, legacy `Guid.Empty` txs) - need to confirm reordering is safe for the root's own recovery and for tx-sequence verification.
+Arek's call: leaving this as by-design is dangerous - with a 200-index database a single index's issue damages all of them, which is a critical blast radius. Direction: **filter out foreign ("not mine") transactions as the very first step**, before hash validation, so only the owning environment fails. Filed as [RavenDB-27278](http://issues.ravendb.net/issue/RavenDB-27278).
+
+Implementation notes for the fix (kept from the earlier analysis):
+- The chosen change (hot code, plan required): a branch replaying the shared journal skips transactions whose `JournalId` isn't its own without validating their hash, limiting damage to the owning index. Risk: the owner-filter currently runs after validation for a reason (sequence checks, `LinkedJournalsRecord` handling, legacy `Guid.Empty` txs) - need to confirm reordering is safe for the root's own recovery and for tx-sequence verification.
   - **Implementation constraint (verified):** skipping a foreign tx unvalidated still needs its *size* to advance the cursor, and the size fields live in the same unprotected header (`_readAt4Kb += GetTransactionSizeIn4Kb(current) - 1`). A garbage size therefore desyncs the scan. Survivable, because the reader already resyncs by advancing 4 KB at a time hunting the header marker, but any patch here must be tested against a corrupted-size case, not only a corrupted-payload case.
   - Counter-argument to the whole idea: a corrupt journal is evidence the *file* is damaged, so faulting every sharer is the conservative read. Skipping foreign txs loses early detection - though the owning env would detect it itself on its own recovery, so arguably nothing is actually lost.
-- Cheaper alternative: leave the behavior, document it, and make the operator-facing message say explicitly that *all* indexes sharing the journal need a reset (today each faulted index reports individually).
-
-**Current recommendation (mine, 2026-08-05):** don't reorder. Index data is rebuildable, documents are never touched, and this is hot recovery code - "reset everything sharing the file" is safe-by-default. Take the operator-message improvement instead. The one argument *for* real isolation is cost, not correctness: on a large production DB, needlessly rebuilding 6+ big indexes after a single bad transaction is a long outage. If that cost is judged unacceptable, the reorder becomes worth the risk.
+- (Superseded alternative, for the record: leave the behavior, document it, and improve the operator-facing message to say all indexes sharing the journal need a reset. Rejected because the rebuild cost on a many-index production DB is unacceptable.)
