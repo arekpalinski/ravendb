@@ -1,0 +1,359 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Raven.Server.Utils;
+using Sparrow.Platform;
+using Tests.Infrastructure;
+using Voron;
+using Voron.Data.BTrees;
+using Voron.Global;
+using Voron.Impl.Journal;
+using Xunit;
+
+namespace FastTests.Voron.SharedJournal;
+
+// Corruption scenarios found while testing shared journals under RavenDB-24520 that are NOT covered by the
+// RavenDB-27156 / 27166 / 27278 regression tests.
+//
+// The transaction hash covers the PAYLOAD only, seeded with TransactionId (JournalReader.ValidatePagesHash).
+// Every other header field - including JournalId at offset 136, which decides WHICH environment replays a
+// transaction - is outside it. On an encrypted journal the AEAD authenticates the header only from offset 0
+// for (TransactionHeader.SizeOf - NonceOffset) = 40 bytes, so JournalId at 136 is outside that too. Either
+// way a 16-byte edit of JournalId yields a transaction that still passes full validation but is attributed
+// to a different environment.
+public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
+{
+    private readonly byte[] _masterKey = Sodium.GenerateRandomBuffer(32);
+
+    // JournalId impersonation: rewrite one transaction's JournalId to a SIBLING branch's id, leaving payload
+    // and hash untouched. Because per-environment transaction id counters run in parallel, the stolen
+    // transaction can land exactly where the sibling expects its next one, so VerifyTransactionSequence sees
+    // a contiguous chain and the sibling replays ANOTHER environment's pages into its own data file.
+    //
+    // Unencrypted, the post-recovery page checksum sweep in WriteAheadJournal.RecoverDatabase eventually
+    // rejects it - but only AFTER the foreign pages were already written to the victim's data file, and the
+    // error blames the data file rather than the journal. That sweep is skipped entirely when encryption is
+    // enabled ("for encryption, we already use AEAD, so no need"), so the encrypted case has no backstop.
+    [RavenTheory(RavenTestCategory.Voron)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public unsafe void ImpersonatedJournalIdMustNotMakeSiblingBranchAdoptForeignTransaction(bool encrypted)
+    {
+        var setup = PrepareSharedJournalWithTrailingVictim(encrypted);
+
+        Output.WriteLine($"victim: tx {setup.Victim.TxId} of branch A at offset {setup.Victim.Offset} (last tx in the file)");
+        Output.WriteLine($"branch B last own tx before it: {setup.BranchBLastTxId} -> B expects {setup.BranchBLastTxId + 1}");
+
+        string branchBDataFile = Path.Combine(setup.BranchBPath, "Raven.voron");
+        byte[] dataFileBefore = ReadAllBytesShared(branchBDataFile);
+
+        // the whole corruption: 16 bytes of header, no payload change, hash and AEAD tag stay valid
+        var bytes = File.ReadAllBytes(setup.JournalFile);
+        fixed (byte* p = bytes)
+        {
+            var header = (TransactionHeader*)(p + setup.Victim.Offset);
+            Assert.Equal(setup.AId, header->JournalId);
+            header->JournalId = setup.BId;
+        }
+        File.WriteAllBytes(setup.JournalFile, bytes);
+
+        using var rootOptions = CreateOptions(setup.RootPath, encrypted);
+        using var root = new StorageEnvironment(rootOptions);
+        using var _ = root.Journal.SharedJournalsScope();
+
+        using (var rootTx = root.ReadTransaction())
+            Assert.Equal("yes", rootTx.ReadTree("rootTree").Read("root").Reader.ToString());
+
+        StorageEnvironment branchB = null;
+        Exception openFailure = null;
+        try
+        {
+            branchB = OpenBranch(setup.BranchBPath, root, encrypted);
+        }
+        catch (Exception e)
+        {
+            openFailure = e;
+            Output.WriteLine($"branch B failed to open: {e.GetType().Name}: {e.Message}");
+        }
+
+        bool dataFileMutated = ReadAllBytesShared(branchBDataFile).SequenceEqual(dataFileBefore) == false;
+        Output.WriteLine($"branch B data file mutated by the impersonated transaction: {dataFileMutated}");
+
+        try
+        {
+            if (branchB != null)
+            {
+                using var tx = branchB.ReadTransaction();
+
+                Tree leaked = tx.ReadTree("treeA");
+                Assert.True(leaked == null,
+                    "branch B adopted branch A's transaction via a 16-byte JournalId edit and now exposes A's tree 'treeA' - " +
+                    "another environment's pages were replayed into B's data file with a fully valid transaction hash, and nothing rejected it");
+
+                Tree treeB = tx.ReadTree("treeB");
+                Assert.True(treeB != null, "branch B lost its own 'treeB' entirely");
+                Assert.Equal("1", treeB.Read("b1").Reader.ToString());
+            }
+        }
+        finally
+        {
+            branchB?.Dispose();
+        }
+
+        // A rejection is the acceptable outcome, but it must not come at the price of having already written
+        // another environment's pages into this environment's data file
+        Assert.False(dataFileMutated,
+            $"the impersonated transaction of branch A was applied to branch B's data file before recovery rejected it " +
+            $"({openFailure?.GetType().Name ?? "no failure at all"}) - the ownership and transaction-sequence checks let it through");
+    }
+
+    // The LinkedJournalsRecord re-creates branch hard links that a machine-level failure dropped. It carries
+    // the sentinel LinkedJournalId and JournalReader.TryReadAndValidateHeader handles it with a `continue`
+    // BEFORE VerifyTransactionSequence, so it belongs to no environment's transaction id chain and no sequence
+    // check protects it. Since RavenDB-27278 an invalid transaction no longer stops recovery - the 4KB resync
+    // scan bypasses it - so a corrupted link record means the repair is skipped.
+    //
+    // This characterizes the outcome, which is SAFE: the initial validation failure is still reported through
+    // OnRecoveryError (only the forward scan suppresses the handlers), and the branch whose link was not
+    // restored then fails loudly with InvalidJournalException("No such journal") instead of opening without
+    // its data. The gap is diagnostic only - neither message connects the two.
+    [RavenTheory(RavenTestCategory.Voron)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BypassedLinkRecordSkipsHardLinkRepairButFailsLoudly(bool corruptLinkRecord)
+    {
+        var setup = PrepareSharedJournalWithTrailingVictim(encrypted: false);
+
+        List<(long Offset, Guid JournalId, long TxId)> txs = ReadTransactions(File.ReadAllBytes(setup.JournalFile));
+        List<(long Offset, Guid JournalId, long TxId)> linkRecords = txs
+            .Where(t => t.JournalId == WriteAheadJournal.LinkedJournalsRecord.LinkedJournalId)
+            .ToList();
+        Assert.True(linkRecords.Count > 0, "the shared journal contains no LinkedJournalsRecord - the fixture is not exercising the repair path");
+        Output.WriteLine($"link records at offsets: {string.Join(", ", linkRecords.Select(r => r.Offset))}");
+
+        if (corruptLinkRecord)
+        {
+            // flip one payload byte of every link record: headers stay readable, only the hash check fails,
+            // so the resync bypasses them - the same effect a destroyed region covering them would have.
+            // Done before dropping the link because it is the same inode, so the edit survives via the root's link
+            using var fs = new FileStream(setup.JournalFile, FileMode.Open, FileAccess.ReadWrite);
+            foreach (var record in linkRecords)
+            {
+                fs.Position = record.Offset + TransactionHeader.SizeOf;
+                int b = fs.ReadByte();
+                fs.Position = record.Offset + TransactionHeader.SizeOf;
+                fs.WriteByte((byte)(b ^ 0xFF));
+            }
+        }
+
+        // the machine-level failure the link record exists to repair: branch B's hard link is gone
+        string branchBJournals = Path.Combine(setup.BranchBPath, "Journals");
+        string branchBLink = Directory.GetFiles(branchBJournals).Single();
+        string linkName = Path.GetFileName(branchBLink);
+        File.Delete(branchBLink);
+        Assert.Empty(Directory.GetFiles(branchBJournals));
+
+        var recoveryErrors = new List<string>();
+        using var rootOptions = CreateOptions(setup.RootPath, encrypted: false);
+        rootOptions.OnRecoveryError += (_, e) => recoveryErrors.Add(e.Message);
+        rootOptions.OnIntegrityErrorOfAlreadySyncedData += (_, e) => recoveryErrors.Add(e.Message);
+
+        using var root = new StorageEnvironment(rootOptions);
+        using var _ = root.Journal.SharedJournalsScope();
+
+        using (var rootTx = root.ReadTransaction())
+            Assert.Equal("yes", rootTx.ReadTree("rootTree").Read("root").Reader.ToString());
+
+        bool restored = File.Exists(Path.Combine(branchBJournals, linkName));
+        Output.WriteLine($"branch B hard link restored: {restored}; recovery errors reported: {recoveryErrors.Count}");
+        foreach (string message in recoveryErrors)
+            Output.WriteLine($"  - {message}");
+
+        if (corruptLinkRecord == false)
+        {
+            // baseline: this is the whole point of the record
+            Assert.True(restored, "the root did not re-create branch B's hard link from an intact LinkedJournalsRecord - " +
+                                  "the fixture does not reproduce the repair path, so the corrupted case below proves nothing");
+            return;
+        }
+
+        Assert.False(restored, "expected the corrupted link record to be bypassed - if it was processed, this scenario changed");
+
+        // the consequence: branch B now has to recover with no journal to replay. Nothing was ever flushed or
+        // synced, so everything B committed lives only in that journal
+        string bValue = null;
+        Exception branchBFailure = null;
+        try
+        {
+            using var branchB = OpenBranch(setup.BranchBPath, root, encrypted: false);
+            using var tx = branchB.ReadTransaction();
+            bValue = tx.ReadTree("treeB")?.Read("b1")?.Reader.ToString();
+        }
+        catch (Exception e)
+        {
+            branchBFailure = e;
+        }
+
+        Output.WriteLine($"after the skipped repair - branch B opened: {branchBFailure == null}, b1 reads back as: {bValue ?? "<null>"}");
+        if (branchBFailure != null)
+            Output.WriteLine($"  branch B failure: {branchBFailure.GetType().Name}: {branchBFailure.Message}");
+
+        Assert.True(branchBFailure != null || bValue == "1",
+            "the corrupted LinkedJournalsRecord was bypassed by the 4KB resync, so branch B's hard link was never re-created; " +
+            $"branch B then opened WITHOUT its journal and silently lost its committed data (b1 reads back as '{bValue ?? "<null>"}'). " +
+            "The link record is covered by no transaction-id sequence check, and the reported recovery error says only " +
+            "'invalid hash signature' - nothing states that hard-link repair was skipped or what the consequence is");
+    }
+
+    private sealed class Setup
+    {
+        public string RootPath, BranchAPath, BranchBPath, JournalFile;
+        public Guid RootId, AId, BId;
+        public long BranchBLastTxId;
+        public (long Offset, Guid JournalId, long TxId) Victim;
+    }
+
+    // Builds a shared journal whose LAST transaction belongs to branch A and carries exactly the transaction
+    // id branch B expects next. Nothing is flushed or synced, so every environment fully replays the file.
+    // Layout: root tx, A boot, link record, B boot, a1(A), b1(B), victim(A, last).
+    private Setup PrepareSharedJournalWithTrailingVictim(bool encrypted)
+    {
+        var setup = new Setup
+        {
+            RootPath = NewDataPath(suffix: "-root"),
+            BranchAPath = NewDataPath(suffix: "-branchA"),
+            BranchBPath = NewDataPath(suffix: "-branchB"),
+        };
+        IOExtensions.DeleteDirectory(setup.RootPath);
+        IOExtensions.DeleteDirectory(setup.BranchAPath);
+        IOExtensions.DeleteDirectory(setup.BranchBPath);
+
+        {
+            using var rootOptions = CreateOptions(setup.RootPath, encrypted);
+            rootOptions.InitialLogFileSize = 1024 * 1024; // single physical journal file
+
+            using var root = new StorageEnvironment(rootOptions);
+            using var _ = root.Journal.SharedJournalsScope();
+
+            using (var rootTx = root.WriteTransaction())
+            {
+                rootTx.CreateTree("rootTree").Add("root", "yes");
+                rootTx.Commit();
+            }
+
+            var mre = new ManualResetEventSlim(false);
+            root.Journal.BranchJournalMerger = new SharedJournalTests.MyJournalMerger(mre);
+            var task = Task.Run(() =>
+            {
+                var branchA = OpenBranch(setup.BranchAPath, root, encrypted);
+                var branchB = OpenBranch(setup.BranchBPath, root, encrypted);
+
+                // a1 puts A's counter one ahead of B's, so A's next transaction id is the one B expects
+                using (var tx = branchA.WriteTransaction())
+                {
+                    tx.CreateTree("treeA").Add("a1", "x");
+                    tx.Commit();
+                }
+
+                using (var tx = branchB.WriteTransaction())
+                {
+                    tx.CreateTree("treeB").Add("b1", "1");
+                    tx.Commit();
+                }
+
+                // the victim - last transaction in the file, so nothing after it can trip B's sequence check
+                using (var tx = branchA.WriteTransaction())
+                {
+                    tx.CreateTree("treeA").Add("victim", "y");
+                    tx.Commit();
+                }
+
+                return (branchA, branchB);
+            });
+            task.ContinueWith(_ => mre.Set());
+            SharedJournalTests.WaitForTaskAndExecuteBranchTransactions(task, mre, root);
+
+            var (branchA, branchB) = task.Result;
+            setup.RootId = root.HeaderAccessor.JournalId;
+            setup.AId = branchA.HeaderAccessor.JournalId;
+            setup.BId = branchB.HeaderAccessor.JournalId;
+
+            branchB.Dispose();
+            branchA.Dispose();
+        }
+
+        setup.JournalFile = Directory.GetFiles(Path.Combine(setup.BranchBPath, "Journals")).Single();
+        List<(long Offset, Guid JournalId, long TxId)> txs = ReadTransactions(File.ReadAllBytes(setup.JournalFile));
+
+        Assert.NotEqual(setup.AId, setup.BId);
+
+        setup.Victim = txs[^1];
+        Assert.Equal(setup.AId, setup.Victim.JournalId); // the last transaction must be branch A's
+
+        setup.BranchBLastTxId = txs.Where(t => t.JournalId == setup.BId).Select(t => t.TxId).Max();
+
+        // the point of the layout: A's trailing transaction id is exactly what B expects next, so the
+        // impersonated transaction slots into B's chain without a gap
+        Assert.Equal(setup.BranchBLastTxId + 1, setup.Victim.TxId);
+
+        return setup;
+    }
+
+    private StorageEnvironment OpenBranch(string branchPath, StorageEnvironment root, bool encrypted)
+    {
+        StorageEnvironmentOptions options = CreateOptions(branchPath, encrypted);
+        options.RootJournal = root.Journal;
+        return new StorageEnvironment(options);
+    }
+
+    private StorageEnvironmentOptions CreateOptions(string path, bool encrypted)
+    {
+        StorageEnvironmentOptions options = StorageEnvironmentOptions.ForPathForTests(path);
+        options.ManualFlushing = true;
+        options.ManualSyncing = true;
+        options.OnRecoveryError += (_, _) => { }; // the server always subscribes this
+        if (encrypted)
+            options.Encryption.MasterKey = _masterKey.ToArray(); // all envs of a database share one key
+        return options;
+    }
+
+    // the data file mapping can outlive the environment's dispose on the encrypted path, so never take an
+    // exclusive handle just to snapshot the bytes
+    private static byte[] ReadAllBytesShared(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        var bytes = new byte[fs.Length];
+        fs.ReadExactly(bytes);
+        return bytes;
+    }
+
+    private static unsafe List<(long Offset, Guid JournalId, long TxId)> ReadTransactions(byte[] journal)
+    {
+        var txs = new List<(long, Guid, long)>();
+        fixed (byte* p = journal)
+        {
+            long pos = 0;
+            while (pos + TransactionHeader.SizeOf <= journal.Length)
+            {
+                var header = (TransactionHeader*)(p + pos);
+                if (header->HeaderMarker != Constants.TransactionHeaderMarker)
+                {
+                    pos += 4 * 1024;
+                    continue;
+                }
+
+                txs.Add((pos, header->JournalId, header->TransactionId));
+
+                long size = header->CompressedSize != -1 ? header->CompressedSize : header->UncompressedSize;
+                long sizeIn4Kb = (size + sizeof(TransactionHeader)) / (4 * 1024) +
+                                 ((size + sizeof(TransactionHeader)) % (4 * 1024) == 0 ? 0 : 1); // JournalReader.GetTransactionSizeIn4Kb
+                pos += sizeIn4Kb * 4 * 1024;
+            }
+        }
+
+        return txs;
+    }
+}
