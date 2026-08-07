@@ -7,12 +7,22 @@ One self-contained file per finding so any session can pick up a single issue by
 | ID | Severity | Status | One-liner | File |
 |----|----------|--------|-----------|------|
 | **F-3** | serious | **FIXED** (RavenDB-27156 + RavenDB-27166) | IO error / ENOSPC at the shared-journal write corrupted branch scratch state -> ACCESS_VIOLATION (~40-60% of runs) | [F-3-write-failure-access-violation.md](F-3-write-failure-access-violation.md) |
-| **F-1** | design | open | No per-index isolation: recovery hash-validates foreign-env txs before the owner-filter, so one index's corrupted tx faults every index sharing the journal | [F-1-no-isolation.md](F-1-no-isolation.md) |
+| **F-1** | design | **FIXED** (RavenDB-27278) | No per-index isolation: recovery hash-validated foreign-env txs before the owner-filter. Replaced by resync + per-env sequence attribution | [F-1-no-isolation.md](F-1-no-isolation.md) |
 | **F-2** | minor | open | `JournalId`-field corruption at the tail = clean load, no error, silent drop of that tx | [F-2-silent-journalid-loss.md](F-2-silent-journalid-loss.md) |
-| **F-4** | minor | open (by design?) | `--Storage.Dangerous.IgnoreInvalidJournalErrors=true` salvages more indexes but with silent partial data loss | [F-4-dangerous-flag-partial-loss.md](F-4-dangerous-flag-partial-loss.md) |
-| Q&A | - | - | Ticket questions Q1.1/Q1.2/Q2.2/Q2.3 answered (incl. reset-recovery characterization) | [ticket-answers.md](ticket-answers.md) |
+| **F-4** | minor | open (by design?) | `--Storage.Dangerous.IgnoreInvalidJournalErrors=true` salvages more indexes but with silent partial data loss. **Post-fix status unverified** | [F-4-dangerous-flag-partial-loss.md](F-4-dangerous-flag-partial-loss.md) |
+| F-5 | - | **WITHDRAWN** | "JournalId impersonation" - scenario was constructed, and the proposed fix missed the only non-adversarial trigger. Reasoning recorded in F-8 | (deleted, see [F-8](F-8-refuted-hypotheses.md)) |
+| **F-6** | low | open (nit) | A bypassed `LinkedJournalsRecord` skips hard-link repair; the failure IS reported and the branch fails loudly, but nothing connects the two messages | [F-6-linkrecord-bypass-diagnostics.md](F-6-linkrecord-bypass-diagnostics.md) |
+| F-7 | - | **REFUTED** | Corrupting the shared root does not fail a real database - its single tx is already synced, so recovery skips it unvalidated. **Contains the sync-state methodology lesson** | [F-7-root-owned-corruption-blast-radius.md](F-7-root-owned-corruption-blast-radius.md) |
+| F-8 | - | closed | Negative results from the 2026-08-07 resync review: silent-bypass, encrypted buffer growth, rescan cost, `Guid.Empty` adoption, `Root` tampering - all refuted | [F-8-refuted-hypotheses.md](F-8-refuted-hypotheses.md) |
+| Q&A | - | **stale** | Ticket questions Q1.1/Q1.2/Q2.2/Q2.3 - answered pre-27278, needs rewrite | [ticket-answers.md](ticket-answers.md) |
 
 Evidence levels used in each file: **observed** (measured on this box), **derived** (from code + observation), **hypothesis** (needs more work).
+
+## Read this before writing another corruption test
+
+**Sync state governs reachability, and it is the single biggest source of false findings in this campaign.** The Voron-level fixtures set `ManualFlushing = true; ManualSyncing = true`, so nothing is ever synced and recovery fully validates every transaction in the file. A real environment syncs promptly, after which recovery **skips already-synced transactions without validating them** (`JournalReader.IsAlreadySyncTransaction`). The transactions a test naturally picks as victims - early ones, the initializing transaction, anything near the head of the file - are exactly the ones production has already synced past.
+
+Two findings (F-5, F-7) died on this after looking serious at Voron level. **Re-test at server level before believing any corruption finding.** Full write-up in [F-7](F-7-root-owned-corruption-blast-radius.md).
 
 ## Environment (all findings)
 

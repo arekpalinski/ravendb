@@ -1,7 +1,11 @@
 # F-1 - No per-index isolation: a corrupted transaction faults every index sharing the journal
 
 **Severity:** design / blast-radius (data is not lost, but damage crosses index boundaries)
-**Status:** filed as [RavenDB-27278](http://issues.ravendb.net/issue/RavenDB-27278) (2026-08-05) - decision: current behavior is NOT acceptable for databases with many indexes (a single index's corruption damaging 200 indexes is critical). Fix implemented on the `RavenDB-27278` branch (together with the unit tests): `JournalReader.TryPeekSkippableForeignTransaction` skips foreign transactions before hash validation, guarded so the skip only happens when it lands exactly on a following transaction header (a corrupted size falls back to full validation and keeps failing loudly).
+**Status: FIXED** - filed and resolved as [RavenDB-27278](http://issues.ravendb.net/issue/RavenDB-27278). Decision was that the behaviour is NOT acceptable for databases with many indexes (one index's corruption resetting 200 is critical).
+
+The fix landed in **two stages**, and only the second is in the tree: `fc6f5a3298a` first skipped foreign transactions before hash validation (`TryPeekSkippableForeignTransaction`), then `742c5eb48cd` **replaced that** with a resync - on an invalid transaction, `JournalReader.TryFindNextValidTransaction` scans forward at 4KB boundaries to the next *fully validating* transaction (nothing is ever trusted unvalidated) and `VerifyTransactionSequence` decides afterwards whether the bypassed region mattered: a gap in this environment's own transaction ids fails the recovery, a contiguous sequence proves nothing of its own was lost.
+
+> **Everything below describes PRE-fix behaviour. The position rule and the blast-radius table are obsolete** - outcome is now determined by ownership plus per-environment txid contiguity, not by position in the file. Kept for history. Post-fix review of the new model: [F-7](F-7-root-owned-corruption-blast-radius.md) (incl. the sync-state caveat that governs reachability) and [F-8](F-8-refuted-hypotheses.md).
 **Evidence:** observed (13-cell pre-fix matrix + 15-cell post-fix re-run + deterministic failing unit test) + derived (code path).
 **Shared context:** see [README.md](README.md). This is the root cause behind ticket answers Q1.1 and Q2.2 (see [ticket-answers.md](ticket-answers.md)), and it is why [F-3](F-3-write-failure-access-violation.md)'s blast radius was the whole database.
 
