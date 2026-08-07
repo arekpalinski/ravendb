@@ -208,6 +208,152 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
             "'invalid hash signature' - nothing states that hard-link repair was skipped or what the consequence is");
     }
 
+    // RavenDB-27278 confined the blast radius of a corrupted transaction to its owning environment, but the
+    // ROOT of a shared journal is not just another sibling: RavenDB_27278_e2e deliberately picks a victim with
+    // no later ROOT transaction because "the root failing to open fails the WHOLE database load, not just
+    // indexes". This measures what is left of that hole - how many transactions the root actually owns, and
+    // what happens when one of them is the corrupted one.
+    [RavenFact(RavenTestCategory.Voron)]
+    public void CorruptedRootTransactionStillFailsTheWholeSharedJournalRoot()
+    {
+        var setup = PrepareSharedJournalWithTrailingVictim(encrypted: false);
+
+        List<(long Offset, Guid JournalId, long TxId)> txs = ReadTransactions(File.ReadAllBytes(setup.JournalFile));
+        var byOwner = txs.GroupBy(t => t.JournalId == setup.RootId ? "root"
+                : t.JournalId == setup.AId ? "branchA"
+                : t.JournalId == setup.BId ? "branchB"
+                : t.JournalId == WriteAheadJournal.LinkedJournalsRecord.LinkedJournalId ? "linkRecord"
+                : "other");
+        foreach (var group in byOwner)
+            Output.WriteLine($"{group.Key}: {group.Count()} tx(s) at {string.Join(", ", group.Select(t => t.Offset))}");
+
+        List<(long Offset, Guid JournalId, long TxId)> rootTxs = txs.Where(t => t.JournalId == setup.RootId).ToList();
+        Assert.True(rootTxs.Count > 0, "the root owns no transactions in the shared journal - nothing to corrupt");
+
+        // corrupt the root's FIRST transaction, with later root work after it so it cannot truncate away
+        var victim = rootTxs[0];
+        Assert.Contains(txs, t => t.Offset > victim.Offset);
+        Output.WriteLine($"corrupting ROOT tx {victim.TxId} at offset {victim.Offset} ({rootTxs.Count} root tx(s) total)");
+
+        using (var fs = new FileStream(setup.JournalFile, FileMode.Open, FileAccess.ReadWrite))
+        {
+            fs.Position = victim.Offset + TransactionHeader.SizeOf;
+            int b = fs.ReadByte();
+            fs.Position = victim.Offset + TransactionHeader.SizeOf;
+            fs.WriteByte((byte)(b ^ 0xFF));
+        }
+
+        using var rootOptions = CreateOptions(setup.RootPath, encrypted: false);
+        Exception rootFailure = null;
+        try
+        {
+            using var root = new StorageEnvironment(rootOptions);
+            using var _ = root.Journal.SharedJournalsScope();
+            using var tx = root.ReadTransaction();
+            Output.WriteLine($"root opened; rootTree/root = {tx.ReadTree("rootTree")?.Read("root")?.Reader.ToString() ?? "<null>"}");
+        }
+        catch (Exception e)
+        {
+            rootFailure = e;
+            Output.WriteLine($"root FAILED to open: {e.GetType().Name}: {e.Message}");
+        }
+
+        // Documents the residual hole rather than asserting it away: in the server the shared-journal root is
+        // opened by IndexStore, so a root that cannot open takes down indexing for the whole database, not one
+        // index. If this ever starts passing, the root gained the same isolation the branches got in 27278.
+        Assert.True(rootFailure != null,
+            "the root survived corruption of its own transaction - the residual blast radius documented in F-7 is gone, update the finding");
+    }
+
+    // On an ENCRYPTED journal, TryValidateTransaction allocates a 4KB-aligned buffer, copies the transaction
+    // into it and appends it to _encryptionBuffers BEFORE attempting decryption; those buffers are freed only
+    // in Complete(). Since RavenDB-27278 an invalid transaction triggers TryFindNextValidTransaction, which
+    // probes every 4KB boundary to the end of the file.
+    //
+    // That combination LOOKS like one retained allocation per probed boundary, but it is not: the allocation
+    // sits after the HeaderMarker and bounds checks, so a boundary with no transaction header costs nothing.
+    // The measured cost of bypassing a foreign corrupted transaction is ~2 buffers (8KB) over ~1,856 probed
+    // boundaries. This test pins that property - it fails if the allocation ever moves above the marker check.
+    [RavenFact(RavenTestCategory.Voron)]
+    public void EncryptedResyncScanMustNotRetainABufferPerProbedBoundary()
+    {
+        long intact = MeasureRecoveryAllocations(corruptFirstBranchTx: false, out long fileSize, out int txCount);
+        long afterResync = MeasureRecoveryAllocations(corruptFirstBranchTx: true, out _, out _);
+
+        long blocks = fileSize / (4 * 1024);
+        Output.WriteLine($"journal {fileSize:N0} bytes = {blocks:N0} 4KB blocks, {txCount} transactions");
+        Output.WriteLine($"retained native memory during recovery - intact: {intact:N0} bytes, after forced resync: {afterResync:N0} bytes");
+        Output.WriteLine($"delta: {afterResync - intact:N0} bytes over {blocks:N0} probed boundaries");
+
+        // The scan should cost bounded memory. Allowing generous headroom over the intact baseline so this
+        // pins the leak shape (grows with the scanned region) rather than an exact number.
+        long budget = intact + 8 * 1024 * 1024;
+        Assert.True(afterResync <= budget,
+            $"recovery retained {afterResync:N0} bytes after a forced resync scan versus {intact:N0} intact " +
+            $"(+{afterResync - intact:N0}) - TryValidateTransaction keeps an encryption buffer for every probed 4KB " +
+            $"boundary until Complete(), so the cost grows with the scanned region and is paid once per environment");
+    }
+
+    private long MeasureRecoveryAllocations(bool corruptFirstBranchTx, out long journalSize, out int txCount)
+    {
+        var setup = PrepareSharedJournalWithTrailingVictim(encrypted: true, extraBranchWrites: 200);
+        journalSize = new FileInfo(setup.JournalFile).Length;
+
+        List<(long Offset, Guid JournalId, long TxId)> txs = ReadTransactions(File.ReadAllBytes(setup.JournalFile));
+        txCount = txs.Count;
+
+        if (corruptFirstBranchTx)
+        {
+            // corrupt an early transaction of the OTHER branch, so the measured environment bypasses it and
+            // keeps going through the rest of the file. Corrupting its own transaction would abort recovery
+            // immediately on the sequence gap and measure nothing.
+            var foreign = txs.First(t => t.JournalId == setup.AId);
+            Output.WriteLine($"  corrupting foreign (branch A) tx at offset {foreign.Offset} of {journalSize:N0}");
+            using var fs = new FileStream(setup.JournalFile, FileMode.Open, FileAccess.ReadWrite);
+            fs.Position = foreign.Offset + TransactionHeader.SizeOf;
+            int b = fs.ReadByte();
+            fs.Position = foreign.Offset + TransactionHeader.SizeOf;
+            fs.WriteByte((byte)(b ^ 0xFF));
+        }
+
+        using var rootOptions = CreateOptions(setup.RootPath, encrypted: true);
+        using var root = new StorageEnvironment(rootOptions);
+        using var _ = root.Journal.SharedJournalsScope();
+
+        // the encryption buffers are released in JournalReader.Complete(), which runs before the open returns,
+        // so a before/after delta always reads zero - the peak has to be sampled while recovery is running
+        long before = global::Sparrow.Utils.NativeMemory.TotalAllocatedMemory;
+        long peak = before;
+        using var sampling = new ManualResetEventSlim(false);
+        var sampler = new Thread(() =>
+        {
+            while (sampling.IsSet == false)
+            {
+                long now = global::Sparrow.Utils.NativeMemory.TotalAllocatedMemory;
+                if (now > peak)
+                    Interlocked.Exchange(ref peak, now);
+                Thread.SpinWait(200);
+            }
+        }) { IsBackground = true };
+        sampler.Start();
+
+        try
+        {
+            using var branchB = OpenBranch(setup.BranchBPath, root, encrypted: true);
+        }
+        catch (Exception e)
+        {
+            Output.WriteLine($"  (branch B open threw {e.GetType().Name} - expected for the corrupted variant)");
+        }
+        finally
+        {
+            sampling.Set();
+            sampler.Join();
+        }
+
+        return peak - before;
+    }
+
     private sealed class Setup
     {
         public string RootPath, BranchAPath, BranchBPath, JournalFile;
@@ -219,7 +365,7 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
     // Builds a shared journal whose LAST transaction belongs to branch A and carries exactly the transaction
     // id branch B expects next. Nothing is flushed or synced, so every environment fully replays the file.
     // Layout: root tx, A boot, link record, B boot, a1(A), b1(B), victim(A, last).
-    private Setup PrepareSharedJournalWithTrailingVictim(bool encrypted)
+    private Setup PrepareSharedJournalWithTrailingVictim(bool encrypted, int extraBranchWrites = 0)
     {
         var setup = new Setup
         {
@@ -233,7 +379,8 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
 
         {
             using var rootOptions = CreateOptions(setup.RootPath, encrypted);
-            rootOptions.InitialLogFileSize = 1024 * 1024; // single physical journal file
+            // must stay a single physical journal file, so scale with the padding
+            rootOptions.InitialLogFileSize = 1024 * 1024 + extraBranchWrites * 32 * 1024;
 
             using var root = new StorageEnvironment(rootOptions);
             using var _ = root.Journal.SharedJournalsScope();
@@ -262,6 +409,14 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
                 {
                     tx.CreateTree("treeB").Add("b1", "1");
                     tx.Commit();
+                }
+
+                // pad the journal so a full-file resync scan has a meaningful number of 4KB boundaries to probe
+                for (int i = 0; i < extraBranchWrites; i++)
+                {
+                    using var pad = branchB.WriteTransaction();
+                    pad.CreateTree("treeB").Add($"pad/{i}", new string('x', 512));
+                    pad.Commit();
                 }
 
                 // the victim - last transaction in the file, so nothing after it can trip B's sequence check
@@ -296,8 +451,10 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
         setup.BranchBLastTxId = txs.Where(t => t.JournalId == setup.BId).Select(t => t.TxId).Max();
 
         // the point of the layout: A's trailing transaction id is exactly what B expects next, so the
-        // impersonated transaction slots into B's chain without a gap
-        Assert.Equal(setup.BranchBLastTxId + 1, setup.Victim.TxId);
+        // impersonated transaction slots into B's chain without a gap. Padding B moves its counter far past
+        // A's, so this only holds for the unpadded layout the impersonation test uses
+        if (extraBranchWrites == 0)
+            Assert.Equal(setup.BranchBLastTxId + 1, setup.Victim.TxId);
 
         return setup;
     }
