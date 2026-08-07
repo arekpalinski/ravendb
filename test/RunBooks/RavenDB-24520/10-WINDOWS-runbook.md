@@ -86,6 +86,42 @@ A cell auto-does restore-work -> corrupt -> verify -> append a row to `D:\temp\2
 
 For each row confirm the Q1.1/Q1.2 answers: recovery without full reset? which indexes survived? state of the index whose tx was corrupted?
 
+### POST-27278 RE-BASELINE (2026-08-07, rebased branch) - authoritative results
+
+All 16 cells re-run on the rebased branch. **The pre-fix position rule is dead** and the replacement is much simpler.
+
+| Cell | op | owner | which | file | Result |
+|---|---|---|---|---|---|
+| 1A-branch-unsynced | payload | Questions_Tags | last | shared | clean, 0 resets |
+| 1A-synced-first | payload | Questions_Tags | first | inode:first | **owner only** - Questions/Tags entries=0 |
+| 1A-root | payload | @SharedJournals | last | shared | clean |
+| 1A-other-env | payload | Users_Search | first | shared | **owner only** - Users/Search entries=0 |
+| 1B-marker-tail | marker | Users_Search | last | shared | clean |
+| 1B-marker-mid | marker | Users_Search | first | shared | **owner only** - Users/Search entries=0 |
+| 1C-hash | hash | Questions_Search | last | shared | clean |
+| 1C-txid | txid | Questions_Search | last | shared | clean |
+| 1C-journalid | journalid | Questions_Search | last | shared | clean |
+| 1D-zeroblock | zero-block | Questions_Search | last | shared | clean |
+| 1D-trunc-tail | truncate-tail | any | first | shared | clean |
+| 1D-trunc-mid | truncate-mid | Questions_Search | last | shared | clean |
+| 1E-linkrec | linkrecord | &lt;link-record&gt; | first | shared | clean |
+| 1F-delete-active | delete | any | first | shared | clean - inode survives via branch links |
+| **1F-delete-old** | delete | any | first | inode:first | **WHOLE DATABASE FAILS TO LOAD** -> [F-9](findings/F-9-missing-root-journal-fails-database.md) |
+| 1F-diverge | diverge | any | first | shared | clean |
+
+Plus the F-4 cells: `3A-noflag` / `3A-ignoreflag` (tail target) both clean and identical; `3B-noflag-first` owner reset to 0, `3B-ignoreflag-first` owner recovers to the full 10,744 baseline.
+
+**The new rule (replaces the position rule):**
+
+1. Corrupting an environment's **last** transaction is benign for everyone - clean tail truncation, **0 resets**, regardless of corruption kind (payload, marker, hash, txid, journalid, zero-block, truncate-mid all produced identical clean results).
+2. Corrupting a transaction that has **later own transactions** after it faults **exactly one index** - its owner - which comes up with `entries=0` and needs a reset. Siblings, the root and documents are untouched.
+3. File-level topology (deleting the active journal via the root's link, breaking inode sharing, truncating the tail, corrupting the link record) is clean.
+4. The single exception is a **missing old journal in the root's directory**, which fails the whole database - see F-9. Fully recovered by `Storage.Dangerous.IgnoreInvalidJournalErrors=true`.
+
+Compare pre-fix, where one corrupted transaction reset 4-5 of 6 indexes. Clean entry-count baseline for the unprimed golden: Activity/ByMonth 129, Questions/Search 13,857, Questions/Tags 5,350, Questions/Tags/ByMonths 10,744, Users/Registrations/ByMonth 129, Users/Search 122,677; docs 136,534.
+
+Note a faulted index reports **`State=Normal` with `entries=0`**, not `State=Error`. `Type` is what reads `Faulty` (see the assertion in `RavenDB_27278_e2e`). Do not poll `State` alone to detect a faulted index.
+
 ## Scenario 2 - single-index commit failure
 
 - [x] Covered by the committed tests (see Post-fix retest above): `RavenDB_27156.cs`, `RavenDB_27156_e2e.cs`, `RavenDB_27166.cs`.
