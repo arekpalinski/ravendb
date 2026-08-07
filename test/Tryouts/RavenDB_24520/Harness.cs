@@ -441,6 +441,11 @@ public static class Harness
         var root = Path.GetPathRoot(Path.GetFullPath(dir));
         var balloon = Path.Combine(root, "rdb24520-balloon.bin");
 
+        // The VERDICT below is derived by counting matches across every *.log in LogsDir, so a previous run's
+        // entries would be attributed to this one. That produced a false "ENOSPC reached and handled
+        // gracefully" on 2026-08-07 for a run that never filled the disk at all. Start from an empty log dir.
+        FreshDir(LogsDir);
+
         using var server = ServerProcess.Start(dir);
         using var store = OpenStore();
 

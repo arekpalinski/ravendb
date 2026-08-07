@@ -117,6 +117,37 @@ Re-run checklist:
 - [x] `... -- verify F:\rdb24520\work` after the balloon is freed -> clean recovery, no data loss
 - Clear the env vars afterwards with `$env:RAVEN_24520_BASE = $null` (note: `Remove-Item Env:\...` can be blocked by the agent sandbox because it resolves the variable's `F:` value).
 
+### REBASED-BRANCH RE-RUN (2026-08-07): PASS - the 27156 poisoning fired on a real disk-full again
+
+Same recipe, same `leaveMB=100`, on the rebased branch (27156 / 27166 / 27168 / 27220 / 27278 / 26563 all in).
+
+- `VERDICT: ENOSPC reached and handled gracefully (4 disk-full log entries, 3 FATAL, server alive)`.
+- **The failure landed inside the root's merged write and the fix fired.** Full chain from the log:
+  ```
+  SharedIndexJournals.WriteSharedJournals            <- the merger thread
+    Transaction.Commit -> CommitStage2_WriteToJournal
+      WriteAheadJournal.WriteToJournal -> WriteBuffersToJournal
+        FlushMergedJournalEntries -> NextFile -> CreateJournalWriter -> JournalWriter..ctor
+          DiskFullException: Attempted to open journal file ...@SharedJournals\Journals\...013.journal Size:18882560
+    SharedJournalState.SetException -> MarkCatastrophicFailure -> SetCatastrophicFailure
+  ```
+  The branch side then surfaces it via `SubmitBranchJournalEntry` into `Index.DoIndexingWork`, and `CatastrophicFailureHandler` unloads the database naming a **branch** env (`Indexes\Users_Search`) - which is the proof that participants beyond the root were poisoned. Pre-fix only the root would have been.
+- **Server process stayed alive - no ACCESS_VIOLATION.**
+- `verify` after the balloon was freed: docs **152,534** (exact, same as 2026-08-05), all 6 indexes `State=Normal` with identical entry counts (Users/Search 130,677; Questions/Search 21,857; Questions/Tags 5,350; Questions/Tags/ByMonths 10,756; Activity/ByMonth 129; Users/Registrations/ByMonth 129). **No data loss.**
+- The harness prints `PROBLEMS FOUND` here only because a **historical** index error is retained on `Users/Search` describing the disk-full. The index itself is Normal and complete - do not read that verdict as a failure.
+
+**Where ENOSPC actually surfaces (worth knowing before hunting for it):** on a preallocated journal a write into already-allocated space cannot fail with ENOSPC, so real disk-full always lands on an *allocation* - creating a journal, growing a journal, growing a compression buffer. Whether that allocation happens to sit inside the root's merged write (which reaches `SharedJournalState.SetException`, exercising 27156) or in a branch's own pre-merge preparation (which `MapIndex.HandleDiskFullErrors` just retries) is a race. Both 2026-08-05 and 2026-08-07 landed in the merged write, via `NextFile` and via "Failed to increase file" respectively; this run also logged a separate branch-local compression-buffer failure that was simply retried.
+
+**Do not grep for `"CatastrophicFailure state, about to throw"` to decide whether the poisoning fired.** That string is `AssertNoCatastrophicFailure` complaining when something *later uses* an already-poisoned environment, and it can be absent even on a run where the poisoning worked perfectly. The signal to look for is `SharedJournalState.SetException` / `MarkCatastrophicFailure` in the `CatastrophicFailureHandler` stack trace, plus a **branch** env named in the unload message.
+
+Deterministic companion validation (does not depend on which allocation loses the race):
+
+- [x] AV loop, 14 runs of `RavenDB_27156_e2e.TornJournalWrite_OnSharedRoot` on the rebased branch -> **14/14 PASS, 0 ACCESS_VIOLATION** (pre-fix baseline was ~40-60% crashing).
+
+### Harness bug found and fixed during this re-run
+
+A second `diskfull` invocation at `leaveMB=300` reported `ENOSPC reached and handled gracefully (4 disk-full log entries, 5 FATAL, server alive)` while producing **no disk-full entries at all** - the volume never filled. `CountLogMatches` scans every `*.log` in `LogsDir` with no time filter and `diskfull` never cleared that directory, so it counted the *previous* run's entries and turned an inconclusive run into a false pass. Fixed by `FreshDir(LogsDir)` at the start of `DiskFullAsync`. Treat any `diskfull` result recorded before 2026-08-07 from a repeated run in the same base dir with suspicion.
+
 ## Scenario 3 - extra nasty
 
 - [x] Hard-kill mid-merge (fresh unsynced index txs across all branches) - covered by the golden seed itself (it hard-kills while journals are fresh); baseline `verify` = clean recovery.
