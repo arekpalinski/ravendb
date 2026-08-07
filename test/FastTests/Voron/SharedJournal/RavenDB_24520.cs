@@ -124,8 +124,18 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
     // no later ROOT transaction because "the root failing to open fails the WHOLE database load, not just
     // indexes". This measures what is left of that hole - how many transactions the root actually owns, and
     // what happens when one of them is the corrupted one.
-    [RavenFact(RavenTestCategory.Voron)]
-    public void CorruptedRootTransactionStillFailsTheWholeSharedJournalRoot()
+    // The ignoreInvalidJournalErrors variant answers the operator question F-7 raises: is there any escape
+    // hatch when the shared root's own transaction is the corrupted one? Storage.Dangerous.
+    // IgnoreInvalidJournalErrors maps onto this Voron option, so it can be settled without a server.
+    // rootTxIndex 0 is the environment-INITIALIZING transaction, which is unrecoverable in any Voron
+    // environment, shared journal or not - so it must be separated from the shared-journal-specific claim.
+    // rootTxIndex 1 is an ordinary root transaction.
+    [RavenTheory(RavenTestCategory.Voron)]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    public void CorruptedRootTransactionStillFailsTheWholeSharedJournalRoot(int rootTxIndex, bool ignoreInvalidJournalErrors)
     {
         var setup = PrepareSharedJournalWithTrailingVictim(encrypted: false);
 
@@ -141,10 +151,12 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
         List<(long Offset, Guid JournalId, long TxId)> rootTxs = txs.Where(t => t.JournalId == setup.RootId).ToList();
         Assert.True(rootTxs.Count > 0, "the root owns no transactions in the shared journal - nothing to corrupt");
 
-        // corrupt the root's FIRST transaction, with later root work after it so it cannot truncate away
-        var victim = rootTxs[0];
-        Assert.Contains(txs, t => t.Offset > victim.Offset);
-        Output.WriteLine($"corrupting ROOT tx {victim.TxId} at offset {victim.Offset} ({rootTxs.Count} root tx(s) total)");
+        Assert.True(rootTxs.Count > rootTxIndex, $"the root owns only {rootTxs.Count} transaction(s), need index {rootTxIndex}");
+        var victim = rootTxs[rootTxIndex];
+        Output.WriteLine($"corrupting ROOT tx {victim.TxId} at offset {victim.Offset} " +
+                         $"({rootTxs.Count} root tx(s) total, index {rootTxIndex}" +
+                         $"{(rootTxIndex == 0 ? ", the ENV-INITIALIZING tx" : string.Empty)}), " +
+                         $"ignoreInvalidJournalErrors={ignoreInvalidJournalErrors}");
 
         using (var fs = new FileStream(setup.JournalFile, FileMode.Open, FileAccess.ReadWrite))
         {
@@ -155,13 +167,17 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
         }
 
         using var rootOptions = CreateOptions(setup.RootPath, encrypted: false);
+        rootOptions.IgnoreInvalidJournalErrors = ignoreInvalidJournalErrors;
+
         Exception rootFailure = null;
+        string rootValue = null;
         try
         {
             using var root = new StorageEnvironment(rootOptions);
             using var _ = root.Journal.SharedJournalsScope();
             using var tx = root.ReadTransaction();
-            Output.WriteLine($"root opened; rootTree/root = {tx.ReadTree("rootTree")?.Read("root")?.Reader.ToString() ?? "<null>"}");
+            rootValue = tx.ReadTree("rootTree")?.Read("root")?.Reader.ToString();
+            Output.WriteLine($"root opened; rootTree/root = {rootValue ?? "<null>"}");
         }
         catch (Exception e)
         {
@@ -169,11 +185,24 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
             Output.WriteLine($"root FAILED to open: {e.GetType().Name}: {e.Message}");
         }
 
-        // Documents the residual hole rather than asserting it away: in the server the shared-journal root is
-        // opened by IndexStore, so a root that cannot open takes down indexing for the whole database, not one
-        // index. If this ever starts passing, the root gained the same isolation the branches got in 27278.
-        Assert.True(rootFailure != null,
-            "the root survived corruption of its own transaction - the residual blast radius documented in F-7 is gone, update the finding");
+        // Characterization only - this records the matrix rather than asserting a bug, because the outcome
+        // differs sharply between the initializing transaction and an ordinary one. See F-7.
+        Output.WriteLine($"RESULT rootTxIndex={rootTxIndex} ignore={ignoreInvalidJournalErrors} -> " +
+                         $"{(rootFailure == null ? $"root OPENED, rootTree/root={rootValue ?? "<null>"}" : $"FAILED {rootFailure.GetType().Name}")}");
+
+        if (rootTxIndex == 0)
+        {
+            // the env-initializing transaction: unrecoverable by design in any Voron environment, and the
+            // dangerous flag cannot help because skipping the journal removes the initialization itself
+            Assert.True(rootFailure != null, "corrupting the initializing transaction unexpectedly recovered - update F-7");
+            return;
+        }
+
+        // An ordinary root transaction. Whatever happens here is the genuinely shared-journal-specific part of
+        // F-7, so pin it: if it fails, the whole database fails to load; if it opens, note what was lost.
+        Assert.True(rootFailure == null || ignoreInvalidJournalErrors == false,
+            $"IgnoreInvalidJournalErrors did not rescue a shared root whose ordinary transaction is corrupted " +
+            $"({rootFailure?.GetType().Name}: {rootFailure?.Message}) - F-7 would then have no operator escape hatch");
     }
 
     // On an ENCRYPTED journal, TryValidateTransaction allocates a 4KB-aligned buffer, copies the transaction

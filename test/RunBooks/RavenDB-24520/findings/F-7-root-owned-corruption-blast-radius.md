@@ -1,21 +1,35 @@
-# F-7 - Corruption of a root-owned transaction still fails the whole database load
+# F-7 - When the shared-journal root is unrecoverable, the whole database fails to load and the remedy given is wrong
 
-**Severity:** medium. This is the blast radius that survived RavenDB-27278. Documents are safe and indexes are rebuildable, but the failure is database-wide instead of one index, and it lands on the region of the journal most likely to be damaged.
-**Status:** open - not filed yet. Found 2026-08-07 on the rebased branch (27278 in place).
-**Evidence:** observed (test) + derived (server init path).
-**Shared context:** see [README.md](README.md). This is the residual part of [F-1](F-1-no-isolation.md) that 27278 did **not** close.
+**Severity:** low-medium. Narrow trigger (damage to the first 4KB of the shared journal), but the consequence is total loss of database availability and the operator is told to do something drastic and unnecessary.
+**Status:** open, **claim corrected 2026-08-07** - see "What I got wrong" below.
+**Evidence:** observed (4-cell test matrix) + derived (server init path).
+**Shared context:** see [README.md](README.md). This is the part of [F-1](F-1-no-isolation.md) that RavenDB-27278 did not close.
 
-## Claim
+## What I got wrong
 
-RavenDB-27278 confined a corrupted transaction's damage to its owning environment - for *branches*. The shared-journal **root** (`Indexes/@SharedJournals`) is not just another sibling: if the root cannot open, index initialization never starts and the whole database fails to load.
+The original version of this finding claimed "corruption of a **root-owned transaction** fails the whole database load", generalizing from a single test that corrupted the root's *first* transaction. Testing the full matrix refuted that. Corrupting an ordinary root transaction does not fail the database at all. Only the environment-initializing transaction does, and that behaviour is generic to every Voron environment rather than anything to do with shared journals.
 
-The fix's own e2e test acknowledges this. `RavenDB_27278_e2e` deliberately selects a victim transaction with no later root transaction, commenting: "the root failing to open fails the WHOLE database load, not just indexes". So the hole is known - it just is not written down anywhere outside a test comment.
+## Observed matrix
 
-## Mechanism
+Test: `FastTests.Voron.SharedJournal.RavenDB_24520.CorruptedRootTransactionStillFailsTheWholeSharedJournalRoot`. The root owns 2 transactions in the fixture, at offsets 0 and 4096.
 
-**Voron side.** The root env replays the shared journal like any other participant and applies the same rules. Corrupt a root-owned transaction that has later work after it and the root's recovery fails.
+| Corrupted root tx | `IgnoreInvalidJournalErrors` | Outcome |
+|---|---|---|
+| index 0 - the env-**initializing** tx, offset 0 | false | fails: `InvalidJournalException` (the chain-start guard 27278 added) |
+| index 0 - same | **true** | fails: `VoronUnrecoverableErrorException` - "First transaction initializing the structure of Voron database is corrupted. Cannot access internal database metadata. **Create a new database to recover.**" |
+| index 1 - an ordinary root tx, offset 4096 | false | **root opens.** Truncates at the corruption; that transaction's data (`rootTree/root`) is gone |
+| index 1 - same | true | **root opens**, same result |
 
-**Server side (verified, not inferred from the test comment).** `IndexStore.InitializeAsync` ([IndexStore.cs:850-874](../../../../src/Raven.Server/Documents/Indexes/IndexStore.cs)):
+So the dangerous flag is not an escape hatch for the init-tx case: skipping the journal removes the initialization itself, which is why it fails harder rather than softer.
+
+## What is actually shared-journal-specific
+
+The init-transaction behaviour is generic. What shared journals change is **which failure domain that 4KB belongs to**:
+
+- **Without** shared journals, index X's journal block 0 carries index X's initializing transaction. Damage there kills index X. Every other index is untouched.
+- **With** shared journals, the file's first block carries the **root** env's initializing transaction, and that file is hard-linked by every index. Damage there fails the root.
+
+And a root that cannot open fails the entire database load, verified server-side rather than inferred - `IndexStore.InitializeAsync` ([IndexStore.cs:850-874](../../../../src/Raven.Server/Documents/Indexes/IndexStore.cs)):
 
 ```csharp
 return InitializeSharedJournalsAsync()
@@ -24,58 +38,25 @@ return InitializeSharedJournalsAsync()
         if (t.IsCompletedSuccessfully is false)
             return t;                       // <-- OpenIndexesFromRecord is never reached
         ...
-        OpenIndexesFromRecord(record, raftIndex, addToInitLog);
-        return Task.CompletedTask;
     }).Unwrap();
 ```
 
-`InitializeSharedJournalsAsync` constructs `SharedIndexJournals`, which opens the root `StorageEnvironment`. If that throws, the faulted task is propagated out of `InitializeAsync` and indexes are never opened at all. `Core.ThrowIfAnyIndexCannotBeOpened=false` does not help, because the code never gets as far as opening an index.
+`Core.ThrowIfAnyIndexCannotBeOpened=false` cannot help, because no index is ever opened.
 
-## Observed
+## The actual complaint
 
-Test: `FastTests.Voron.SharedJournal.RavenDB_24520.CorruptedRootTransactionStillFailsTheWholeSharedJournalRoot`.
+Not the failure itself - an unrecoverable environment should fail. Two things around it:
 
-Transaction ownership in the fixture's shared journal:
+1. **The blast radius is wrong for what was lost.** The root env holds journal bookkeeping, not index content. Every byte it owns is reconstructible by rebuilding indexes. Yet its loss costs the whole database's availability, including documents-only workloads that never touch an index.
+2. **The remedy given is wrong and alarming.** The message says "Create a new database to recover." For a *shared index-journal root* that is terrible advice: the correct remedy is to discard `Indexes/@SharedJournals` and let the indexes rebuild. An operator following the message literally would destroy a database over a rebuildable index artifact. The message is generic Voron text surfacing in a context where it does not apply.
 
-| Owner | Count | Offsets |
-|---|---|---|
-| **root** | 2 | **0, 4096** |
-| link record | 2 | 12288, 20480 |
-| branch A | 3 | 8192, 24576, 32768 |
-| branch B | 2 | 16384, 28672 |
+## Fix direction
 
-Corrupting the root's first transaction (offset 0) fails the root with:
+1. **Fail soft on the root** (preferred). Treat a root that cannot open as "shared journals unavailable for this load": recreate the root env, mark indexes for rebuild, keep the database up. This matches how index data is treated everywhere else - rebuildable, so prefer availability. It also removes the wrong-remedy problem entirely.
+2. **At minimum, fix the guidance.** When the failing environment is the shared-journal root, say so and name the real remedy (delete the shared journals directory, indexes will rebuild) instead of "create a new database".
 
-```
-InvalidJournalException: Transaction 2 (which has a valid hash) is the first transaction of this environment
-found in journal ...\0000000000000000000.journal, but the recovery has resumed past an invalid transaction at
-position 0 and this environment has nothing synced - the invalid region could have contained its earlier
-transactions.
-```
+Option 2 is cheap and should happen regardless of whether 1 is taken.
 
-That is the chain-start guard 27278 added, and the message is genuinely good - it names the position and explains the reasoning. The problem is not the diagnostics, it is the scope of the consequence.
+## Still untested
 
-## Why this matters more than the transaction count suggests
-
-The root owns few transactions (2 of 9 here; in production the root env "has almost no transactions of its own"). That sounds reassuring, but:
-
-- **The root's transactions sit at the very start of the journal file** - offsets 0 and 4096 here. A torn write, a partially-allocated file, or a damaged leading region hits exactly that area.
-- **The consequence is asymmetric.** A branch-owned corruption now costs one index rebuild. A root-owned corruption at offset 0 costs the entire database's availability until an operator intervenes.
-- The root is also the one env whose recovery every branch depends on, so there is no "reset just this" recovery path.
-
-## Operator recovery paths (untested)
-
-- `Indexing.DisableSharedJournals=true` should let the database load without the shared root, at the cost of turning the feature off (restart required).
-- `Storage.Dangerous.IgnoreInvalidJournalErrors=true` skips the invalid journal - see [F-4](F-4-dangerous-flag-partial-loss.md) for what that costs.
-
-Neither has been verified for this specific case. Worth doing before filing, since "what do I actually do about it" is the first question this raises.
-
-## Fix direction (needs a decision)
-
-The root's data is trivially reconstructible - it holds journal bookkeeping, not index content. Options, roughly in increasing order of effort:
-
-1. **Fail soft:** treat a root that cannot open as "shared journals unavailable" and fall back to per-index journals for this load, marking indexes for rebuild. Keeps the database up.
-2. **Rebuild the root** rather than replay it, when its recovery fails and no branch depends on the lost root transactions.
-3. Leave the behaviour, document it, and make the error state plainly that this is the shared-journal root and that `DisableSharedJournals` is the escape hatch.
-
-Option 1 matches how indexes are treated elsewhere (rebuildable, so prefer availability), and is the one I would argue for. Option 3 is the cheap floor.
+`Indexing.DisableSharedJournals=true` as an escape hatch. Logically the root env is never constructed, so the database should load - but whether the indexes can then open against `Journals/` directories holding hard links to the shared file is not obvious and has not been checked. Worth settling before filing, since it may already be the documented workaround.
