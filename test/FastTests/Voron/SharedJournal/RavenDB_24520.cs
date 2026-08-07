@@ -354,6 +354,84 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
         return peak - before;
     }
 
+    // TransactionHeader.Root (offset 48, a 62-byte TreeRootHeader) is, like JournalId, outside both the payload
+    // hash and the AEAD authenticated range of header bytes [0,40) - recovery sets the environment's root tree
+    // straight from lastTxHeader->Root. So it looks like a second uncompensated field.
+    //
+    // It is not. This grafts an older Root from the same environment onto its last transaction (a stale-block
+    // shape: structurally valid, so no sanity check objects) and shows the data survives. RootPageNumber is
+    // unchanged, and the tree content it points at comes from the payload, which IS integrity protected - so a
+    // stale Root rolls back only the metadata counters. Pointing RootPageNumber elsewhere would instead hit
+    // page-level validation (plain) or per-page decryption (encrypted).
+    //
+    // Kept as the negative result that narrows F-5 to JournalId alone.
+    [RavenTheory(RavenTestCategory.Voron)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void StaleRootInTransactionHeaderIsCompensatedByPageLevelIntegrity(bool encrypted)
+    {
+        var setup = PrepareSharedJournalWithTrailingVictim(encrypted);
+
+        List<(long Offset, Guid JournalId, long TxId)> txs = ReadTransactions(File.ReadAllBytes(setup.JournalFile));
+        List<(long Offset, Guid JournalId, long TxId)> aTxs = txs.Where(t => t.JournalId == setup.AId).ToList();
+        Assert.True(aTxs.Count >= 2, "need at least two branch A transactions to graft a stale Root");
+
+        const int rootOffset = 48;   // TransactionHeader.Root
+        const int rootSize = 110 - 48; // up to TxMarker
+        var bytes = File.ReadAllBytes(setup.JournalFile);
+
+        var last = aTxs[^1];
+        Assert.Equal(setup.Victim.Offset, last.Offset); // A's last tx is also the file's last tx
+
+        // Consecutive writes to the same tree leave the ROOT tree header untouched, so grafting one onto the
+        // next changes nothing. Take the earliest of A's own transactions whose Root actually differs - for A
+        // that is its boot transaction, from before treeA existed.
+        var previous = aTxs.Take(aTxs.Count - 1)
+            .Cast<(long Offset, Guid JournalId, long TxId)?>()
+            .FirstOrDefault(t => RootDiffers(bytes, t.Value.Offset, last.Offset));
+        Assert.True(previous != null,
+            "every earlier branch A transaction carries a byte-identical Root header, so no graft would test anything");
+
+        Output.WriteLine($"grafting Root of tx {previous.Value.TxId} (offset {previous.Value.Offset}) onto tx {last.TxId} (offset {last.Offset})");
+
+        TreeRootHeader target = ReadRoot(bytes, last.Offset);
+        TreeRootHeader stale = ReadRoot(bytes, previous.Value.Offset);
+        Output.WriteLine($"  last tx root: page {target.RootPageNumber}, {target.NumberOfEntries} entries, depth {target.Depth}");
+        Output.WriteLine($"  stale   root: page {stale.RootPageNumber}, {stale.NumberOfEntries} entries, depth {stale.Depth}");
+
+        Buffer.BlockCopy(bytes, (int)previous.Value.Offset + rootOffset, bytes, (int)last.Offset + rootOffset, rootSize);
+        File.WriteAllBytes(setup.JournalFile, bytes);
+
+        using var rootOptions = CreateOptions(setup.RootPath, encrypted);
+        using var root = new StorageEnvironment(rootOptions);
+        using var _ = root.Journal.SharedJournalsScope();
+
+        string victimValue = null;
+        string a1Value = null;
+        Exception failure = null;
+        try
+        {
+            using var branchA = OpenBranch(setup.BranchAPath, root, encrypted);
+            using var tx = branchA.ReadTransaction();
+            Tree treeA = tx.ReadTree("treeA");
+            victimValue = treeA?.Read("victim")?.Reader.ToString();
+            a1Value = treeA?.Read("a1")?.Reader.ToString();
+        }
+        catch (Exception e)
+        {
+            failure = e;
+        }
+
+        Output.WriteLine(failure != null
+            ? $"branch A failed to open: {failure.GetType().Name}: {failure.Message}"
+            : $"branch A opened; treeA/a1 = {a1Value ?? "<null>"}, treeA/victim = {victimValue ?? "<null>"}");
+
+        Assert.True(failure != null || victimValue == "y",
+            $"grafting a stale Root onto the last transaction lost committed data (treeA/victim reads back as " +
+            $"'{victimValue ?? "<null>"}') - if this ever fires, TransactionHeader.Root has become exploitable the way " +
+            $"JournalId is in F-5, and the AEAD authenticated range of header bytes [0,40) needs widening");
+    }
+
     private sealed class Setup
     {
         public string RootPath, BranchAPath, BranchBPath, JournalFile;
@@ -475,6 +553,25 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
         if (encrypted)
             options.Encryption.MasterKey = _masterKey.ToArray(); // all envs of a database share one key
         return options;
+    }
+
+    private static unsafe TreeRootHeader ReadRoot(byte[] journal, long txOffset)
+    {
+        fixed (byte* p = journal)
+            return ((TransactionHeader*)(p + txOffset))->Root;
+    }
+
+    private static bool RootDiffers(byte[] journal, long leftTxOffset, long rightTxOffset)
+    {
+        const int rootOffset = 48;     // TransactionHeader.Root
+        const int rootSize = 110 - 48; // up to TxMarker
+        for (int i = 0; i < rootSize; i++)
+        {
+            if (journal[leftTxOffset + rootOffset + i] != journal[rightTxOffset + rootOffset + i])
+                return true;
+        }
+
+        return false;
     }
 
     // the data file mapping can outlive the environment's dispose on the encrypted path, so never take an

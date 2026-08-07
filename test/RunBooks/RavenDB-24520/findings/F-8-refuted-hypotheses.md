@@ -43,6 +43,20 @@ Pre-existing property, not a 27278 regression, but worth knowing: encrypted reco
 
 **Actually:** the structure is real, but each probe is a marker comparison that costs nothing when it misses - the same measurement above shows 1,856 probes adding no measurable time (whole two-fixture test runs in ~800ms). Extrapolated to a full 2GB journal that is ~512K probes per environment, which is worth knowing but is not the blowup I expected. **Not measured at production journal size** - if this ever needs settling, the recipe is a `StressTests` run at `MaxJournalFileSizeInMb=2048` with corruption at offset 0 and many index environments.
 
+## Refuted: "`TransactionHeader.Root` is a second uncompensated field"
+
+**Predicted:** `Root` (offset 48, a 62-byte `TreeRootHeader`) sits outside both the payload hash and the AEAD authenticated range, and recovery sets the environment's root tree straight from `lastTxHeader->Root`. That looked like the same shape as [F-5](F-5-journalid-impersonation.md), which would have turned the finding from "one field" into "the AAD boundary is in the wrong place".
+
+**Actually measured** (test `StaleRootInTransactionHeaderIsCompensatedByPageLevelIntegrity`): grafting an older `Root` from the same environment onto its last transaction - a stale-block shape, structurally valid so nothing has grounds to object - loses **nothing**, encrypted or plain. Both keys written by branch A read back correctly.
+
+**Why it is compensated:** `RootPageNumber` is page 0 in both roots, and the tree content on that page comes from the transaction *payload*, which is integrity protected. So a stale `Root` rolls back only the metadata counters (`NumberOfEntries` 2 -> 1 in the test), not the tree. Redirecting `RootPageNumber` at a different page would instead hit page-level validation on the unencrypted path, or per-page decryption on the encrypted one.
+
+Residual curiosity, not pursued: after the graft the root tree reports one fewer entry than it holds, and nothing notices. Counters appear to be advisory, so this looks harmless.
+
+**Why this matters for F-5:** I went looking for a sibling case to argue that the AAD boundary itself is misplaced, and did not find one. The AAD arithmetic still looks accidental (`SizeOf - NonceOffset` = 40 is the length of the nonce+mac region applied from offset 0, where `NonceOffset` = 152 would authenticate everything before the nonce), but the *practical* exposure behind that boundary is `JournalId` alone. F-5 stands on its own rather than as one instance of a broader hole.
+
+The vacuous-pass trap bit again here and is worth repeating: the first version grafted the *immediately preceding* transaction's Root, which is byte-identical because consecutive writes to the same tree do not change the ROOT tree header. The test now asserts the two roots differ before grafting.
+
 ## Not a live issue: `Guid.Empty` JournalId adoption
 
 **Predicted:** at [JournalReader.cs:693-696](../../../../src/Voron/Impl/Journal/JournalReader.cs) an environment whose `JournalId` is `Guid.Empty` adopts the id of the first transaction it validates. With a resync, a corrupted first transaction could shift that to a *sibling's* id, making the environment replay another environment's transactions.
