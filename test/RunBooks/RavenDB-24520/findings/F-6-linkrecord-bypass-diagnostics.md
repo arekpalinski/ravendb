@@ -43,3 +43,11 @@ Nothing links them, and nothing states the actionable fact: a journal-link repai
 - Render the sentinel `JournalId` as something readable (e.g. "LinkedJournals repair record") in `TransactionHeader.ToString()` rather than a raw Guid.
 
 Neither is urgent.
+
+## Related, measured under F-4 on 2026-08-07: the alerting is not isolated even though the outcome is
+
+A single corrupted transaction in a shared journal raises a **FATAL `Index Recovery Error` alert for the root and for every index hard-linked to that file** - 7 of them in cell `3A-noflag` - because each environment encounters the invalid transaction during its own scan and calls `InvokeRecoveryError` before resyncing past it. In that cell **nothing was actually lost by anyone**: all 6 indexes came up Normal with full entry counts and `verify` reported OK.
+
+So post-27278 the *recovery outcome* is correctly isolated to the owner, but the *operator-facing signal* still fans out to everything sharing the journal, and none of the seven messages indicates which index (if any) actually lost data. An operator sees seven FATAL alerts naming seven indexes for one harmless corrupted tail transaction.
+
+Same cheap fix as above would help: log the resume decision (which environment, which region bypassed, whether its own chain was intact) so the one message that matters is distinguishable from the six that do not.
