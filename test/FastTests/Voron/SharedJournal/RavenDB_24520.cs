@@ -16,99 +16,10 @@ using Xunit;
 namespace FastTests.Voron.SharedJournal;
 
 // Corruption scenarios found while testing shared journals under RavenDB-24520 that are NOT covered by the
-// RavenDB-27156 / 27166 / 27278 regression tests.
-//
-// The transaction hash covers the PAYLOAD only, seeded with TransactionId (JournalReader.ValidatePagesHash).
-// Every other header field - including JournalId at offset 136, which decides WHICH environment replays a
-// transaction - is outside it. On an encrypted journal the AEAD authenticates the header only from offset 0
-// for (TransactionHeader.SizeOf - NonceOffset) = 40 bytes, so JournalId at 136 is outside that too. Either
-// way a 16-byte edit of JournalId yields a transaction that still passes full validation but is attributed
-// to a different environment.
+// RavenDB-27156 / 27166 / 27278 regression tests. See test/RunBooks/RavenDB-24520/findings.
 public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
 {
     private readonly byte[] _masterKey = Sodium.GenerateRandomBuffer(32);
-
-    // JournalId impersonation: rewrite one transaction's JournalId to a SIBLING branch's id, leaving payload
-    // and hash untouched. Because per-environment transaction id counters run in parallel, the stolen
-    // transaction can land exactly where the sibling expects its next one, so VerifyTransactionSequence sees
-    // a contiguous chain and the sibling replays ANOTHER environment's pages into its own data file.
-    //
-    // Unencrypted, the post-recovery page checksum sweep in WriteAheadJournal.RecoverDatabase eventually
-    // rejects it - but only AFTER the foreign pages were already written to the victim's data file, and the
-    // error blames the data file rather than the journal. That sweep is skipped entirely when encryption is
-    // enabled ("for encryption, we already use AEAD, so no need"), so the encrypted case has no backstop.
-    [RavenTheory(RavenTestCategory.Voron)]
-    [InlineData(false)]
-    [InlineData(true)]
-    public unsafe void ImpersonatedJournalIdMustNotMakeSiblingBranchAdoptForeignTransaction(bool encrypted)
-    {
-        var setup = PrepareSharedJournalWithTrailingVictim(encrypted);
-
-        Output.WriteLine($"victim: tx {setup.Victim.TxId} of branch A at offset {setup.Victim.Offset} (last tx in the file)");
-        Output.WriteLine($"branch B last own tx before it: {setup.BranchBLastTxId} -> B expects {setup.BranchBLastTxId + 1}");
-
-        string branchBDataFile = Path.Combine(setup.BranchBPath, "Raven.voron");
-        byte[] dataFileBefore = ReadAllBytesShared(branchBDataFile);
-
-        // the whole corruption: 16 bytes of header, no payload change, hash and AEAD tag stay valid
-        var bytes = File.ReadAllBytes(setup.JournalFile);
-        fixed (byte* p = bytes)
-        {
-            var header = (TransactionHeader*)(p + setup.Victim.Offset);
-            Assert.Equal(setup.AId, header->JournalId);
-            header->JournalId = setup.BId;
-        }
-        File.WriteAllBytes(setup.JournalFile, bytes);
-
-        using var rootOptions = CreateOptions(setup.RootPath, encrypted);
-        using var root = new StorageEnvironment(rootOptions);
-        using var _ = root.Journal.SharedJournalsScope();
-
-        using (var rootTx = root.ReadTransaction())
-            Assert.Equal("yes", rootTx.ReadTree("rootTree").Read("root").Reader.ToString());
-
-        StorageEnvironment branchB = null;
-        Exception openFailure = null;
-        try
-        {
-            branchB = OpenBranch(setup.BranchBPath, root, encrypted);
-        }
-        catch (Exception e)
-        {
-            openFailure = e;
-            Output.WriteLine($"branch B failed to open: {e.GetType().Name}: {e.Message}");
-        }
-
-        bool dataFileMutated = ReadAllBytesShared(branchBDataFile).SequenceEqual(dataFileBefore) == false;
-        Output.WriteLine($"branch B data file mutated by the impersonated transaction: {dataFileMutated}");
-
-        try
-        {
-            if (branchB != null)
-            {
-                using var tx = branchB.ReadTransaction();
-
-                Tree leaked = tx.ReadTree("treeA");
-                Assert.True(leaked == null,
-                    "branch B adopted branch A's transaction via a 16-byte JournalId edit and now exposes A's tree 'treeA' - " +
-                    "another environment's pages were replayed into B's data file with a fully valid transaction hash, and nothing rejected it");
-
-                Tree treeB = tx.ReadTree("treeB");
-                Assert.True(treeB != null, "branch B lost its own 'treeB' entirely");
-                Assert.Equal("1", treeB.Read("b1").Reader.ToString());
-            }
-        }
-        finally
-        {
-            branchB?.Dispose();
-        }
-
-        // A rejection is the acceptable outcome, but it must not come at the price of having already written
-        // another environment's pages into this environment's data file
-        Assert.False(dataFileMutated,
-            $"the impersonated transaction of branch A was applied to branch B's data file before recovery rejected it " +
-            $"({openFailure?.GetType().Name ?? "no failure at all"}) - the ownership and transaction-sequence checks let it through");
-    }
 
     // The LinkedJournalsRecord re-creates branch hard links that a machine-level failure dropped. It carries
     // the sentinel LinkedJournalId and JournalReader.TryReadAndValidateHeader handles it with a `continue`
@@ -572,16 +483,6 @@ public class RavenDB_24520(ITestOutputHelper output) : RavenTestBase(output)
         }
 
         return false;
-    }
-
-    // the data file mapping can outlive the environment's dispose on the encrypted path, so never take an
-    // exclusive handle just to snapshot the bytes
-    private static byte[] ReadAllBytesShared(string path)
-    {
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        var bytes = new byte[fs.Length];
-        fs.ReadExactly(bytes);
-        return bytes;
     }
 
     private static unsafe List<(long Offset, Guid JournalId, long TxId)> ReadTransactions(byte[] journal)

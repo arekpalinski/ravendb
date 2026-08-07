@@ -4,7 +4,24 @@
 **Evidence:** observed (measurements), plus code paths cited below.
 **Shared context:** see [README.md](README.md).
 
-After RavenDB-27278 replaced "stop at the first invalid transaction" with "resync forward to the next fully validating one", I predicted four new hazards. **Three were wrong.** The confirmed ones are [F-5](F-5-journalid-impersonation.md) (serious) and [F-7](F-7-root-owned-corruption-blast-radius.md) (medium); [F-6](F-6-linkrecord-bypass-diagnostics.md) survived only as a diagnostics nit.
+After RavenDB-27278 replaced "stop at the first invalid transaction" with "resync forward to the next fully validating one", I predicted several new hazards. **Almost all were wrong.** The only one that survived review is [F-7](F-7-root-owned-corruption-blast-radius.md); [F-6](F-6-linkrecord-bypass-diagnostics.md) remains as a diagnostics nit, and F-5 was withdrawn (below).
+
+## Dropped: F-5, "JournalId impersonation" (there is no F-5 finding file - this is why)
+
+**Claimed:** `JournalId` at offset 136 decides which environment replays a shared-journal transaction and is covered by neither the payload hash nor the AEAD authenticated range (header bytes [0,40)). Rewriting those 16 bytes to a *sibling's* Guid made branch B adopt branch A's transaction and apply A's pages into B's data file - silently on an encrypted database, since the post-recovery page-checksum sweep is skipped there.
+
+The observations were real and reproduced. **The finding was not, and it was withdrawn on 2026-08-07.** Two reasons:
+
+1. **The scenario was constructed, not found.** Three conditions were engineered: writing the sibling's *exact* 16-byte Guid (random corruption gives a Guid belonging to nobody, which is the F-2 silent-drop case); arranging branch A's transaction id to be exactly what B expected next, by adding an extra write purely to offset A's counter (without that coincidence B detects the gap and fails **loudly**); and placing the victim as the file's last transaction so nothing downstream could trip the sequence check. Remove any one and the scenario collapses into a loud failure.
+
+2. **The proposed fix did not address the only non-adversarial trigger.** The trigger cited was a stamping bug - the merge writer stamping the wrong `JournalId` while batching transactions from N environments. Widening the AEAD authenticated range cannot detect that: the writer would stamp the wrong id and then faithfully authenticate whatever it stamped. Integrity checking only catches modification of bytes *after* they were written. So the fix protected solely against an attacker with write access to the database directory, who can already delete journals, replace the index directory, edit the plaintext metadata files holding the Guids, or on an unencrypted database edit `Raven.voron` outright - all cheaper, and all landing on rebuildable derived index data.
+
+Not worth an on-disk format change. Recorded here so the reasoning error stays visible: an unauthenticated field that controls routing pattern-matches to a severe defect, and in this case the pattern was wrong.
+
+**Two things remain true and cost nothing**, neither implemented (product code untouched pending a decision):
+
+- `WriteAheadJournal.cs:2527` ("we are already validating the tx using the AEAD method, so no need to do it twice", where `Hash` is then zeroed) and `WriteAheadJournal.cs:476` ("for encryption, we already use AEAD, so no need", which is the justification for skipping the checksum sweep) both **overstate what the AEAD covers**. It authenticates header bytes [0,40) only: `HeaderMarker`, `TransactionId`, `NextPageNumber`, `LastPageNumber`, `PageCount`, `Flags`. Worth correcting so nobody later relies on a guarantee that is not there.
+- The recovery error for a page-checksum failure names the **data file** ("`Raven.voron` might be corrupted") when the journal is what was damaged. That is reachable by ordinary corruption, not just the withdrawn scenario, and it sends an operator at the wrong artifact.
 
 ## Refuted: "a bypassed region is completely silent"
 
@@ -45,6 +62,8 @@ Pre-existing property, not a 27278 regression, but worth knowing: encrypted reco
 
 ## Refuted: "`TransactionHeader.Root` is a second uncompensated field"
 
+(This was the investigation that first narrowed the withdrawn F-5, before it was dropped entirely.)
+
 **Predicted:** `Root` (offset 48, a 62-byte `TreeRootHeader`) sits outside both the payload hash and the AEAD authenticated range, and recovery sets the environment's root tree straight from `lastTxHeader->Root`. That looked like the same shape as [F-5](F-5-journalid-impersonation.md), which would have turned the finding from "one field" into "the AAD boundary is in the wrong place".
 
 **Actually measured** (test `StaleRootInTransactionHeaderIsCompensatedByPageLevelIntegrity`): grafting an older `Root` from the same environment onto its last transaction - a stale-block shape, structurally valid so nothing has grounds to object - loses **nothing**, encrypted or plain. Both keys written by branch A read back correctly.
@@ -53,7 +72,7 @@ Pre-existing property, not a 27278 regression, but worth knowing: encrypted reco
 
 Residual curiosity, not pursued: after the graft the root tree reports one fewer entry than it holds, and nothing notices. Counters appear to be advisory, so this looks harmless.
 
-**Why this matters for F-5:** I went looking for a sibling case to argue that the AAD boundary itself is misplaced, and did not find one. The AAD arithmetic still looks accidental (`SizeOf - NonceOffset` = 40 is the length of the nonce+mac region applied from offset 0, where `NonceOffset` = 152 would authenticate everything before the nonce), but the *practical* exposure behind that boundary is `JournalId` alone. F-5 stands on its own rather than as one instance of a broader hole.
+**Why this mattered:** the search was for a sibling case that would argue the AAD boundary itself is misplaced, which would have been the broader and cheaper-to-fix framing. None was found. The AAD arithmetic still looks accidental (`SizeOf - NonceOffset` = 40 is the length of the nonce+mac region applied from offset 0, where `NonceOffset` = 152 would authenticate everything before the nonce), but the only field behind that boundary with no compensating check was `JournalId` - and that case was subsequently withdrawn, so nothing actionable is left here.
 
 The vacuous-pass trap bit again here and is worth repeating: the first version grafted the *immediately preceding* transaction's Root, which is byte-identical because consecutive writes to the same tree do not change the ROOT tree header. The test now asserts the two roots differ before grafting.
 
