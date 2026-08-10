@@ -1,33 +1,83 @@
 # RavenDB-24520 - answers to the ticket questions
 
-The ticket's investigation questions, answered from the campaign. These summarize behavior; the underlying mechanisms live in the finding files.
+Answered against the **rebased branch** (27156 / 27166 / 27168 / 27220 / 27278 / 26563), re-measured 2026-08-07. These summarize behaviour; mechanisms live in the finding files.
 **Shared context:** see [README.md](README.md).
+
+> Rewritten 2026-08-07. The previous version answered from pre-27278 behaviour and was wrong on Q1.1 and Q1.2 - it reported no per-index isolation and `State=Error`, neither of which holds now.
 
 ## Scenario 1 (corruption in the shared journal)
 
 ### Q1.1 - Does it recover without a full reset? Can it isolate the damage?
-- The DB **always loads** (documents live in a separate environment and stay intact).
-- Damage is confined to **index** environments - but **NOT** to a single index. Every index hard-linked to the corrupted physical journal is faulted. See [F-1](F-1-no-isolation.md) for the mechanism (hash validation of foreign-env txs before the owner-filter) and the full corruption-kind matrix. Blast radius = the set of envs linked to that file (active journal = all indexes; old journal = few).
-- The dangerous flag can skip the bad journal and salvage more indexes, at the cost of silent partial loss - see [F-4](F-4-dangerous-flag-partial-loss.md).
+
+**Yes, damage is now isolated to a single index.** This is the headline change from RavenDB-27278.
+
+- The database loads and **documents are never affected** - they live in a separate environment. The one exception is F-9 below.
+- A corrupted transaction faults **exactly one index: the one that owns it**, and only when that index has later transactions of its own after the damage point. Siblings and the root are untouched.
+- **Corrupting an environment's last transaction is benign for everyone** - clean tail truncation, zero resets. Verified identical for payload flips, header-marker smash, hash, txid, JournalId, zeroed block and mid-file truncation.
+- File-level topology is clean too: deleting the *active* shared journal via the root's link (the inode survives via branch hard links), breaking inode sharing with identical content, truncating the tail, and corrupting the `LinkedJournalsRecord`.
+
+Full 16-cell table in [../10-WINDOWS-runbook.md](../10-WINDOWS-runbook.md) ("POST-27278 RE-BASELINE"). For comparison, pre-fix a single corrupted transaction reset **4-5 of 6** indexes; see [F-1](F-1-no-isolation.md) for the old behaviour and why it changed.
+
+**The one exception - [F-9](F-9-missing-root-journal-fails-database.md):** a *missing* journal file in `Indexes/@SharedJournals/Journals/` fails the **whole database load**, because `GetJournalFileInfo` checks file presence unconditionally regardless of sync state. `Storage.Dangerous.IgnoreInvalidJournalErrors=true` recovers it completely.
+
+The dangerous flag no longer costs data - [F-4](F-4-dangerous-flag-partial-loss.md) is closed; the salvaged index recovers to the exact baseline entry count.
 
 ### Q1.2 - State of the corrupted index + recovery
-- First load after corruption: the affected index hits `IndexOpenException` and is opened as a **fake in-memory instance** (entries 0).
-- On a subsequent restart it settles into **State=Error** and does **NOT** auto-rebuild (observed: errored for 2 min, no progress).
-- **Manual `RESET` (HTTP verb `RESET` on `/databases/<db>/indexes?name=`) fully recovers it**: the index rebuilds from documents to the exact baseline entry counts (observed: Users/Search 122677, Questions/Search 13857, etc.), State=Normal, 0 errors, no document loss.
-- The startup recovery-error message is high quality: it names the index, advises resetting it, and mentions `--Storage.Dangerous.IgnoreInvalidJournalErrors=true` for dangerous-mode startup.
+
+- The faulted index comes up with **`State=Normal`, `Type=Faulty`, `entries=0`**. Note it reports **Normal**, not `Error` - `Type` is the field that identifies a faulty index (see the assertion in `RavenDB_27278_e2e`). **Do not poll `State` alone to detect a faulted index.** The previous answer here said `State=Error`; that is no longer what is observed.
+- Documents are intact and every other index keeps its full entry count.
+- **Recovery is complete, by either route:**
+  - manual `RESET` (HTTP verb `RESET` on `/databases/<db>/indexes?name=`) rebuilds from documents to exact baseline counts;
+  - or start once with `Storage.Dangerous.IgnoreInvalidJournalErrors=true`, which skips the journal and lets the index re-index and converge - measured at exactly the uncorrupted baseline (10,744 entries) in cell `3B-ignoreflag-first`.
+  Index content is derived from documents, so nothing is unrecoverable.
+- **The index-path error message is good** - it names the index and offers both remedies:
+  > Failed to open a storage at `...\Indexes\<name>` due to invalid or missing journal files ... The recommended approach is to **reset the index** ... Alternatively you can temporarily start the server in **dangerous mode**.
+
+  The missing-journal path on the root does **not** carry this text - that is the F-9 complaint.
+- Not re-measured post-fix: whether a *second* restart moves the faulted index from `Normal/Faulty` into `State=Error`. Pre-fix it did and did not auto-rebuild. Carried over as unverified.
 
 ## Scenario 2 (single-index commit failure)
 
 ### Q2.2 - Does one index's failure affect the others?
-- **Yes - no isolation.** All branch commits funnel through the single root merge write (`WriteAheadJournal.FlushMergedJournalEntries`). When that write fails, all indexes sharing the journal go to State=Error simultaneously (observed: 3/3 at t+1s..t+2s). The shared root write is a single point of failure; other indexes cannot commit independently during the failure.
-- Post-[F-3](F-3-write-failure-access-violation.md)-fix this is now *explicit and intentional*: a failed shared-journal write poisons every participating environment, because the journal contents are unknown and all participants must restart. So the answer to "can Index_B still commit while Index_A's commit failed" is a deliberate **no**.
+
+**No isolation, and this is deliberate.** All branch commits funnel through the single root merge write. When that write fails, every participating environment is poisoned, because the journal's contents are unknown and all participants must restart (Oren's directive on RavenDB-27156). So "can Index_B commit while Index_A's commit failed" is an intentional **no**.
+
+Re-validated on a **real** disk-full, 2026-08-07:
+
+```
+SharedIndexJournals.WriteSharedJournals            <- merger thread
+  WriteToJournal -> WriteBuffersToJournal -> FlushMergedJournalEntries
+    NextFile -> CreateJournalWriter -> DiskFullException
+  SharedJournalState.SetException -> MarkCatastrophicFailure -> SetCatastrophicFailure
+```
+
+The `CatastrophicFailureHandler` unload named a **branch** environment, which is the proof that participants beyond the root were poisoned - pre-fix only the root was, and the branches kept running on corrupted scratch state. That was the source of [F-3](F-3-write-failure-access-violation.md).
+
+Note this contrasts with Scenario 1: corruption *at rest* is now isolated per index, while a *write failure* deliberately takes down all participants.
 
 ### Q2.3 - Aftermath / recovery after restart
-- Graceful self-heal: the root env raises catastrophic failure -> `CatastrophicFailureHandler` unloads the DB -> it reloads -> recovery discards the torn/partial tail -> all indexes return to State=Normal and re-index (observed pre-fix, when it didn't crash: back to Normal by t+3s; after explicit restart docCount intact, all indexes Normal with full entries, 0 errors). **No document loss.**
-- Pre-fix caveat, now resolved: ~40-60% of the time the process crashed (ACCESS_VIOLATION) during that failure handling instead of self-healing. Fixed under RavenDB-27156 + RavenDB-27166 - see [F-3](F-3-write-failure-access-violation.md).
+
+Graceful self-heal, and no data loss:
+
+- catastrophic failure -> one `CatastrophicFailureHandler` DB unload (clients see `DatabaseDisabledException`) -> reload -> recovery discards the torn tail -> all indexes return to Normal.
+- Real-ENOSPC recovery measured exactly: **152,534 documents** (= 136,534 baseline + 16,000 primed), all 6 indexes `State=Normal` with full entry counts, zero index errors.
+- **Server process stays alive.** The ~40-60% ACCESS_VIOLATION crash rate seen pre-fix is gone: the torn-write repro ran **14/14 clean, 0 access violations**. Fixed under RavenDB-27156 + RavenDB-27166.
+- A retained *historical* index error describing the disk-full stays visible on the affected index afterwards. The index itself is Normal and complete.
 
 ## Deliverables status
 
-- **Deliverable 1.3** (e2e test that programmatically corrupts a journal and asserts recovery): the harness `cell` command covers the full matrix reproducibly; a committed automated test for the F-1 blast radius is still open pending the F-1 decision.
-- **Deliverable 2.3** (e2e test simulating an IO error during a journal write, validating other index envs stay consistent): **done and committed** as `test/SlowTests/Voron/Issues/RavenDB_27156_e2e.cs` + `RavenDB_27156.cs` + `RavenDB_27166.cs`, on the back of the new `SimulatePartialJournalWriteFailure` seam.
-- Runbooks: `../00-REFERENCE.md`, `../10-WINDOWS-runbook.md`, `../20-LINUX-runbook.md`.
+- **Deliverable 1.3** - e2e test that programmatically corrupts a journal and asserts recovery: **done and committed.**
+  - `test/SlowTests/Voron/Issues/RavenDB_27278_e2e.cs` - a corrupted transaction of one index marks only that index faulty; siblings and documents unaffected.
+  - `test/FastTests/Voron/SharedJournal/RavenDB_27278.cs` - Voron-level isolation, including a corrupted *size* field failing loudly rather than silently swallowing later transactions.
+  - `test/FastTests/Voron/SharedJournal/RavenDB_24520.cs` - campaign characterization tests (link-record bypass, root-tx corruption matrix, stale `Root` graft, encrypted resync allocation bound).
+  - `test/SlowTests/Voron/Issues/RavenDB_24520_e2e.cs` - server-level reachability check for the shared root.
+- **Deliverable 2.3** - e2e test simulating an IO error during a journal write, validating other index envs stay consistent: **done and committed** as `RavenDB_27156_e2e.cs` + `RavenDB_27156.cs` + `RavenDB_27166.cs`, on the `SimulatePartialJournalWriteFailure` seam in `JournalWriter.Write`.
+- Runbooks: [../00-REFERENCE.md](../00-REFERENCE.md), [../10-WINDOWS-runbook.md](../10-WINDOWS-runbook.md), [../20-LINUX-runbook.md](../20-LINUX-runbook.md) (prepared, **not yet executed**).
+
+## Still open after this campaign
+
+| | |
+|---|---|
+| [F-9](F-9-missing-root-journal-fails-database.md) | missing root journal fails the whole database; recoverable via the dangerous flag, but the error offers no remedy |
+| [F-6](F-6-linkrecord-bypass-diagnostics.md) | diagnostics: a bypassed region is never logged, and one corrupted transaction alerts on every index sharing the journal even when nothing is lost |
+| [F-2](F-2-silent-journalid-loss.md) | `JournalId` corruption on a tail transaction drops it with no error |
