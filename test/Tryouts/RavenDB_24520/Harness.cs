@@ -31,7 +31,10 @@ public static class Harness
     public static string GoldenDir => Path.Combine(BaseDir, "golden");
     public static string WorkDir => Path.Combine(BaseDir, "work");
     public static string StagingDir => Path.Combine(BaseDir, "staging-dumps");
-    public static string LogsDir => Path.Combine(BaseDir, "logs");
+    // Overridable: for a disk-full run the logs must be able to live OUTSIDE the volume being filled.
+    // The VERDICT is derived by scanning these files, so if their own writes are failing with ENOSPC the
+    // verdict is built on truncated evidence - and the harness used to die outright when that happened.
+    public static string LogsDir => Environment.GetEnvironmentVariable("RAVEN_24520_LOGS") ?? Path.Combine(BaseDir, "logs");
 
     public const string DbName = "so";
     public const int Port = 8580;
@@ -40,8 +43,14 @@ public static class Harness
     // keep 1/SampleModulo of documents (by numeric id) so the whole DB stays small enough to copy per cell
     public static readonly int SampleModulo = int.Parse(Environment.GetEnvironmentVariable("RAVEN_24520_SAMPLE") ?? "50");
 
-    // small journals => many small files => faster per-cell restore + richer multi-file corruption topology
-    public const int MaxJournalFileSizeInMb = 16;
+    // Small journals => many small files => faster per-cell restore + richer multi-file corruption topology.
+    //
+    // Overridable because the disk-full scenario needs it. At 16 MB the post-reset index rebuild fails on
+    // index DATA-pager growth (Raven.voron, 16 -> 32 MB) long before enough index data accumulates to roll a
+    // journal, so on Linux ENOSPC never reached the root's merged write and 27156 went unexercised across
+    // five runs at leaveMB 60-500. A smaller journal rolls far more often, giving NextFile /
+    // CreateJournalWriter a real chance to be the allocation that loses the race.
+    public static readonly int MaxJournalFileSizeInMb = int.Parse(Environment.GetEnvironmentVariable("RAVEN_24520_JOURNAL_MB") ?? "16");
 
     public static async Task<int> RunAsync(string[] args)
     {
@@ -458,7 +467,23 @@ public static class Harness
         using var store = OpenStore();
 
         Console.WriteLine("[diskfull] priming + settling indexing while space is available ...");
-        await WriteBurstAsync(store, 8_000, startOffset: 200_000);
+        // Must not be allowed to escape: if the volume is ALREADY full when priming starts - e.g. a previous
+        // run aborted and left its balloon behind - BulkInsert throws, and an unhandled throw here kills the
+        // harness before the balloon cleanup below, so the volume stays full and every subsequent run is
+        // invalid too. Say so plainly and bail instead of cascading.
+        try
+        {
+            await WriteBurstAsync(store, 8_000, startOffset: 200_000);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[diskfull] PRIMING FAILED: {e.GetType().Name}: {FirstLine(e.Message)}");
+            Console.WriteLine($"[diskfull] free space on '{root}' is {new DriveInfo(root).AvailableFreeSpace / 1024 / 1024}MB - " +
+                              "the volume was already full before this run started, so the run is INVALID. " +
+                              "Check for an orphaned rdb24520-balloon.bin from an earlier aborted run.");
+            server.Kill();
+            return 1;
+        }
         try { await WaitForIndexingAsync(store, TimeSpan.FromMinutes(3)); } catch (Exception e) { Console.WriteLine($"[diskfull] pre-balloon indexing wait: {FirstLine(e.Message)}"); }
 
         var free = new DriveInfo(root).AvailableFreeSpace;
@@ -477,8 +502,7 @@ public static class Harness
         {
             Console.WriteLine($"[diskfull] BALLOON DID NOT CONSUME SPACE ({freeAfter / 1024 / 1024}MB still free after asking for {balloonSize / 1024 / 1024}MB). " +
                               "The run cannot reach ENOSPC - aborting instead of reporting a meaningless verdict.");
-            if (File.Exists(balloon))
-                File.Delete(balloon);
+            DeleteBalloon(balloon);
             server.Kill();
             return 1;
         }
@@ -528,8 +552,7 @@ public static class Harness
         Console.WriteLine($"[diskfull] index-state poller: {outcome}");
         Console.WriteLine($"[diskfull] server alive: {crashed == false}");
 
-        if (File.Exists(balloon))
-            File.Delete(balloon);
+        DeleteBalloon(balloon);
         server.Kill();
         await Task.Delay(1500); // let the process release its log handle before scanning
 
@@ -546,6 +569,25 @@ public static class Harness
 
         ScanServerLogs();
         return 0;
+    }
+
+    // Leaving a balloon behind makes the volume permanently full, which silently invalidates every later
+    // run against it - the failure mode that wrecked two runs of the 2026-08-10 sweep. Always reclaim it.
+    private static void DeleteBalloon(string balloon)
+    {
+        try
+        {
+            if (File.Exists(balloon))
+            {
+                File.Delete(balloon);
+                Console.WriteLine($"[diskfull] balloon released: {balloon}");
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[diskfull] WARNING: could not delete the balloon {balloon}: {e.Message}. " +
+                              "Delete it by hand before the next run or that run will be invalid.");
+        }
     }
 
     public static int CountLogMatches(params string[] needles)
@@ -817,14 +859,34 @@ public sealed class ServerProcess : IDisposable
         var stdout = Path.Combine(Harness.LogsDir, $"server-stdout-{DateTime.Now:HHmmss}.txt");
         var p = Process.Start(psi);
         var writer = new StreamWriter(stdout) { AutoFlush = true };
-        p.OutputDataReceived += (_, e) => { if (e.Data != null) writer.WriteLine(e.Data); };
-        p.ErrorDataReceived += (_, e) => { if (e.Data != null) writer.WriteLine("[stderr] " + e.Data); };
+        // These handlers run on ThreadPool threads, so an exception here terminates the whole harness
+        // process WITHOUT unwinding - no `using` disposal, so the server child is left orphaned and the
+        // disk-full balloon is never deleted. That is exactly what happened during the disk-full sweep: the
+        // volume being ballooned also held LogsDir, this writer hit ENOSPC, and the run died at SIGABRT
+        // (exit 134), leaving a full volume that then invalidated the next two runs. Capturing stdout is
+        // pure diagnostics; it must never be able to kill the run.
+        p.OutputDataReceived += (_, e) => { TryWrite(writer, e.Data); };
+        p.ErrorDataReceived += (_, e) => { TryWrite(writer, e.Data == null ? null : "[stderr] " + e.Data); };
         p.BeginOutputReadLine();
         p.BeginErrorReadLine();
 
         WaitForAlive(p);
         Console.WriteLine($"[server] pid={p.Id} data={dataDir}");
         return new ServerProcess(p, dataDir);
+    }
+
+    private static void TryWrite(StreamWriter writer, string line)
+    {
+        if (line == null)
+            return;
+        try
+        {
+            writer.WriteLine(line);
+        }
+        catch (Exception)
+        {
+            // disk full / writer disposed - diagnostics only, never fatal (see the comment at the call site)
+        }
     }
 
     private static void WaitForAlive(Process p)

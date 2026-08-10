@@ -194,7 +194,54 @@ So this run is a **graceful-degradation pass and nothing more**: it is not evide
 | 2 | 60 | ENOSPC, graceful (4 entries) | branch `Raven.voron` growth | 0 | alive |
 | 3 | 60 | ENOSPC, graceful (4 entries) | branch `Raven.voron` growth (4x) | 0 | alive |
 
-Never `FlushMergedJournalEntries` / `NextFile` / `CreateJournalWriter`, never a `CatastrophicFailureHandler` unload. On this box the race resolves consistently to the branch data pager, unlike both Windows runs. Plausible reason: the index `Raven.voron` files here still need to *grow* (16 -> 32 MB) during the post-reset rebuild, so a data-pager allocation is the first thing to fail, before the journal ever needs a new file. **If a future run needs to exercise 27156 on Linux, use the `SimulatePartialJournalWriteFailure` seam rather than hoping the race lands right.**
+Never `FlushMergedJournalEntries` / `NextFile` / `CreateJournalWriter`, never a `CatastrophicFailureHandler` unload. On this box the race resolves consistently to the branch data pager, unlike both Windows runs. Plausible reason: the index `Raven.voron` files here still need to *grow* (16 -> 32 MB) during the post-reset rebuild, so a data-pager allocation is the first thing to fail, before the journal ever needs a new file.
+
+**`leaveMB` is not the lever - six runs prove it.** The hypothesis was that leaving *more* free space would let the early data-pager growths succeed, so the rebuild would get far enough to roll a journal. It does not: sweeping 60 -> 500 MB on a larger golden (`seed 6`, 151,921 docs / 157,921 after burst) changed only *which* branch file failed, never the call site.
+
+| leaveMB | Failing allocation | Merged-write frames | Poisoning | Server |
+|---|---|---|---|---|
+| 100 | `Users_Registrations_ByMonth/Raven.voron`, `Activity_ByMonth/Raven.voron` | none | 0 | alive |
+| 60 | branch `Raven.voron` | none | 0 | alive |
+| 60 | branch `Raven.voron` (4x) | none | 0 | alive |
+| 300 | `Users_Search/Raven.voron` | none | 0 | alive |
+| 500 | `Questions_Tags_ByMonths/Raven.voron` | none | 0 | alive |
+| 150 | `Users_Search/Temp/compression.0000000000.buffers` | none | 0 | alive |
+
+The `leaveMB=150` run is the only one that reached a *different* documented site - the branch compression buffer, which `MapIndex.HandleDiskFullErrors` simply retries. Recovery after the sweep was exact: docs **173,921** (= 157,921 + the 16,000 primed), all 6 indexes `Normal` at full entries (Questions/Search 43,244, Users/Search 130,677). The `PROBLEMS FOUND` verdict is only the retained historical index error describing the disk-full, the same artifact the Windows 2026-08-07 run noted.
+
+**The actual lever is journal size**, since the ordering problem is that a 16 MB journal never needs to roll before the data pager needs to grow. `Harness.MaxJournalFileSizeInMb` is now overridable via `RAVEN_24520_JOURNAL_MB` (default unchanged at 16, so every committed cell recipe behaves as before); at 4 MB the rebuild rolls journals ~4x more often, giving `NextFile` / `CreateJournalWriter` a real chance to be the allocation that loses.
+
+### THE 27156 PATH DOES REPRODUCE ON LINUX (2026-08-10) - recipe: 4 MB journals + leaveMB=250
+
+With `RAVEN_24520_JOURNAL_MB=4` the failing allocation moved into the root's merged write and the poisoning fired, reproducing the Windows 2026-08-07 chain:
+
+| Signal | `leaveMB=250` | `leaveMB=120` |
+|---|---|---|
+| Verdict | ENOSPC, graceful, 15 disk-full entries, server alive | ENOSPC, graceful, 14 entries, server alive |
+| Failing allocation | **9x "Attempted to open journal file"** + 6x `Questions_Search/Raven.voron` | branch `Raven.voron` x5, **no** journal-creation failure |
+| Merged-write frames | **`WriteSharedJournals` 12, `NextFile` 9, `CreateJournalWriter` 18** | none |
+| Poisoning | **`SharedJournalState.SetException` 3, `MarkCatastrophicFailure` 3** | none |
+| Genuine `\|FATAL\|` | 3 | 0 |
+| Env named | **`Indexes/Questions_Search`** - a *branch*, not the root | - |
+
+The branch env in the unload path is the point: it proves participants beyond the root were poisoned, which is exactly what 27156 added. Pre-fix, only the root would have been poisoned while branches kept running on corrupted scratch state. **The process stayed alive throughout - no ACCESS_VIOLATION / SIGSEGV.**
+
+**Journal size is the lever; `leaveMB` only modulates it.** At 16 MB the rebuild always failed at data-pager growth first (6/6 runs). At 4 MB with 250 MB headroom the rebuild gets far enough to roll journals, so journal creation becomes the allocation that loses; at 4 MB with only 120 MB the data pager still fails first. So reaching this path needs *both* frequent journal rolls and enough headroom to get to one.
+
+Recovery afterwards was complete: docs **173,921** exact (= 157,921 + the 16,000 primed) and all 6 indexes at full entries, `Users/Search` back to **130,677**.
+
+**Two harness traps this sweep exposed - both would have produced a false finding.**
+
+1. **`verify` does not wait for indexing.** It polls immediately after the database loads, so the largest index can report `entries=0` purely because it is still catching up. Two consecutive `verify` runs showed `Users/Search entries=0`, which looks exactly like a faulted index - and a faulted index also reads `State=Normal` with `entries=0`. The discriminators are the **`Type`** field (`Faulty` vs `Map`) and simply re-polling: on a manually started server `Users/Search` reached its full 130,677 within ~10 s, `IsStale=False`. Never read a single `verify` snapshot as evidence of index data loss.
+2. **The harness used to kill itself exactly when the disk it was testing filled up**, taking the run's validity with it. Four defects, all fixed:
+   - the stdout-capture writer threw `IOException: No space left on device` on a **ThreadPool** callback, aborting the process (exit 134 = SIGABRT) **without unwinding** - so no `using` disposal, leaving an **orphaned `Raven.Server`** and an **undeleted balloon**;
+   - balloon cleanup was not on all exit paths, so that leaked 1.7 GB balloon kept the volume permanently full and **silently invalidated the next two runs**;
+   - the pre-balloon priming `WriteBurstAsync` was unwrapped, so a BulkInsert abort on an already-full volume killed the harness instead of reporting the run as invalid;
+   - `LogsDir` lived on the volume being ballooned, so the `VERDICT` - which is computed by scanning those logs - was derived from evidence that was itself failing to be written. Now overridable via **`RAVEN_24520_LOGS`**; put it off-volume for any disk-full run.
+
+   Symptom to watch for: `exit=134` with no `VERDICT` line. If you see it, check for an orphaned `Raven.Server` and a stale `rdb24520-balloon.bin` before trusting anything the following runs report.
+
+**If a future run still will not land in the merged write, use the `SimulatePartialJournalWriteFailure` seam** rather than tuning the race - that is what the committed e2e tests do, and they pass on Linux (10/10, plus the 12/12 AV loop). A real disk-full was never the gate for 27156; this run is corroboration, not the gate.
 
 **Harness caveat found here - the `FATAL` count in the VERDICT line was inflated by 1 on every run ever recorded, Windows included.** `CountLogMatches` is case-insensitive substring matching, and the server's own startup banner reads `Logging to '...' set to [Info, Fatal] level.`, so the word "Fatal" in the *log-level configuration* was counted as a fatal entry. These runs reported "1 FATAL" while genuine FATAL-level entries (`|FATAL|`) numbered **0**. Fixed to match the log-level column. Re-read the Windows verdicts with this in mind: "9 FATAL" was 8, "3 FATAL" was 2. `Errno: 28` (Linux ENOSPC) was also added to the disk-full needles, which previously only listed the Windows `Errno: 112`.
 
