@@ -190,7 +190,7 @@ A second `diskfull` invocation at `leaveMB=300` reported `ENOSPC reached and han
 - [x] Delete the active shared-journal link (root's link) - clean; inode survives via branch links (cell 1F-delete-active).
 - [x] Break inode sharing with identical content - clean (cell 1F-diverge).
 - [x] Dangerous recovery flag - `$env:RAVEN_24520_EXTRA_ARGS='--Storage.Dangerous.IgnoreInvalidJournalErrors=true'` then rerun a payload cell -> skips the invalid journal, fewer indexes reset, but **silent partial data loss** (F-4).
-- [ ] `--Storage.IgnoreDataIntegrityErrorsOfAlreadySyncedTransactions=true` variant (only meaningful on already-synced corrupted txs).
+- [x] `--Storage.IgnoreDataIntegrityErrorsOfAlreadySyncedTransactions` variant - **run on Linux 2026-08-10, see [20-LINUX-runbook.md](20-LINUX-runbook.md)**. Note the flag is `[DefaultValue(true)]`, so testing it "=true" tests the default and shows nothing; the real comparison is `=false`. Outcome: it changes only the diagnostics (a real `Invalid hash signature` recovery error vs an "already synced ... Safely continuing" notice) - the database loads and every index recovers to the exact baseline either way. Product behavior, not platform-specific.
 - [ ] Encrypted DB variant (corrupt -> decrypt-failure path in `JournalReader.TryValidateTransaction`). Needs a server built with `-p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP` + encrypted DB setup (cluster bootstrap -> PutSecretKey -> CreateDatabase Encrypted=true). Expected: same cross-index cascade, surfaced as a decrypt failure. NOT YET RUN.
 
 ## Notes / observations

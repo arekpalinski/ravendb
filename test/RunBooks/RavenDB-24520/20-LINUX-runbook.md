@@ -255,6 +255,24 @@ Cleanup: `sudo umount /tmp/rdb-diskfull && rm /tmp/rdb-diskfull.img`, and unset 
 
 Alternative without sudo: rely on the injected `SimulatePartialJournalWriteFailure` seam (the committed e2e) for the torn-write path; the real-volume-full path then differs only in the storage-space monitor, which can be recorded as Windows-verified.
 
+## Scenario 3 - `IgnoreDataIntegrityErrorsOfAlreadySyncedTransactions` (run 2026-08-10)
+
+**First: the flag is `[DefaultValue(true)]`** (`StorageConfiguration.cs`). Every cell of both 16-cell matrices, Windows and Linux, therefore ran with this tolerance **already enabled**. The original checkbox asked to test the flag "=true", which could never show anything - the meaningful comparison is `=false` against the default.
+
+Aiming it needs care. The victim must be a transaction its owner has **already synced**, which has to come from the map, not from a cell's name: in this seed `Users_Search` has `lastSyncedTx=4` and its `txId=1` sits in journal `...001`, so `hash Users_Search first inode:first` is a genuinely synced victim. (The matrix cell called `1A-synced-first` is *not* one - its victim is `Questions_Tags` `txId=2` with `lastSyncedTx=1`.)
+
+| | `=false` | `=true` (default) |
+|---|---|---|
+| Log | **`Invalid hash signature for transaction`** - a real `InvokeRecoveryError` | `Invalid hash of data of first transaction which has been already synced (tx id: 1, last synced tx: 1, journal: 1). Safely continuing the startup recovery process.` |
+| DB loads | yes | yes |
+| Indexes | all 6 `Normal`, full baseline entries | identical |
+| docs | 136,534 exact | 136,534 exact |
+| Verdict | `=> OK` | `=> OK` |
+
+**Result: the flag changes the diagnostics, not the outcome.** Forcing it `false` does not make already-synced corruption fatal - the database still loads and every index recovers to its exact baseline, because the corrupted transaction's data is already in the data file, so 27278's resync scans forward past it and `VerifyTransactionSequence` finds no gap that matters. `zero-block` on the same synced victim was clean under both settings too.
+
+This also **refines F-7's mechanism**. F-7 attributed already-synced corruption being benign to the unvalidated skip at `JournalReader.cs:105` (`IsAlreadySyncTransaction`). There are in fact **two independent tolerances**: that skip, and this flag, which gates five further sites in `TryValidateTransaction` / `VerifyTransactionSequence` / `ValidatePagesHash` - bad payload hash, decrypt failure, transaction-sequence gap, invalid `LastPageNumber`, and negative/oversized transaction size. Only the flag-based one is visible in the log, via `InvokeIntegrityErrorOfAlreadySyncedData`.
+
 ## Notes / observations
 
 Box for the 2026-08-10 run: Linux 6.8.0-1059-azure, .NET SDK 10.0.302, 12 cores / 11 GB RAM, a single ext4 `/dev/sda1`. Branch `RavenDB-24520` at `80448c3c203` (`git merge-base --is-ancestor 5e4f97e32d5 HEAD` passes, so the 27156 fixes are in).

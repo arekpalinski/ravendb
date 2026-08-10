@@ -72,12 +72,22 @@ Graceful self-heal, and no data loss:
   - `test/FastTests/Voron/SharedJournal/RavenDB_24520.cs` - campaign characterization tests (link-record bypass, root-tx corruption matrix, stale `Root` graft, encrypted resync allocation bound).
   - `test/SlowTests/Voron/Issues/RavenDB_24520_e2e.cs` - server-level reachability check for the shared root.
 - **Deliverable 2.3** - e2e test simulating an IO error during a journal write, validating other index envs stay consistent: **done and committed** as `RavenDB_27156_e2e.cs` + `RavenDB_27156.cs` + `RavenDB_27166.cs`, on the `SimulatePartialJournalWriteFailure` seam in `JournalWriter.Write`.
-- Runbooks: [../00-REFERENCE.md](../00-REFERENCE.md), [../10-WINDOWS-runbook.md](../10-WINDOWS-runbook.md), [../20-LINUX-runbook.md](../20-LINUX-runbook.md) (prepared, **not yet executed**).
+- Runbooks: [../00-REFERENCE.md](../00-REFERENCE.md), [../10-WINDOWS-runbook.md](../10-WINDOWS-runbook.md), [../20-LINUX-runbook.md](../20-LINUX-runbook.md) - **both executed**. Windows 2026-08-04/07, Linux 2026-08-10.
+- **Cross-platform status: no behavioral divergence.** The Linux re-run reproduced all 16 corruption cells identically on a seed with a byte-comparable baseline (130,534 / 136,534 docs, 9 inode groups) but a *different* journal layout, which independently confirms that the retired position rule was layout-dependent victim selection. Post-fix suites 28/28 and 10/10; F-3 AV loop 12/12 with zero crashes; real disk-full graceful with exact recovery, and it reached the 27156 poisoning path (merged write, branch env named) once journal size was lowered to 4 MB. Every issue the Linux pass surfaced was in the **test harness**, not the product - seven of them, listed in the Linux runbook.
+- Linux-only addition: **corrupting a journal while the server holds it open** (no mandatory locking) - the write always succeeds, the running server never detects it even across a full in-process reload, and after a hard kill the damage is owner-only, exactly as at rest. **No new finding.**
+
+## Recovery flags - both exercised
+
+| Flag | Effect |
+|---|---|
+| `Storage.Dangerous.IgnoreInvalidJournalErrors=true` | Rescues [F-9](F-9-missing-root-journal-fails-database.md) completely: a database killed by a missing root journal loads and every index recovers to the exact baseline. Verified on both platforms. |
+| `Storage.IgnoreDataIntegrityErrorsOfAlreadySyncedTransactions` | **`[DefaultValue(true)]`** - so both 16-cell matrices already ran with it on. Comparing `=false` against the default on a genuinely already-synced corrupted transaction: it changes only the **diagnostics** (a real `Invalid hash signature` recovery error vs an "already synced ... Safely continuing" notice). The database loads and every index recovers to the exact baseline either way, because the transaction's data is already in the data file and 27278's resync finds no gap that matters. Run on Linux 2026-08-10; product behavior, not platform-specific. |
 
 ## Still open after this campaign
 
 | | |
 |---|---|
-| [F-9](F-9-missing-root-journal-fails-database.md) | missing root journal fails the whole database; recoverable via the dangerous flag, but the error offers no remedy |
-| [F-6](F-6-linkrecord-bypass-diagnostics.md) | diagnostics: a bypassed region is never logged, and one corrupted transaction alerts on every index sharing the journal even when nothing is lost |
-| [F-2](F-2-silent-journalid-loss.md) | `JournalId` corruption on a tail transaction drops it with no error |
+| [F-9](F-9-missing-root-journal-fails-database.md) | missing root journal fails the whole database; recoverable via the dangerous flag, but the error offers no remedy. Diagnostics half **filed as RavenDB-27293** (PR open); the other two aspects - whether a missing *already-synced* journal need be fatal at all, and the active-vs-old deletion asymmetry - remain unfiled |
+| [F-6](F-6-linkrecord-bypass-diagnostics.md) | diagnostics: a bypassed region is never logged, and one corrupted transaction alerts on every index sharing the journal even when nothing is lost. **Deliberately not tracked as a ticket** (decision 2026-08-10) - recorded here only |
+| [F-2](F-2-silent-journalid-loss.md) | `JournalId` corruption on a tail transaction drops it with no error. **Deliberately not tracked as a ticket** (decision 2026-08-10) - recorded here only |
+| Encrypted-DB variant | **never run**, on either platform. In the original scope (attack surface 3 in [../00-REFERENCE.md](../00-REFERENCE.md)): corrupt -> decrypt-failure path in `JournalReader.TryValidateTransaction`. Needs a server built with `-p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP` plus encrypted-DB setup. Expected to show the same owner-only isolation surfaced as a decrypt failure - a **prediction, not a measurement**. Deferred 2026-08-10, to be run later |
