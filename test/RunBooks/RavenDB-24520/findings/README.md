@@ -27,9 +27,10 @@ Two findings (F-5, F-7) died on this after looking serious at Voron level. **Re-
 
 ## Environment (all findings)
 
-- Windows 11, branch v8.0-derived (`RavenDB-24520`, based on the tip of `RavenDB-27166`), .NET 10.
+- Windows 11, branch v8.0-derived (`RavenDB-24520`, based on the tip of `RavenDB-27166`), .NET 10. Findings were **found** here.
 - Golden DB = StackOverflow small, sampled 1/50 during import: ~130k docs, 6 map / map-reduce indexes over the `Questions` and `Users` collections. Shared journals engaged: all 6 index environments hard-linked to the per-database `@SharedJournals` root; the active journal is linked by all 6 branches + the root.
 - Real disk-full corroboration used an external F: volume (16 GB NTFS).
+- **Re-run end to end on Linux 2026-08-10** (kernel 6.8, .NET SDK 10.0.302, ext4) at `80448c3c203`, disk-full on a 5 GB ext4 loop device. The golden seeded to a byte-comparable baseline (130,534 / 136,534 docs, 9 inode groups) and **all 16 corruption cells reproduced identically**, so the findings below are cross-platform unless a file says otherwise. No behavioral divergence was found; the Linux pass did surface three *harness* bugs, all recorded in [../20-LINUX-runbook.md](../20-LINUX-runbook.md). Note that Linux additionally allows corrupting a journal a running server holds open (no mandatory locking) - that scenario produced no new finding.
 
 ## Harness (test/Tryouts/RavenDB_24520/)
 
@@ -38,7 +39,9 @@ Two findings (F-5, F-7) died on this after looking serious at Voron level. **Re-
 Build: `dotnet build test/Tryouts -c Release`
 Run:   `dotnet run --project test/Tryouts -c Release --no-build -- <command>`
 
-Commands: `seed [nPostsDumps]`, `map [dir]`, `status [dir]`, `restore-work`, `verify [dir]`, `cell <name> <op> <ownerFilter> <which> [fileSelector]`, `diskfull <dir> <leaveMB>`, `server [dir]`.
+Commands: `seed [nPostsDumps]`, `map [dir]`, `status [dir]`, `restore-work`, `verify [dir]`, `cell <name> <op> <ownerFilter> <which> [fileSelector]`, `corrupt-live <name> <op> <ownerFilter> <which> [fileSelector] [--probe passive|reload|both] [--observe <sec>]`, `diskfull <dir> <leaveMB>`, `server [dir]`.
+
+`corrupt-live` (added 2026-08-10, Linux) corrupts a journal **while the server holds it open** and watches for live detection before hard-killing and verifying. Read the Scenario 1G section of the Linux runbook before using it - three separate ways to get a meaningless clean result are documented there.
 
 Env overrides: `RAVEN_24520_BASE` (default `D:\temp\24520`), `RAVEN_24520_DUMPS`, `RAVEN_24520_INDEXES`, `RAVEN_24520_SAMPLE` (default 50), `RAVEN_24520_EXTRA_ARGS` (extra server args).
 

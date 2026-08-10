@@ -4,6 +4,7 @@
 **Status: FIXED** - root-caused and fixed under [RavenDB-27156](http://issues.ravendb.net/issue/RavenDB-27156) + [RavenDB-27166](http://issues.ravendb.net/issue/RavenDB-27166).
 **Evidence:** observed (crash + dumps), root cause confirmed by the fix.
 **Shared context:** see [README.md](README.md).
+**Cross-platform:** re-validated on Linux 2026-08-10 - the AV loop ran **12/12 clean, 0 crashes** (checking both exit codes >128 and `SIGSEGV`/fatal markers in the log, since `dotnet test` can report a child crash as a plain exit 1), and no server process died in any of the 16 corruption cells or any disk-full run. Note the Linux disk-full runs did **not** exercise the 27156 poisoning path - the ENOSPC race landed on a branch's `Raven.voron` data-pager growth all three times - so the AV loop is the whole of the Linux evidence here. That is by design: the runbooks already treat the loop, not a real disk-full, as the deterministic gate.
 
 ## Claim (as originally found)
 

@@ -5,6 +5,17 @@
 
 The filed issue is scoped **only** to the error message. Two things below are deliberately outside it and remain unfiled: whether a missing *already-synced* journal needs to be fatal at all, and the active-versus-old deletion asymmetry.
 
+**Reproduced on Linux 2026-08-10** with the identical cause, not merely the identical outcome - cell `1F-delete-old` failed the whole database with
+
+```
+InvalidJournalException: No such journal '/tmp/24520/work/Databases/so/Indexes/@SharedJournals/Journals/0000000000000000001.journal'.
+Journal details: LastSyncedJournal - 1, LastSyncedTransactionId - 2, Flags - None
+```
+
+and no remedy in the message, as described below (that branch does not carry the RavenDB-27293 fix). The escape hatch behaved identically: `--Storage.Dangerous.IgnoreInvalidJournalErrors=true` recovered fully - 136,534 docs exact, all 6 indexes `State=Normal` at baseline entry counts, `verify => OK`. This was the **only** non-clean cell of the 16 on Linux, matching Windows.
+
+Practical note when re-checking this cell: every `cell` invocation deletes `LogsDir` on entry, so the server log that proves the cause is destroyed by the *next* cell. Re-run the cell alone and read `$RAVEN_24520_BASE/logs` before running anything else.
+
 ## The fix on the RavenDB-27293 branch (not in this branch's history)
 
 Two edits, required together because `StorageLoader`'s switch has a `default:` arm that throws `ArgumentException($"Unknown storage type: {type}")` - routing without adding the case would replace an unhelpful message with a misleading one:
