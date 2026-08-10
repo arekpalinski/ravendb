@@ -1,7 +1,22 @@
 # F-9 - A missing journal file in the shared root's directory fails the whole database load
 
 **Severity:** medium-low. Total loss of database availability, but there is an escape hatch that **works**, and no data is lost. The complaint is that the error does not mention the escape hatch.
-**Status:** open - not filed. Found 2026-08-07 during the post-27278 matrix re-baseline (cell `1F-delete-old`).
+**Status:** the diagnostics half is **filed as [RavenDB-27293](https://issues.hibernatingrhinos.com/issue/RavenDB-27293)** (2026-08-10) and a PR is open from the `RavenDB-27293` branch. Found 2026-08-07 during the post-27278 matrix re-baseline (cell `1F-delete-old`).
+
+The filed issue is scoped **only** to the error message. Two things below are deliberately outside it and remain unfiled: whether a missing *already-synced* journal needs to be fatal at all, and the active-versus-old deletion asymmetry.
+
+## The fix on the RavenDB-27293 branch (not in this branch's history)
+
+Two edits, required together because `StorageLoader`'s switch has a `default:` arm that throws `ArgumentException($"Unknown storage type: {type}")` - routing without adding the case would replace an unhelpful message with a misleading one:
+
+1. `SharedIndexJournals.cs` - open the root via `StorageLoader.OpenEnvironment(options, StorageEnvironmentWithType.StorageEnvironmentType.SharedJournals)` instead of `new StorageEnvironment(options)`. The enum member already existed but nothing handled it. Incidentally fixes an options leak, since `OpenEnvironment` disposes `options` when the open throws.
+2. `StorageLoader.cs` - add `case SharedJournals:` explaining that this storage holds journal bookkeeping shared by all indexes, that the database cannot load without it, and giving the dangerous-mode command line. Voron's low-level text is unchanged and still appended as `Error details:`.
+
+Test: `SlowTests.Voron.Issues.RavenDB_27293` - a server-level test that deletes the root's `LastSyncedJournal` and asserts the remedy reaches the operator. It pins the **routing** as well as the message, so the case cannot survive while the root reverts to opening the environment directly. Verified failing before the fix and passing after.
+
+Note the message deliberately does **not** advise resetting indexes afterwards, unlike the `Index` and `System` cases. Measured twice (F-4 cell `3B-ignoreflag-first` and the F-9 flag run below): with the dangerous flag the indexes recover to exact baseline entry counts with zero errors and no reset, because index content is derived from documents.
+
+Also left out of the message because **unverified**: deleting the whole `@SharedJournals` directory, and `Indexing.DisableSharedJournals=true`.
 **Evidence:** observed (server level, 3 runs: no flag, with flag, message capture).
 **Shared context:** see [README.md](README.md). This is the F-7 mechanism reached by a route that actually occurs - see [F-7](F-7-root-owned-corruption-blast-radius.md), whose own claim was refuted.
 
