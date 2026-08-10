@@ -62,6 +62,8 @@ public static class Harness
                 return 0;
             case "cell":
                 return await Scenarios.RunCellAsync(args);
+            case "corrupt-live":
+                return await Scenarios.RunCorruptLiveAsync(args);
             case "server":
                 // manual mode: start a server on the work dir and leave it running until ENTER
                 using (var s = ServerProcess.Start(args.Length > 1 ? args[1] : WorkDir))
@@ -83,6 +85,9 @@ public static class Harness
                       restore-work           reset work dir from golden (re-creating hard links)
                       cell <name> <op> <ownerFilter> <which> [fileSelector]
                                              restore-work -> corrupt one target -> verify -> record finding
+                      corrupt-live <name> <op> <ownerFilter> <which> [fileSelector] [--probe passive|reset|both] [--observe <sec>]
+                                             Scenario 1G (Linux): corrupt a journal WHILE the server holds it
+                                             open, watch for live detection, then restart + verify
                       server [dir]           start server on dir, wait for ENTER, kill
                       verify [dir]           start server on dir, report DB load / index states / doc count
                       diskfull <dir> <leaveMB>  real disk-full drive against the index shared-journal path
@@ -180,7 +185,7 @@ public static class Harness
         Console.WriteLine($"[seed] staged {posts.Count} dump files");
     }
 
-    private static async Task WriteBurstAsync(IDocumentStore store, int count, int startOffset = 0)
+    public static async Task WriteBurstAsync(IDocumentStore store, int count, int startOffset = 0)
     {
         // write into the collections the SO indexes actually map over, so all 6 indexes get fresh work
         using (var bulk = store.BulkInsert(DbName, new BulkInsertOptions()))
@@ -438,8 +443,11 @@ public static class Harness
     {
         var dir = args.Length > 1 ? args[1] : WorkDir;
         var leaveMb = args.Length > 2 ? long.Parse(args[2]) : 30;
-        var root = Path.GetPathRoot(Path.GetFullPath(dir));
+        var root = GetVolumeRoot(dir);
         var balloon = Path.Combine(root, "rdb24520-balloon.bin");
+        // Print it: getting this wrong silently balloons the wrong device and produces an INCONCLUSIVE run
+        // that reads like a pass. See GetVolumeRoot.
+        Console.WriteLine($"[diskfull] data dir {dir} lives on volume '{root}'; balloon file {balloon}");
 
         // The VERDICT below is derived by counting matches across every *.log in LogsDir, so a previous run's
         // entries would be attributed to this one. That produced a false "ENOSPC reached and handled
@@ -457,11 +465,23 @@ public static class Harness
         var balloonSize = free - leaveMb * 1024 * 1024;
         Console.WriteLine($"[diskfull] free={free / 1024 / 1024}MB, ballooning {balloonSize / 1024 / 1024}MB to leave ~{leaveMb}MB");
         if (balloonSize > 0)
+            AllocateBalloon(balloon, balloonSize);
+
+        var freeAfter = new DriveInfo(root).AvailableFreeSpace;
+        Console.WriteLine($"[diskfull] free after balloon: {freeAfter / 1024 / 1024}MB");
+
+        // Fail loudly if the balloon did not actually take the space. A sparse balloon leaves the volume
+        // empty, every write succeeds, and the run ends up reporting INCONCLUSIVE - which is easy to
+        // misread as "the disk-full path is fine". Better to say the harness failed.
+        if (balloonSize > 0 && freeAfter > leaveMb * 1024 * 1024 * 4)
         {
-            using (var fs = new FileStream(balloon, FileMode.Create, FileAccess.Write))
-                fs.SetLength(balloonSize);
+            Console.WriteLine($"[diskfull] BALLOON DID NOT CONSUME SPACE ({freeAfter / 1024 / 1024}MB still free after asking for {balloonSize / 1024 / 1024}MB). " +
+                              "The run cannot reach ENOSPC - aborting instead of reporting a meaningless verdict.");
+            if (File.Exists(balloon))
+                File.Delete(balloon);
+            server.Kill();
+            return 1;
         }
-        Console.WriteLine($"[diskfull] free after balloon: {new DriveInfo(root).AvailableFreeSpace / 1024 / 1024}MB");
 
         string outcome = "no failure observed";
         try
@@ -525,7 +545,7 @@ public static class Harness
         return 0;
     }
 
-    private static int CountLogMatches(params string[] needles)
+    public static int CountLogMatches(params string[] needles)
     {
         if (Directory.Exists(LogsDir) == false)
             return 0;
@@ -615,6 +635,68 @@ public static class Harness
             Directory.CreateDirectory(Path.Combine(dst, Path.GetRelativePath(src, dir)));
         foreach (var file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
             File.Copy(file, Path.Combine(dst, Path.GetRelativePath(src, file)));
+    }
+
+    // Creates a balloon file that REALLY consumes `size` bytes on its volume.
+    //
+    // FileStream.SetLength suffices on Windows, where NTFS allocates clusters as a file is extended, but it
+    // is a no-op on Linux: it calls ftruncate(2), which only sets i_size and allocates no blocks. Measured
+    // on ext4 here - a 1 GB SetLength moved available space by 0 MB, while posix_fallocate of the same size
+    // consumed the full 1024 MB. Using SetLength on Linux means the volume never fills and the disk-full
+    // scenario silently cannot reach ENOSPC, whatever leaveMB is set to.
+    private static void AllocateBalloon(string path, long size)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            using var win = new FileStream(path, FileMode.Create, FileAccess.Write);
+            win.SetLength(size);
+            return;
+        }
+
+        using (var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write))
+        {
+            var rc = posix_fallocate((int)handle.DangerousGetHandle(), 0, size);
+            if (rc == 0)
+                return;
+            Console.WriteLine($"[diskfull] posix_fallocate failed (rc={rc}); falling back to writing zeros");
+        }
+
+        // Fallback for filesystems without fallocate support: write real bytes.
+        using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
+        var buffer = new byte[8 * 1024 * 1024];
+        long written = 0;
+        while (written < size)
+        {
+            var chunk = (int)Math.Min(buffer.Length, size - written);
+            fs.Write(buffer, 0, chunk);
+            written += chunk;
+        }
+        fs.Flush(flushToDisk: true);
+    }
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int posix_fallocate(int fd, long offset, long len);
+
+    // The volume that actually holds `path` - used to place the disk-full balloon and to measure free space.
+    //
+    // Path.GetPathRoot is correct on Windows ("C:\") but useless on Linux: it always returns "/", regardless
+    // of which filesystem the data dir is on. That breaks the disk-full scenario twice over - the balloon
+    // lands in "/", which a normal user cannot write (so the run dies before filling anything), and the free
+    // space is measured on the root filesystem instead of the volume under test. Ask the OS for the real
+    // mount point instead; `stat` is already a harness dependency (inode identity, link counts).
+    public static string GetVolumeRoot(string path)
+    {
+        var full = Path.GetFullPath(path);
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return Path.GetPathRoot(full);
+
+        var psi = new ProcessStartInfo("stat", $"-c %m \"{full}\"") { RedirectStandardOutput = true };
+        using var p = Process.Start(psi);
+        var output = p.StandardOutput.ReadToEnd().Trim();
+        p.WaitForExit();
+        return string.IsNullOrWhiteSpace(output) || Directory.Exists(output) == false
+            ? Path.GetPathRoot(full)
+            : output;
     }
 
     public static bool TryHardLink(string existing, string newLink)
