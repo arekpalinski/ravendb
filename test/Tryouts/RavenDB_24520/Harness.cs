@@ -537,8 +537,11 @@ public static class Harness
         // (DiskFullException / catastrophic failure -> DB unload) without any index sitting in Error
         // by the time we poll. Decide from the logs, and say so explicitly when the disk never
         // actually filled - otherwise an inconclusive run reads like a pass.
-        var logHits = CountLogMatches("not enough space", "DiskFullException", "Errno: 112");
-        var fatalHits = CountLogMatches("FATAL");
+        var logHits = CountLogMatches("not enough space", "DiskFullException", "Errno: 112", "Errno: 28");
+        // Match the log-LEVEL column, not the bare word: CountLogMatches is case-insensitive substring, and
+        // the server's own startup banner ("Logging to '...' set to [Info, Fatal] level.") therefore counted
+        // as a FATAL on every single run, inflating this number by 1 even when nothing fatal happened.
+        var fatalHits = CountLogMatches("|FATAL|");
         Console.WriteLine($"[diskfull] VERDICT: {(crashed ? "SERVER CRASHED (F-3-class regression!)" : logHits > 0 ? $"ENOSPC reached and handled gracefully ({logHits} disk-full log entries, {fatalHits} FATAL, server alive)" : "INCONCLUSIVE - the disk never actually filled (no disk-full entries in the logs); re-run with a smaller leaveMB")}");
 
         ScanServerLogs();

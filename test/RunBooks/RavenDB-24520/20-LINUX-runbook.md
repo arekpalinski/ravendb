@@ -153,10 +153,50 @@ Both made `diskfull` structurally incapable of reaching ENOSPC on Linux, and bot
 Treat any pre-2026-08-10 Linux `diskfull` result as invalid - it could not have filled anything.
 
 Then:
-- [ ] `... -- seed 2` (golden on the loop volume, so hard links form there)
-- [ ] `... -- restore-work`
-- [ ] `... -- diskfull /tmp/rdb-diskfull/24520/work 100` -> expect `VERDICT: ENOSPC reached and handled gracefully`
-- [ ] `... -- verify /tmp/rdb-diskfull/24520/work` after the balloon is freed -> expect exact recovery, no data loss
+- [x] `... -- seed 2` (golden on the loop volume, so hard links form there) -> 9 inode groups / 28 files
+- [x] `... -- restore-work` -> 19 links re-created in 9 groups
+- [x] `... -- diskfull /tmp/rdb-diskfull/24520/work 100` -> `VERDICT: ENOSPC reached and handled gracefully (2 disk-full log entries, 1 FATAL, server alive)`
+- [x] `... -- verify /tmp/rdb-diskfull/24520/work` after the balloon is freed -> exact recovery, `=> OK`
+
+### LINUX RESULT (2026-08-10): graceful ENOSPC + exact recovery, but 27156 was NOT exercised
+
+The balloon consumed 2093 MB and left **99 MB free** on the loop volume (real ENOSPC conditions - impossible before the `posix_fallocate` fix above). Recovery after the balloon was released matches Windows almost exactly:
+
+| | Linux 2026-08-10 | Windows 2026-08-05 / 08-07 |
+|---|---|---|
+| docs | **152,534** | 152,534 |
+| Users/Search | 130,677 | 130,677 |
+| Questions/Search | 21,857 | 21,857 |
+| Questions/Tags | 5,350 | 5,350 |
+| Questions/Tags/ByMonths | 10,755 | 10,756 |
+| Activity/ByMonth, Users/Registrations/ByMonth | 129, 129 | 129, 129 |
+| harness verdict | `=> OK` | `PROBLEMS FOUND` (retained historical index error) |
+
+**Server stayed alive, no SIGSEGV - no F-3 regression.** Linux was marginally cleaner than Windows here: `verify` returned a straight `OK` with no retained historical index error.
+
+**But the failure landed somewhere new, and the 27156 poisoning did not fire.** Checked the correct way (`SharedJournalState.SetException` / `MarkCatastrophicFailure` / `SetCatastrophicFailure`): **zero** occurrences, no `CatastrophicFailureHandler` unload, no FATAL stack. Both ENOSPC hits were on a **branch environment's own data file**:
+
+```
+Users/Registrations/ByMonth | The disk is full! | DiskFullException: Failed to increase file
+  '.../Indexes/Users_Registrations_ByMonth/Raven.voron' to 32 MBytes. Errno: 28 FailCode=FailAllocFile
+Activity/ByMonth            | ... '.../Indexes/Activity_ByMonth/Raven.voron' to 16 MBytes
+```
+
+That is a **third landing site** beyond the two the Windows notes list - not the root's merged journal write (which reaches `SetException` and exercises 27156), and not a compression buffer, but the branch's `Raven.voron` data-pager growth during flush. It was absorbed by the index-level disk-full handling and never escalated to the root.
+
+So this run is a **graceful-degradation pass and nothing more**: it is not evidence for or against 27156, and in terms of *where* it landed it resembles the pre-fix 2026-07-23 Windows run. This is exactly why the Windows runbook says not to treat a real disk-full as *the* validation for 27156 - the deterministic gate is the AV loop, 12/12 clean here.
+
+**Two further attempts at `leaveMB=60` (tighter, to bias the failing allocation toward the merged write) landed identically.** All three runs on this box:
+
+| Attempt | leaveMB | Verdict | Landing site | Poisoning markers | Server |
+|---|---|---|---|---|---|
+| 1 | 100 | ENOSPC, graceful (2 entries) | branch `Raven.voron` growth | 0 | alive |
+| 2 | 60 | ENOSPC, graceful (4 entries) | branch `Raven.voron` growth | 0 | alive |
+| 3 | 60 | ENOSPC, graceful (4 entries) | branch `Raven.voron` growth (4x) | 0 | alive |
+
+Never `FlushMergedJournalEntries` / `NextFile` / `CreateJournalWriter`, never a `CatastrophicFailureHandler` unload. On this box the race resolves consistently to the branch data pager, unlike both Windows runs. Plausible reason: the index `Raven.voron` files here still need to *grow* (16 -> 32 MB) during the post-reset rebuild, so a data-pager allocation is the first thing to fail, before the journal ever needs a new file. **If a future run needs to exercise 27156 on Linux, use the `SimulatePartialJournalWriteFailure` seam rather than hoping the race lands right.**
+
+**Harness caveat found here - the `FATAL` count in the VERDICT line was inflated by 1 on every run ever recorded, Windows included.** `CountLogMatches` is case-insensitive substring matching, and the server's own startup banner reads `Logging to '...' set to [Info, Fatal] level.`, so the word "Fatal" in the *log-level configuration* was counted as a fatal entry. These runs reported "1 FATAL" while genuine FATAL-level entries (`|FATAL|`) numbered **0**. Fixed to match the log-level column. Re-read the Windows verdicts with this in mind: "9 FATAL" was 8, "3 FATAL" was 2. `Errno: 28` (Linux ENOSPC) was also added to the disk-full needles, which previously only listed the Windows `Errno: 112`.
 
 Expected (matching Windows 2026-08-07): graceful `DiskFullException` (ENOSPC) -> `SharedJournalState.SetException` poisons every participant -> one `CatastrophicFailureHandler` DB unload -> **server alive**, then exact recovery. A process crash (exit 139 / SIGSEGV on Linux) would mean F-3 regressed.
 
