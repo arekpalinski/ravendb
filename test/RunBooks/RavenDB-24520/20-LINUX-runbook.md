@@ -273,6 +273,35 @@ Aiming it needs care. The victim must be a transaction its owner has **already s
 
 This also **refines F-7's mechanism**. F-7 attributed already-synced corruption being benign to the unvalidated skip at `JournalReader.cs:105` (`IsAlreadySyncTransaction`). There are in fact **two independent tolerances**: that skip, and this flag, which gates five further sites in `TryValidateTransaction` / `VerifyTransactionSequence` / `ValidatePagesHash` - bad payload hash, decrypt failure, transaction-sequence gap, invalid `LastPageNumber`, and negative/oversized transaction size. Only the flag-based one is visible in the log, via `InvokeIntegrityErrorOfAlreadySyncedData`.
 
+## Scenario 3 - encrypted database variant (run 2026-08-11, Linux)
+
+Setup per [00-REFERENCE.md](00-REFERENCE.md#encrypted-variant-raven_24520_encrypted1). Phase 0 is **byte-comparable to the plain golden**, which is what makes the cell comparison meaningful: docs 130,534 / **136,534**, **9 inode groups / 26 files**, active journal linked by all 6 branches + the root (`links=7`), `restore-work` re-created 17 links, and `verify` returned `=> OK` with every entry count identical to the plain run (Activity/ByMonth 129, Questions/Search 13,857, Questions/Tags 5,350, Questions/Tags/ByMonths 10,744, Users/Registrations/ByMonth 129, Users/Search 122,677). `map` reported **125 transactions encrypted, 0 `INVALID`**. The secret key lives in the server store inside `DataDir` and survived `golden` -> `work` copying with no extra setup.
+
+| Cell | Plain result | Encrypted result | Same? |
+|---|---|---|---|
+| `payload Users_Search first shared` (tx has later own txs) | owner only - Users/Search `entries=0` | **owner only** - Users/Search `entries=0`, surfaced as `Could not open index ... Users_Search` (8 errors) | yes |
+| `payload Questions_Tags last shared` (tail) | clean, 0 resets | clean, all indexes full - **but 7 FATAL log entries** | outcome yes, diagnostics no |
+| `journalid Questions_Search last shared` | clean load, **silent** tx drop (F-2) | clean load, **silent** tx drop, 0 errors | yes |
+| `hash Questions_Search last shared` | clean | clean, 0 errors - **the op is inert here** (see below) | yes, vacuously |
+
+**Verdict: no new finding. Encrypted shared journals behave exactly like plain ones**, with the same owner-only isolation and the same benign tail truncation. Documents were never at risk (136,534 exact in every cell).
+
+Three mechanisms worth knowing, all derived from `JournalReader.DecryptTransaction` + `TransactionHeader`:
+
+1. **Only the first 40 bytes of the transaction header are authenticated.** The AEAD call passes `ad = page` with `adlen = TransactionHeader.SizeOf - TransactionHeader.NonceOffset` = `192 - 152` = **40**, covering `HeaderMarker` (offset 0), `TransactionId` (8) and the page-number fields up to 39. **`JournalId` sits at offset 136 and is therefore NOT authenticated.**
+2. **So the F-2 silent drop is exactly as silent under encryption**, which refutes the natural prediction that "the header is AAD, so a `journalid` flip must break the MAC". It does not: the transaction decrypts perfectly, is attributed to an unknown environment, gets filtered as foreign, and disappears without a word. (Related, already-closed ground: [F-5](findings/F-5) was withdrawn as constructed; this is not a new attack, just the confirmation that encryption adds no detection here.)
+3. **The `hash` op is inert on an encrypted environment.** `Hash` is at offset 40 - outside the AAD - and `ValidatePagesHash` is never reached on the encrypted path, because `TryValidateTransaction` branches into decryption instead. A "clean" result for `1C-hash` under encryption therefore says nothing; do not record it as evidence.
+
+**One real diagnostics difference, and it amplifies [F-6](findings/F-6-linkrecord-bypass-diagnostics.md).** Corrupting a *tail* transaction is equally benign under encryption, but where the plain run was quiet, the encrypted run logs it **FATAL, once per environment that reads past that point**:
+
+```
+FATAL |so| Index Recovery Error - @SharedJournals. Could not decrypt transaction 16. It could be not committed
+FATAL |so| Index Recovery Error - Questions_Tags_ByMonths. Could not decrypt transaction 16. ...
+FATAL |so| Index Recovery Error - Questions_Tags. Could not decrypt transaction 16. ...
+```
+
+Seven FATAL entries for a corruption that cost nothing - every index recovered to full entry counts and `verify` returned `OK`. That is precisely F-6's complaint (one corrupted transaction alerting every index sharing the journal even when nothing is lost), except at FATAL severity. An operator reading only the log would reasonably conclude the database was in serious trouble. Worth remembering when triaging an encrypted deployment.
+
 ## Notes / observations
 
 Box for the 2026-08-10 run: Linux 6.8.0-1059-azure, .NET SDK 10.0.302, 12 cores / 11 GB RAM, a single ext4 `/dev/sda1`. Branch `RavenDB-24520` at `80448c3c203` (`git merge-base --is-ancestor 5e4f97e32d5 HEAD` passes, so the 27156 fixes are in).

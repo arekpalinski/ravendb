@@ -5,6 +5,9 @@
 **Evidence:** observed.
 **Shared context:** see [README.md](README.md).
 
+
+**Encryption does not help (measured on Linux, 2026-08-11).** The natural hope is that an encrypted environment would catch this, since the transaction header is the AEAD's associated data. It does not: the AAD length is `TransactionHeader.SizeOf - TransactionHeader.NonceOffset` = `192 - 152` = **40 bytes**, covering only `HeaderMarker`, `TransactionId` and the page-number fields. **`JournalId` is at offset 136, outside the authenticated range**, so flipping it leaves the MAC valid - the transaction decrypts cleanly, is attributed to an unknown environment, is filtered as foreign, and is dropped with no error, exactly as on a plain database. Verified with `cell journalid Questions_Search last shared` on an encrypted golden: clean load, zero errors in the log.
+
 ## Claim
 
 Corrupting the `JournalId` field (offset 136, 16 bytes) of the last transaction in a shared journal produces a completely clean startup - the DB loads, no recovery error is logged, no index is faulted - but that transaction is silently reassigned to a bogus environment and dropped. Its real owner never replays it, so a committed change is silently lost with no signal at all.

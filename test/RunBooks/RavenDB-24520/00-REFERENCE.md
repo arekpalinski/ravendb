@@ -48,11 +48,16 @@ Environment overrides:
 
 Corruption then surfaces as a decrypt/MAC failure instead of a hash mismatch. Three prerequisites, and the first one bites hard:
 
-1. **Build the server with the flag AND `--no-incremental`:**
+1. **Build in this order, and use `--no-incremental`:**
    ```
-   dotnet build src/Raven.Server -c Release -p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP --no-incremental
+   dotnet build test/Tryouts -c Release                                  # FIRST
+   dotnet build src/Raven.Server -c Release -p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP --no-incremental   # LAST
    ```
-   Without `--no-incremental` MSBuild reports `Build succeeded` in seconds **without recompiling** - a changed property does not invalidate its up-to-date check - so the define never reaches the binary. It then fails at runtime with `Database so is encrypted and requires 1 node(s) which supports SSL. There are 0 such node(s)`, which looks like the feature flag not working. The tell that it really compiled is a `Raven.Server -> ...dll` line in the build output. The gate is `Server.AllowEncryptedDatabasesOverHttp`, read in `ServerStore.cs`.
+   Two independent traps here, and **both produce the same runtime error** as a missing license:
+   - Building `test/Tryouts` compiles `src/Raven.Server` as a dependency **without** the property, silently stripping the define. So the flagged build must come last, and must be repeated after any later Tryouts rebuild.
+   - Without `--no-incremental`, MSBuild reports `Build succeeded` in seconds **without recompiling** - a changed property does not invalidate its up-to-date check - so the define never reaches the binary at all.
+
+   All three failures surface as `Database so is encrypted and requires 1 node(s) which supports SSL. There are 0 such node(s) available in the cluster.` Diagnose in order: did the flagged build emit a `Raven.Server -> ...dll` line? was anything built after it? only then suspect the license. The gate is `Server.AllowEncryptedDatabasesOverHttp`, read in `ServerStore.cs`.
 2. **A license** - encryption is a licensed feature. Write one to a file and pass `RAVEN_24520_EXTRA_ARGS=--License.Path=<file>`.
 3. The harness then does the rest during `seed`: `POST /admin/cluster/bootstrap` (to leave passive state, which `PutSecretKey` requires), generates a 256-bit key and installs it via `POST /admin/secrets?name=so&overwrite=true` with the base64 key as the raw body, then creates the database with `Encrypted = true`. The key is also written to `<BASE>/secret.key.base64`.
 
