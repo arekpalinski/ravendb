@@ -191,7 +191,21 @@ A second `diskfull` invocation at `leaveMB=300` reported `ENOSPC reached and han
 - [x] Break inode sharing with identical content - clean (cell 1F-diverge).
 - [x] Dangerous recovery flag - `$env:RAVEN_24520_EXTRA_ARGS='--Storage.Dangerous.IgnoreInvalidJournalErrors=true'` then rerun a payload cell -> skips the invalid journal, fewer indexes reset, but **silent partial data loss** (F-4).
 - [x] `--Storage.IgnoreDataIntegrityErrorsOfAlreadySyncedTransactions` variant - **run on Linux 2026-08-10, see [20-LINUX-runbook.md](20-LINUX-runbook.md)**. Note the flag is `[DefaultValue(true)]`, so testing it "=true" tests the default and shows nothing; the real comparison is `=false`. Outcome: it changes only the diagnostics (a real `Invalid hash signature` recovery error vs an "already synced ... Safely continuing" notice) - the database loads and every index recovers to the exact baseline either way. Product behavior, not platform-specific.
-- [ ] Encrypted DB variant (corrupt -> decrypt-failure path in `JournalReader.TryValidateTransaction`). Needs a server built with `-p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP` + encrypted DB setup (cluster bootstrap -> PutSecretKey -> CreateDatabase Encrypted=true). Expected: same cross-index cascade, surfaced as a decrypt failure. NOT YET RUN.
+- [ ] **Encrypted DB variant - harness support is committed, the run is still pending.** Corrupt -> decrypt-failure path in `JournalReader.TryValidateTransaction`.
+
+  Driven by `RAVEN_24520_ENCRYPTED=1`; `seed` does the cluster bootstrap -> `PutSecretKey` -> `CreateDatabase Encrypted=true` sequence itself. Full prerequisites and gotchas in [00-REFERENCE.md](00-REFERENCE.md#encrypted-variant-raven_24520_encrypted1). The two that cost the most time:
+
+  ```
+  rem the flag does NOT take effect without --no-incremental (MSBuild sees the project as up to date)
+  dotnet build src\Raven.Server -c Release -p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP --no-incremental
+  set RAVEN_24520_ENCRYPTED=1
+  set RAVEN_24520_EXTRA_ARGS=--License.Path=C:\path\to\license.json
+  ```
+  A missing license or a stale build both surface as `Database so is encrypted and requires 1 node(s) which supports SSL`, which is misleading - check the build emitted `Raven.Server -> ...dll` before blaming the license.
+
+  Status as of 2026-08-10 (Linux): proven up to database creation and document import; **not yet verified** through hard-kill -> `verify` -> corruption cells. Expected: the same owner-only isolation as the plain matrix, surfaced as `Unable to decrypt data of transaction ...` instead of `Invalid hash signature`.
+
+  Worth testing first, because it is the one thing the plain matrix cannot show: the transaction header is the AEAD's **associated data**, so corrupting header fields breaks the MAC too. Ops that are benign or *silent* on a plain database - notably the `journalid` flip behind [F-2](findings/F-2-silent-journalid-loss.md) - should become **loud** under encryption. Remember the encrypted golden is not portable between machines or user accounts (DPAPI-scoped store protection on Windows), so seed one locally rather than copying.
 
 ## Notes / observations
 

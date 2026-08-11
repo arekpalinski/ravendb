@@ -40,6 +40,12 @@ public static class Harness
     public const int Port = 8580;
     public static string Url => $"http://127.0.0.1:{Port}";
 
+    // Encrypted-database variant (attack surface 3): corruption then surfaces as a decrypt/MAC failure rather
+    // than a hash mismatch. Requires a server built with -p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP,
+    // because we talk plain HTTP to 127.0.0.1, and a license, because encryption is a licensed feature - pass
+    // one with RAVEN_24520_EXTRA_ARGS='--License.Path=/path/to/license.json'.
+    public static readonly bool Encrypted = Environment.GetEnvironmentVariable("RAVEN_24520_ENCRYPTED") is "1" or "true";
+
     // keep 1/SampleModulo of documents (by numeric id) so the whole DB stays small enough to copy per cell
     public static readonly int SampleModulo = int.Parse(Environment.GetEnvironmentVariable("RAVEN_24520_SAMPLE") ?? "50");
 
@@ -100,6 +106,13 @@ public static class Harness
                       server [dir]           start server on dir, wait for ENTER, kill
                       verify [dir]           start server on dir, report DB load / index states / doc count
                       diskfull <dir> <leaveMB>  real disk-full drive against the index shared-journal path
+
+                    env: RAVEN_24520_BASE / _DUMPS / _INDEXES / _SAMPLE / _EXTRA_ARGS
+                         RAVEN_24520_JOURNAL_MB  journal size (default 16; use 4 to push disk-full into the merged write)
+                         RAVEN_24520_LOGS        log dir (keep it OFF the volume under test for disk-full runs)
+                         RAVEN_24520_ENCRYPTED=1 seed an encrypted DB - needs a server built with
+                                                 -p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP --no-incremental
+                                                 and a license via _EXTRA_ARGS=--License.Path=...
                     """);
                 return 1;
         }
@@ -117,7 +130,13 @@ public static class Harness
         using (var server = ServerProcess.Start(GoldenDir))
         {
             using var store = OpenStore();
-            await store.Maintenance.Server.SendAsync(new CreateDatabaseOperation(new DatabaseRecord(DbName)));
+            var record = new DatabaseRecord(DbName);
+            if (Encrypted)
+            {
+                await SetUpEncryptionAsync();
+                record.Encrypted = true;
+            }
+            await store.Maintenance.Server.SendAsync(new CreateDatabaseOperation(record));
 
             Console.WriteLine($"[seed] importing dumps from {StagingDir} (sampling 1/{SampleModulo}) ...");
             var sw = Stopwatch.StartNew();
@@ -176,6 +195,30 @@ public static class Harness
         WriteLinkManifest(GoldenDir);
         PrintStatus(GoldenDir);
         Console.WriteLine("[seed] done. Golden dir is now read-only reference - never open a server on it.");
+    }
+
+    // Bootstrap the node out of passive state (PutSecretKey requires it), then install a fresh 256-bit master
+    // key for the database. The key is stored in the server store, which lives inside DataDir - so it travels
+    // with golden -> work copies and `verify` / `cell` need no extra setup.
+    private static async Task SetUpEncryptionAsync()
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+
+        var bootstrap = await http.PostAsync($"{Url}/admin/cluster/bootstrap", content: null);
+        Console.WriteLine($"[encrypt] cluster bootstrap -> {(int)bootstrap.StatusCode} {bootstrap.StatusCode}");
+
+        var key = new byte[32];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(key);
+        var base64 = Convert.ToBase64String(key);
+        File.WriteAllText(Path.Combine(BaseDir, "secret.key.base64"), base64); // for manual poking / restores
+
+        var put = await http.PostAsync($"{Url}/admin/secrets?name={DbName}&overwrite=true", new StringContent(base64));
+        var body = await put.Content.ReadAsStringAsync();
+        Console.WriteLine($"[encrypt] put secret key -> {(int)put.StatusCode} {put.StatusCode} {FirstLine(body)}");
+        if (put.IsSuccessStatusCode == false)
+            throw new InvalidOperationException(
+                $"Could not install the secret key ({(int)put.StatusCode}). Encrypted runs need a server built with " +
+                $"-p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP and a license via --License.Path. Body: {body}");
     }
 
     private static void StageDumps(int postsDumps)

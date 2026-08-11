@@ -40,6 +40,25 @@ Environment overrides:
 - `RAVEN_24520_INDEXES` SO index definitions dump (default `D:\workspace\stackoverflow-data\SO-indexes.ravendbdump`).
 - `RAVEN_24520_SAMPLE`  keep 1/N docs by numeric id (default 50) - keeps the DB small enough to copy per cell.
 - `RAVEN_24520_EXTRA_ARGS` extra server args, space-separated (e.g. dangerous recovery flags).
+- `RAVEN_24520_JOURNAL_MB` shared/branch journal size (default 16). Lower it to 4 to make the disk-full scenario reach the root's *merged write* - at 16 MB the post-reset rebuild always fails on index data-pager growth first. See the Linux runbook.
+- `RAVEN_24520_LOGS`    log directory (default `<BASE>/logs`). Point it **off** the volume under test for disk-full runs, or the verdict is computed from logs whose own writes are failing.
+- `RAVEN_24520_ENCRYPTED` `1` to seed an **encrypted** database (see below).
+
+### Encrypted variant (`RAVEN_24520_ENCRYPTED=1`)
+
+Corruption then surfaces as a decrypt/MAC failure instead of a hash mismatch. Three prerequisites, and the first one bites hard:
+
+1. **Build the server with the flag AND `--no-incremental`:**
+   ```
+   dotnet build src/Raven.Server -c Release -p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP --no-incremental
+   ```
+   Without `--no-incremental` MSBuild reports `Build succeeded` in seconds **without recompiling** - a changed property does not invalidate its up-to-date check - so the define never reaches the binary. It then fails at runtime with `Database so is encrypted and requires 1 node(s) which supports SSL. There are 0 such node(s)`, which looks like the feature flag not working. The tell that it really compiled is a `Raven.Server -> ...dll` line in the build output. The gate is `Server.AllowEncryptedDatabasesOverHttp`, read in `ServerStore.cs`.
+2. **A license** - encryption is a licensed feature. Write one to a file and pass `RAVEN_24520_EXTRA_ARGS=--License.Path=<file>`.
+3. The harness then does the rest during `seed`: `POST /admin/cluster/bootstrap` (to leave passive state, which `PutSecretKey` requires), generates a 256-bit key and installs it via `POST /admin/secrets?name=so&overwrite=true` with the base64 key as the raw body, then creates the database with `Encrypted = true`. The key is also written to `<BASE>/secret.key.base64`.
+
+The secret key lives in the server store **inside `DataDir`**, so it travels with `golden` -> `work` copies and `restore-work` / `verify` / `cell` need no extra setup on the same machine and user account. It is *not* portable across machines or users (on Windows the store's protection is DPAPI, user-scoped), so an encrypted golden cannot be moved between boxes - seed one per box.
+
+Journal parsing is unaffected: only `page + TransactionHeader.SizeOf` onward is encrypted, with the header itself used as AEAD associated data and a MAC in the header, so markers / `TransactionId` / `JournalId` stay readable and cell aiming works exactly as on a plain database. `map` prints `hash=n/a (encrypted)` for such transactions, because `header->Hash` is not a plaintext XXHash64 of a ciphertext payload - do not read that as corruption.
 
 Layout under BASE: `golden/` (read-only reference DB, hard-killed with fresh journals), `work/` (disposable copy the cells corrupt), `staging-dumps/`, `logs/`, `baseline.json`, `findings-scenario1.md`.
 

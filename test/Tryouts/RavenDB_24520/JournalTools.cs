@@ -45,10 +45,18 @@ public static unsafe class JournalTools
         public long PayloadSize => Header.CompressedSize != -1 ? Header.CompressedSize : Header.UncompressedSize;
         public bool IsLinkRecord => Header.Flags == TransactionPersistenceModeFlags.LinkedJournalsRecord;
 
+        // On an encrypted environment the payload is ciphertext and the header's Hash field is not a plain
+        // XXHash64 of it (integrity comes from the AEAD MAC instead), so HashValid is meaningless here and
+        // would otherwise print INVALID for every single transaction - which reads exactly like corruption.
+        // The header itself stays in the clear, so marker / TransactionId / JournalId - and therefore cell
+        // aiming - work the same as on an unencrypted environment.
+        public bool IsEncrypted => (Header.Flags & TransactionPersistenceModeFlags.Encrypted) == TransactionPersistenceModeFlags.Encrypted;
+
         public override string ToString()
         {
+            var hash = IsEncrypted ? "n/a (encrypted)" : HashValid ? "valid" : "INVALID";
             return $"@{ByteOffset,12:N0} ({SizeIn4Kb,4} x4KB) txId={Header.TransactionId,-12} owner={Owner,-35} " +
-                   $"payload={PayloadSize,10:N0} hash={(HashValid ? "valid" : "INVALID")}{(IsLinkRecord ? " [LINK-RECORD]" : "")}";
+                   $"payload={PayloadSize,10:N0} hash={hash}{(IsLinkRecord ? " [LINK-RECORD]" : "")}";
         }
     }
 
