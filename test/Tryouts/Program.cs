@@ -13,10 +13,27 @@ public static class Program
     {
         ["a-order-fuzz"] = AOrderFuzz.Run,
         ["a-fault-matrix"] = AFaultMatrix.Run,
+        ["a-merger-pump"] = AMergerPump.RunScenario,
         ["b-recycle-kill"] = BRecycleKill.Run,
+        ["b-tail-shapes"] = BTailShapes.Run,
+        ["b-prewarm-race"] = BPrewarmRace.Run,
         ["c-reader-soak"] = CReaderSoak.Run,
+        ["c-flush-race"] = CFlushRace.Run,
+        ["c-snapshot-model"] = CSnapshotModel.Run,
+        ["d-page-integrity"] = DPageIntegrity.Run,
+        ["d-flusher-liveness"] = DFlusherLiveness.Run,
+        ["d-drain-hammer"] = DDrainHammer.Run,
         ["e-crash-model"] = ECrashModel.Run,
+        ["e-parent-churn"] = EParentChurn.Run,
+        ["e-boundary-sweep"] = EBoundarySweep.Run,
+        ["f-span-diff"] = FSpanDiff.Run,
+        ["g-cache-assert"] = GCacheAssert.RunScenario,
+        ["g-wakeup-watchdog"] = GWakeupWatchdog.RunScenario,
+        ["h-index-stress"] = HIndexStress.Run,
         ["h-tree-model"] = HTreeModel.Run,
+        ["h-tree-minimize"] = HTreeMinimize.Run,
+        ["h-compressed-churn"] = HCompressedChurn.Run,
+        ["h-deep-cursor"] = HDeepCursor.Run,
     };
 
     public static int Main(string[] args)

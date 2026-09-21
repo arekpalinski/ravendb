@@ -78,7 +78,7 @@ namespace SlowTests.Voron.Stress
         private static int RunChild(StressContext ctx)
         {
             var dir = ctx.IterationDir(ctx.Iteration);
-            using var env = new StorageEnvironment(CreateOptions(dir));
+            using var env = new StorageEnvironment(CreateOptions(dir, ctx.Iteration));
             using var allocator = new ByteStringContext(SharedMultipleUseFlag.None);
 
             Console.WriteLine($"child up, pid {Environment.ProcessId}, dir {dir}");
@@ -120,7 +120,7 @@ namespace SlowTests.Voron.Stress
         {
             try
             {
-                using var env = new StorageEnvironment(CreateOptions(dir));
+                using var env = new StorageEnvironment(CreateOptions(dir, ctx.Iteration));
                 using var allocator = new ByteStringContext(SharedMultipleUseFlag.None);
 
                 long committed = 0;
@@ -136,7 +136,7 @@ namespace SlowTests.Voron.Stress
                 for (long t = 1; t <= committed; t++)
                     GenerateTx(ctx.Seed, t, models, (_, _, _) => { });
 
-                Console.WriteLine($"  iter {ctx.Iteration}: verified {committed} committed txs, {models.Sum(m => m.Set.Count)} live keys across {TreeCount} trees");
+                Console.WriteLine($"  iter {ctx.Iteration}{(ctx.Iteration % 2 == 1 ? " [32-bit pager]" : "")}: verified {committed} committed txs, {models.Sum(m => m.Set.Count)} live keys across {TreeCount} trees");
                 if (committed == 0)
                     ctx.VacuousIterations++;
 
@@ -271,12 +271,13 @@ namespace SlowTests.Voron.Stress
             return models;
         }
 
-        private static StorageEnvironmentOptions CreateOptions(string dir)
+        private static StorageEnvironmentOptions CreateOptions(string dir, int iteration)
         {
             var options = StorageEnvironmentOptions.ForPathForTests(dir);
             options.MaxLogFileSize = 256 * 1024; // small journals - recovery replays several
             options.ManualFlushing = true;
             options.ManualSyncing = true;
+            options.ForceUsing32BitsPager = iteration % 2 == 1; // e-32bit: every other iteration runs the 32-bit pager, child and verifier alike
             return options;
         }
 

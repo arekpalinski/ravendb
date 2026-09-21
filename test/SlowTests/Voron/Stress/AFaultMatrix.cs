@@ -63,6 +63,10 @@ namespace SlowTests.Voron.Stress
             var failAtWrite = 3 + rng.Next(28);
             var chainLength = failAtWrite + 10 + rng.Next(20);
             var delayMaxMs = 1 + rng.Next(25);
+            // every other iteration mixes >1MB transactions into the chain: those exceed the pipelining cap and take the
+            // inline path while smaller predecessors are still in flight (a-mode-flap: pipelined <-> inline flapping under failure)
+            var mixLargeTxs = ctx.Iteration % 2 == 1;
+            var sizeRng = new Random(rng.Next());
 
             var acked = new List<long>(); // tx ids whose EndAsyncCommit returned success
             var failed = new List<long>(); // tx ids whose completion threw
@@ -95,7 +99,7 @@ namespace SlowTests.Voron.Stress
                 try
                 {
                     previous = env.WriteTransaction(context);
-                    WriteTx(previous);
+                    WriteTx(previous, mixLargeTxs && sizeRng.Next(4) == 0);
                     wrote.Add(previous.LowLevelTransaction.Id);
 
                     for (var i = 1; i < chainLength; i++)
@@ -104,7 +108,7 @@ namespace SlowTests.Voron.Stress
                         inFlight.Enqueue(previous);
                         previous = current; // keep `previous` = the un-enqueued tail at every point, so the cleanup below never leaks it
 
-                        WriteTx(previous);
+                        WriteTx(previous, mixLargeTxs && sizeRng.Next(4) == 0);
                         wrote.Add(previous.LowLevelTransaction.Id);
 
                         while (inFlight.Count >= InFlightWindow)
@@ -233,7 +237,7 @@ namespace SlowTests.Voron.Stress
                 }
 
                 var resurrected = failed.FindAll(id => id < firstMissing).Count;
-                Console.WriteLine($"  iter {ctx.Iteration}: fail@{failAtWrite}, {acked.Count} acked survived, {failed.Count} failed ({resurrected} landed as ambiguous-but-prefix), prefix intact");
+                Console.WriteLine($"  iter {ctx.Iteration}: fail@{failAtWrite}{(mixLargeTxs ? " mixed-sizes" : "")}, {acked.Count} acked survived, {failed.Count} failed ({resurrected} landed as ambiguous-but-prefix), prefix intact");
             }
             catch (Exception)
             {
@@ -264,10 +268,11 @@ namespace SlowTests.Voron.Stress
             }
         }
 
-        private static void WriteTx(Transaction tx)
+        private static void WriteTx(Transaction tx, bool large)
         {
             var id = tx.LowLevelTransaction.Id;
-            tx.CreateTree("data").Add(KeyOf(id), Encoding.ASCII.GetBytes($"tx-{id}-payload-{new string('x', 256)}"));
+            var payload = large ? 1200 * 1024 : 256; // 1.2MB is past JournalWritePipeline.MaxPipelinedBatch4Kbs, forcing WriteInline for this async tx
+            tx.CreateTree("data").Add(KeyOf(id), Encoding.ASCII.GetBytes($"tx-{id}-payload-{new string((char)('a' + id % 26), payload)}"));
         }
 
         private static StorageEnvironmentOptions CreateOptions(string dir)
