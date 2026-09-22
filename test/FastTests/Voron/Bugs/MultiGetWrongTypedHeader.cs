@@ -7,22 +7,27 @@ using Xunit;
 
 namespace FastTests.Voron.Bugs
 {
-    // Guards the MultiGet half of finding f-2. AbstractMultiGetHandlerProcessorForPost used to skip a
-    // header whose value was not a string (headers.TryGet(header, out string value) == false -> continue)
-    // and now calls BlittableJsonReaderObject.ConvertType unconditionally (:236). The concern was that
-    // ConvertType throws FormatException on a value it cannot convert, on a path fed straight from the
-    // request body.
-    // Measured: it does not, for T = string. ConvertType's default branch ends at
-    // Convert.ChangeType(result, typeof(string)), which routes through Convert.ToString and falls back to
-    // the object's own ToString, so an object or an array is stringified rather than rejected. The change
-    // is real - the header is now SET to the JSON text instead of being skipped - but it is not a server
-    // error. Keeping the test so that stays true.
+    // Finding f-2, MultiGet half. AbstractMultiGetHandlerProcessorForPost used to skip a header whose
+    // value was not a string (headers.TryGet(header, out string value) == false -> continue) and now
+    // calls BlittableJsonReaderObject.ConvertType unconditionally (:236). ConvertType rejects an
+    // object-or-array/scalar mismatch with a FormatException before it ever reaches the lenient
+    // Convert.ChangeType fallback, and FormatException is not in RavenServerStartup's
+    // exception-to-status map, so the whole multi_get request answers 500.
+    //
+    // Note on the Url below: multi_get resolves each sub-request through the global router, so the Url
+    // must carry the /databases/<name> prefix the client sends. Without it every sub-request takes
+    // HandleNoRoute and returns before PrepareHttpContextAsync ever reads the headers - an earlier
+    // version of this test used "/docs" and therefore never exercised the code it was guarding.
     public class MultiGetWrongTypedHeader(ITestOutputHelper output) : RavenTestBase(output)
     {
         [RavenTheory(RavenTestCategory.ClientApi)]
         [InlineData("\"a string\"", "a string value is fine on both sides")]
+        [InlineData("12345", "a number where a string is expected")]
+        [InlineData("true", "a boolean where a string is expected")]
         [InlineData("{\"nested\":1}", "an object where a string is expected")]
+        [InlineData("{}", "an empty object where a string is expected")]
         [InlineData("[1,2,3]", "an array where a string is expected")]
+        [InlineData("[]", "an empty array where a string is expected")]
         public async Task AWrongTypedHeaderValueMustNotProduceAServerError(string headerValueJson, string what)
         {
             using var store = GetDocumentStore();
@@ -31,7 +36,7 @@ namespace FastTests.Voron.Bugs
                 {
                   "Requests": [
                     {
-                      "Url": "/docs",
+                      "Url": "/databases/{{store.Database}}/docs",
                       "Query": "?id=users/1",
                       "Method": "GET",
                       "Headers": { "X-Probe": {{headerValueJson}} }
@@ -45,8 +50,12 @@ namespace FastTests.Voron.Bugs
             using var response = await client.PostAsync(url, new StringContent(body, Encoding.UTF8, "application/json"));
             var content = await response.Content.ReadAsStringAsync();
 
-            // multi_get answers 200 at the envelope level and carries per-request status inside, so the
-            // body is where a failure shows up
+            // the sub-request must actually have been routed, otherwise the header code never ran and
+            // this test would pass without proving anything
+            Assert.DoesNotContain("There is no handler for path", content);
+
+            // multi_get answers 200 at the envelope level and carries per-request status inside, so a
+            // failure can show up either place
             Assert.True(response.StatusCode == HttpStatusCode.OK,
                 $"multi_get with {what} answered {(int)response.StatusCode} {response.StatusCode}: {content}");
 

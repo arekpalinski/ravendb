@@ -27,6 +27,7 @@ public static class Program
         ["e-parent-churn"] = EParentChurn.Run,
         ["e-boundary-sweep"] = EBoundarySweep.Run,
         ["f-span-diff"] = FSpanDiff.Run,
+        ["f-http-fuzz"] = FHttpFuzz.RunScenario,
         ["g-cache-assert"] = GCacheAssert.RunScenario,
         ["g-wakeup-watchdog"] = GWakeupWatchdog.RunScenario,
         ["h-index-stress"] = HIndexStress.Run,
