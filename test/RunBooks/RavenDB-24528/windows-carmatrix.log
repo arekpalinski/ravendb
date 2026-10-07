@@ -1,0 +1,34 @@
+==== Windows car matrix 2026-06-23T13:50:15.5277602+02:00 | Auto=1x/seed200, explicit=10x/seed500, load 30s | dashboard D:\temp\ravendb-24528\progress.html ====
+
+===== Auto (iters=1 seed=200) =====
+
+== carscenario mode=Auto queue=default iter=1 load=30s seed=200 threads=25 data=D:\temp\ravendb-24528\car-Auto-def qa=D:\workspace\ravendb-qa-workload-client\QAWorkloadClient\bin\Release\net8.0
+  selected WriteMode=IoRing (expected Auto)
+  dca exit=0
+  di RookDB-TMI-PROD exit=0
+  di RookDB-TMI-CORE-PROD exit=0
+  dd RookDB-TMI-PROD (n=200) exit=0
+  dd RookDB-TMI-CORE-PROD (n=200) exit=0
+  seeded RookDB-TMI-PROD: 7401 docs
+  RookDB-TMI-PROD 7401 -> 14184 docs (+6783 during load); hard-killing server pid 256004 mid-write
+  integrity: export+import OK, docs source=14209 verify=14209 -> MATCH
+  recovery log: 0 ERROR/FATAL, 1 WARN
+iteration 1: PASS (passed=1 failed=0)
+== carscenario summary mode=Auto queue=default: 1 passed, 0 failed
+
+
+===== FileIo (iters=10 seed=500) =====
+
+== carscenario mode=FileIo queue=default iter=10 load=30s seed=500 threads=25 data=D:\temp\ravendb-24528\car-FileIo-def qa=D:\workspace\ravendb-qa-workload-client\QAWorkloadClient\bin\Release\net8.0
+  selected WriteMode=FileIo (expected FileIo)
+  dca exit=0
+  di RookDB-TMI-PROD exit=0
+  di RookDB-TMI-CORE-PROD exit=0
+  dd RookDB-TMI-PROD (n=500) exit=0
+  dd RookDB-TMI-CORE-PROD (n=500) exit=0
+  seeded RookDB-TMI-PROD: 18501 docs
+  RookDB-TMI-PROD 18501 -> 25292 docs (+6791 during load); hard-killing server pid 276808 mid-write
+  integrity: export+import OK, docs source=25316 verify=25316 -> MATCH
+  recovery log: 0 ERROR/FATAL, 1 WARN
+iteration 1: PASS (passed=1 failed=0)
+  RookDB-TMI-PROD 25316 -> 30136 docs (+4820 during load); hard-killing server pid 264900 mid-write

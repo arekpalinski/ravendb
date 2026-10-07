@@ -1,0 +1,68 @@
+# RavenDB-24520 Findings - index & shared context
+
+One self-contained file per finding so any session can pick up a single issue by reading just that file. Start a focused discussion with: "read `test/RunBooks/RavenDB-24520/findings/<file>` and let's go over it."
+
+## Findings
+
+| ID | Severity | Status | One-liner | File |
+|----|----------|--------|-----------|------|
+| **F-3** | serious | **FIXED** (RavenDB-27156 + RavenDB-27166) | IO error / ENOSPC at the shared-journal write corrupted branch scratch state -> ACCESS_VIOLATION (~40-60% of runs) | [F-3-write-failure-access-violation.md](F-3-write-failure-access-violation.md) |
+| **F-1** | design | **FIXED** (RavenDB-27278) | No per-index isolation: recovery hash-validated foreign-env txs before the owner-filter. Replaced by resync + per-env sequence attribution | [F-1-no-isolation.md](F-1-no-isolation.md) |
+| **F-2** | minor | open | `JournalId`-field corruption at the tail = clean load, no error, silent drop of that tx | [F-2-silent-journalid-loss.md](F-2-silent-journalid-loss.md) |
+| F-4 | - | **CLOSED** (does not reproduce) | `IgnoreInvalidJournalErrors` no longer loses data: the salvaged index recovers to the exact baseline entry count. Likely fixed by `dd66e0ac6c8` on the skip path | [F-4-dangerous-flag-partial-loss.md](F-4-dangerous-flag-partial-loss.md) |
+| F-5 | - | **WITHDRAWN** | "JournalId impersonation" - scenario was constructed, and the proposed fix missed the only non-adversarial trigger. Reasoning recorded in F-8 | (deleted, see [F-8](F-8-refuted-hypotheses.md)) |
+| **F-6** | low | open (nit) | A bypassed `LinkedJournalsRecord` skips hard-link repair; the failure IS reported and the branch fails loudly, but nothing connects the two messages | [F-6-linkrecord-bypass-diagnostics.md](F-6-linkrecord-bypass-diagnostics.md) |
+| F-7 | - | **REFUTED** | Corrupting the shared root does not fail a real database - its single tx is already synced, so recovery skips it unvalidated. **Contains the sync-state methodology lesson** | [F-7-root-owned-corruption-blast-radius.md](F-7-root-owned-corruption-blast-radius.md) |
+| F-8 | - | closed | Negative results from the 2026-08-07 resync review: silent-bypass, encrypted buffer growth, rescan cost, `Guid.Empty` adoption, `Root` tampering - all refuted | [F-8-refuted-hypotheses.md](F-8-refuted-hypotheses.md) |
+| **F-9** | medium-low | diagnostics half **filed as RavenDB-27293** (PR open); rest unfiled | A missing old journal in `@SharedJournals/Journals/` fails the WHOLE database load. `IgnoreInvalidJournalErrors` recovers it fully, but the error offered no remedy | [F-9-missing-root-journal-fails-database.md](F-9-missing-root-journal-fails-database.md) |
+| Q&A | - | current | Ticket questions Q1.1/Q1.2/Q2.2/Q2.3 answered against the rebased branch (rewritten 2026-08-07) | [ticket-answers.md](ticket-answers.md) |
+
+Evidence levels used in each file: **observed** (measured on this box), **derived** (from code + observation), **hypothesis** (needs more work).
+
+## Read this before writing another corruption test
+
+**Sync state governs reachability, and it is the single biggest source of false findings in this campaign.** The Voron-level fixtures set `ManualFlushing = true; ManualSyncing = true`, so nothing is ever synced and recovery fully validates every transaction in the file. A real environment syncs promptly, after which recovery **skips already-synced transactions without validating them** (`JournalReader.IsAlreadySyncTransaction`). The transactions a test naturally picks as victims - early ones, the initializing transaction, anything near the head of the file - are exactly the ones production has already synced past.
+
+Two findings (F-5, F-7) died on this after looking serious at Voron level. **Re-test at server level before believing any corruption finding.** Full write-up in [F-7](F-7-root-owned-corruption-blast-radius.md).
+
+## Environment (all findings)
+
+- Windows 11, branch v8.0-derived (`RavenDB-24520`, based on the tip of `RavenDB-27166`), .NET 10. Findings were **found** here.
+- Golden DB = StackOverflow small, sampled 1/50 during import: ~130k docs, 6 map / map-reduce indexes over the `Questions` and `Users` collections. Shared journals engaged: all 6 index environments hard-linked to the per-database `@SharedJournals` root; the active journal is linked by all 6 branches + the root.
+- Real disk-full corroboration used an external F: volume (16 GB NTFS).
+- **Re-run end to end on Linux 2026-08-10** (kernel 6.8, .NET SDK 10.0.302, ext4) at `80448c3c203`, disk-full on a 5 GB ext4 loop device. The golden seeded to a byte-comparable baseline (130,534 / 136,534 docs, 9 inode groups) and **all 16 corruption cells reproduced identically**, so the findings below are cross-platform unless a file says otherwise. No behavioral divergence was found; the Linux pass did surface three *harness* bugs, all recorded in [../20-LINUX-runbook.md](../20-LINUX-runbook.md). Note that Linux additionally allows corrupting a journal a running server holds open (no mandatory locking) - that scenario produced no new finding.
+
+## Harness (test/Tryouts/RavenDB_24520/)
+
+`Harness.cs`, `JournalTools.cs` (offline journal parser + corruptor), `Scenarios.cs` (the corruption-cell driver). Driven by `test/Tryouts/Program.cs`. Runs an **external** `Raven.Server` child process so it can hard-kill and corrupt files at rest.
+
+Build: `dotnet build test/Tryouts -c Release`
+Run:   `dotnet run --project test/Tryouts -c Release --no-build -- <command>`
+
+Commands: `seed [nPostsDumps]`, `map [dir]`, `status [dir]`, `restore-work`, `verify [dir]`, `cell <name> <op> <ownerFilter> <which> [fileSelector]`, `corrupt-live <name> <op> <ownerFilter> <which> [fileSelector] [--probe passive|reload|both] [--observe <sec>]`, `diskfull <dir> <leaveMB>`, `server [dir]`.
+
+`corrupt-live` (added 2026-08-10, Linux) corrupts a journal **while the server holds it open** and watches for live detection before hard-killing and verifying. Read the Scenario 1G section of the Linux runbook before using it - three separate ways to get a meaningless clean result are documented there.
+
+Env overrides: `RAVEN_24520_BASE` (default `D:\temp\24520`), `RAVEN_24520_DUMPS`, `RAVEN_24520_INDEXES`, `RAVEN_24520_SAMPLE` (default 50), `RAVEN_24520_EXTRA_ARGS` (extra server args).
+
+Dataset gotcha: the SO dumps are BuildVersion=40000 (classified V4) but carry the V3-era `Raven-Entity-Name` metadata key, which the server only translates to `@collection` for V3. A plain `import-dir` therefore drops the collection and every doc lands in `@empty`, leaving the SO indexes empty. The harness promotes it via an import transform script; see `../00-REFERENCE.md`.
+
+## Key code map
+
+- Shared root env + merger thread: `src/Raven.Server/Documents/Indexes/SharedIndexJournals.cs`
+- Merged branch state + the F-3 fix: `src/Voron/Impl/Journal/SharedJournalState.cs`
+- Recovery + per-env `JournalId` filter + corruption detection: `src/Voron/Impl/Journal/JournalReader.cs`
+- Journal write (+ the `SimulatePartialJournalWriteFailure` test seam): `src/Voron/Impl/Journal/JournalWriter.cs`
+- Merge / branch commit path: `src/Voron/Impl/Journal/WriteAheadJournal.cs`
+- Catastrophic failure -> DB unload: `src/Raven.Server/Documents/CatastrophicFailureHandler.cs`
+- Transaction header (`JournalId` at offset 136): `src/Voron/Impl/Journal/TransactionHeader.cs`
+
+## Regression tests
+
+Committed with the fixes (these supersede the campaign's throwaway repros):
+- `test/SlowTests/Voron/Issues/RavenDB_27156.cs` - poisoning + recovery, torn-tail pager growth.
+- `test/SlowTests/Voron/Issues/RavenDB_27156_e2e.cs` - the server-level F-3 repro (`TornJournalWrite_OnSharedRoot_...`).
+- `test/SlowTests/Voron/Issues/RavenDB_27166.cs` - piggybacked-flush rollback poisoning.
+- Product test seam: `StorageEnvironmentOptions.TestingStuff.SimulatePartialJournalWriteFailure`, honored in `JournalWriter.Write`.
+
+Raw Scenario-1 cell table + per-cell logs (not committed, machine-local): `<RAVEN_24520_BASE>\findings-scenario1.md`.
