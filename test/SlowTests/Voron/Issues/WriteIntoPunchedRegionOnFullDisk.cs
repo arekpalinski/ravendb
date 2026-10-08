@@ -15,7 +15,7 @@ namespace SlowTests.Voron.Issues;
 // io_uring write completes with -ENOSPC, but the PAL worker (src/Raven.Pal/src/posix/ioring.c) sets only the error flag for a
 // negative cqe->res and leaves the result at 0, and rvn_write_io_ring reports a failure only through a non-zero error code. The
 // flush therefore treats the lost write as done, the sync retires the journal that held the page, and after a restart the
-// page reads as zeros (seen in the Phase III R5 run on Linux: "When reading page 2847, we read a page with header of page 0").
+// page reads as zeros (seen while testing RavenDB-27655 on Linux: "When reading page 2847, we read a page with header of page 0").
 //
 // The write mode is process-wide: pick it with RAVEN_Storage_WriteMode (Auto, IoRing, FileIo, VectoredFileIo, Mmap).
 // Results on Linux 6.8: IoRing (and Auto) fail - the value reads as zeros; FileIo and VectoredFileIo pass - the flush hits

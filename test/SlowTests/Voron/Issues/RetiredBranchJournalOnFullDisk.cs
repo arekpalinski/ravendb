@@ -14,7 +14,7 @@ namespace SlowTests.Voron.Issues;
 // An index holding the last link to a journal it no longer needs donates the file to the shared journals pool. Before the
 // donation, CanJournalsBeLinkedWith writes a probe file (<guid>.test-hard-link) into the root's journal directory. On a full disk
 // that write throws (ENOSPC), nothing catches it, the sync fails ("The lock task failed") and the index environment ends in
-// CatastrophicFailure, so even the disk-full cleanup that should free space kills the index (seen in the Phase III R5 run on Linux).
+// CatastrophicFailure, so even the disk-full cleanup that should free space kills the index (seen while testing RavenDB-27655 on Linux).
 // The test makes the probe fail without filling a disk: the root's journal directory rejects new files during the index sync.
 public class RetiredBranchJournalOnFullDisk(ITestOutputHelper output) : RavenTestBase(output)
 {
