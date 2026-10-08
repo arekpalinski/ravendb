@@ -994,7 +994,7 @@ public static class WriteModeOrchestrator
         }
     }
 
-    // Scan a server session's log dir for ERROR/FATAL (and count WARN). Layout: longdate|LEVEL|... (Sparrow Constants.DefaultLayout)
+    // Scan a server session's log dir for ERROR/FATAL (and count WARN). Layout: Date|NodeTag|Level|ThreadID|... (RavenDB 8.0 server log)
     private static (int errors, int warns, List<string> samples) ScanLogErrors(string logDir)
     {
         var samples = new List<string>();
@@ -1015,11 +1015,9 @@ public static class WriteModeOrchestrator
                 catch { continue; }
                 foreach (var line in text.Split('\n'))
                 {
-                    int p1 = line.IndexOf('|');
-                    if (p1 < 0) continue;
-                    int p2 = line.IndexOf('|', p1 + 1);
-                    if (p2 < 0) continue;
-                    var level = line.Substring(p1 + 1, p2 - p1 - 1);
+                    var fields = line.Split('|', 4);
+                    if (fields.Length < 4) continue;
+                    var level = fields[2];
                     if (level == "ERROR" || level == "FATAL")
                     {
                         errors++;

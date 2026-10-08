@@ -212,9 +212,10 @@ public static unsafe class JournalTools
     public static void PrintJournalStats(string dir)
     {
         var pipelined = 0;
+        var envs = JournalOwners(dir);
         foreach (var file in Directory.GetFiles(dir, "*.journal", SearchOption.AllDirectories).OrderBy(x => x))
         {
-            var entries = Parse(file);
+            var entries = Parse(file, envs);
             var txs = entries.Where(e => e.IsHeaderRecord == false && e.IsLinkRecord == false).ToList();
             var inFlight = txs.Count(t => t.Header.DurableTxIdDeltaAtSubmit >= 2);
             pipelined += inFlight;
@@ -224,6 +225,25 @@ public static unsafe class JournalTools
                               $"max delta={(txs.Count == 0 ? 0 : txs.Max(t => t.Header.DurableTxIdDeltaAtSubmit))}");
         }
         Console.WriteLine($"[stats] total submitted while an earlier one was in flight: {pipelined}");
+    }
+
+    // the environments that can own entries in dir: every env of its database (an encrypted journal needs its owner to recover the incarnation)
+    private static List<EnvInfo> JournalOwners(string dir)
+    {
+        var root = new DirectoryInfo(Path.GetFullPath(dir));
+        for (var d = root; d?.Parent != null; d = d.Parent)
+        {
+            if (string.Equals(d.Parent.Name, "Databases", StringComparison.OrdinalIgnoreCase))
+            {
+                root = d;
+                break;
+            }
+        }
+
+        return Directory.GetFiles(root.FullName, "database.metadata", SearchOption.AllDirectories)
+            .Select(Path.GetDirectoryName)
+            .Select(envDir => new EnvInfo { Name = Path.GetFileName(envDir), BasePath = envDir, JournalId = ReadJournalId(envDir) })
+            .ToList();
     }
 
     // ---------------------------------------------------------------- map
