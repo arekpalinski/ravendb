@@ -17,11 +17,15 @@ namespace SlowTests.Voron.Issues;
 // flush therefore treats the lost write as done, the sync retires the journal that held the page, and after a restart the
 // page reads as zeros (seen in the Phase III R5 run on Linux: "When reading page 2847, we read a page with header of page 0").
 //
+// The write mode is process-wide: pick it with RAVEN_Storage_WriteMode (Auto, IoRing, FileIo, VectoredFileIo, Mmap).
+// Results on Linux 6.8: IoRing (and Auto) fail - the value reads as zeros; FileIo and VectoredFileIo pass - the flush hits
+// disk full, keeps the journal and the reopen replays it; Mmap crashes the test process with SIGBUS (exit code 135) when the
+// mapped page in the punched region cannot get a block, so run Mmap with the fillDisk: True case on its own.
 // Needs a full disk without filling the real one: run inside a user namespace with a small tmpfs, the data file goes there,
 // the journals and temp files stay on the regular disk:
 //   unshare -Urm sh -c 'mkdir -p /tmp/rvn-small && mount -t tmpfs -o size=64m tmpfs /tmp/rvn-small &&
-//     RAVEN_TEST_SMALL_TMPFS=/tmp/rvn-small dotnet test test/SlowTests -c Release --filter "FullyQualifiedName~IoRingWriteIntoPunchedRegionOnFullDisk"'
-public class IoRingWriteIntoPunchedRegionOnFullDisk(ITestOutputHelper output) : RavenTestBase(output)
+//     RAVEN_TEST_SMALL_TMPFS=/tmp/rvn-small dotnet test test/SlowTests -c Release --filter "FullyQualifiedName~WriteIntoPunchedRegionOnFullDisk"'
+public class WriteIntoPunchedRegionOnFullDisk(ITestOutputHelper output) : RavenTestBase(output)
 {
     private const int ValueSize = 4 * Constants.Size.Megabyte;
 
@@ -44,7 +48,7 @@ public class IoRingWriteIntoPunchedRegionOnFullDisk(ITestOutputHelper output) : 
             using (var options = CreateOptions(dataPath, otherPath))
             using (var env = new StorageEnvironment(options))
             {
-                Assert.SkipWhen(PalConfiguration.WriteMode != Pal.RvnWriteMode.IoRing, $"the data file is written with {PalConfiguration.WriteMode}, not IoRing");
+                Output.WriteLine($"write mode: {PalConfiguration.WriteMode}");
 
                 Put(env, "first", new byte[ValueSize]);
                 FlushAndSync(env);
