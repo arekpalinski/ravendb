@@ -90,5 +90,5 @@ Check `df -h ~` before each subtask. Sizes were measured on Windows; Linux shoul
 | R3 | ~1 GB | delete each 7.2 tarball once extracted |
 | R4 | ~1.5 GB | the 1 GB loop image |
 | R5 | ~2 GB | Linux row only, import just the three dumps above |
-| R6 | small | iteration dirs are deleted on PASS; run d-avalanche with `--minutes 1` or skip it (a measurement) |
+| R6 | small, except d-drain-hammer | iteration dirs are deleted on PASS; skip d-drain-hammer (it grows a data file at disk speed, about 30 GB per minute of budget); run d-avalanche with `--minutes 1` or skip it (a measurement) |
 - Encrypted databases need a server built with `-p:RAVEN_BuildOptions=ALLOW_ENCRYPTED_OVER_HTTP` and a raised memlock limit.

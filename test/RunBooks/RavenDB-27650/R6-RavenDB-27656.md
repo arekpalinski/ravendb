@@ -16,6 +16,10 @@ dotnet run -c <Debug|Release> --no-build -- <scenario> --seed <N> --minutes <M> 
   (default `%TEMP%/voron-stress/<scenario>-<seed>`, on Linux pass `--dir` on ext4). A FAIL keeps the evidence; the same seed replays it.
 - "all N iterations were vacuous" is a FAIL too: the child never committed before the kill, so nothing was tested.
 - Use a fresh seed per run (the date works, e.g. 20261008) and never run two crash scenarios on one disk at the same time.
+- d-drain-hammer's big-transaction environment adds a new 0.5-1.5 MB key per commit and never deletes, so its data file grows
+  as fast as the disk takes it: on the Windows NVMe about 480 MB/s, which filled 190 GB in 6.5 minutes and failed the run with
+  a DiskFullException (not an oracle failure). It writes for 0.8 of the budget: with less than about 30 GB free per minute of
+  budget, use `--minutes 5` or less.
 
 ## Windows (unattended, about 6 hours)
 
@@ -29,7 +33,8 @@ Build both configurations first: `dotnet build test/Tryouts/Tryouts.csproj -c De
 | b-prewarm-race | Release | 15 |
 | c-reader-soak, c-flush-race | Release | 15 each |
 | c-snapshot-model | Debug | 15 |
-| d-page-integrity, d-drain-hammer | Debug | 15 each |
+| d-page-integrity | Debug | 15 |
+| d-drain-hammer | Debug | 5 (disk, see above) |
 | d-flusher-liveness | Debug | 10 |
 | e-crash-model, e-parent-churn, e-boundary-sweep | Debug | 15 each |
 | f-span-diff | Debug | 15 |
@@ -48,7 +53,7 @@ $runs = @(
   @('Debug','a-order-fuzz',15), @('Debug','a-fault-matrix',15), @('Debug','a-merger-pump',15),
   @('Debug','b-recycle-kill',15), @('Debug','b-shared-kill',15), @('Release','b-tail-shapes',5), @('Release','b-prewarm-race',15),
   @('Release','c-reader-soak',15), @('Release','c-flush-race',15), @('Debug','c-snapshot-model',15),
-  @('Debug','d-page-integrity',15), @('Debug','d-drain-hammer',15), @('Debug','d-flusher-liveness',10),
+  @('Debug','d-page-integrity',15), @('Debug','d-drain-hammer',5), @('Debug','d-flusher-liveness',10),
   @('Debug','e-crash-model',15), @('Debug','e-parent-churn',15), @('Debug','e-boundary-sweep',15),
   @('Debug','f-span-diff',15), @('Debug','g-cache-assert',15), @('Debug','g-wakeup-watchdog',15), @('Release','g-etag-restart',12),
   @('Debug','h-tree-model',15), @('Debug','h-index-stress',15), @('Debug','h-deep-cursor',15), @('Release','h-compressed-churn',15))
@@ -68,7 +73,8 @@ rename + fsync of reused journals, journal zeroing pacing. Order (the playbook's
 
 | Scenario | Build | Minutes |
 |---|---|---|
-| d-page-integrity, d-drain-hammer | Debug | 15 each |
+| d-page-integrity | Debug | 15 |
+| d-drain-hammer | Debug | skip with less than about 100 GB free (it fills the disk at disk speed), otherwise 3 |
 | d-avalanche | Release | 3, alone |
 | d-flusher-liveness | Debug | 10 |
 | b-recycle-kill, b-shared-kill | Debug | 15 each |
@@ -80,7 +86,7 @@ rename + fsync of reused journals, journal zeroing pacing. Order (the playbook's
 ```bash
 seed=$(date +%Y%m%d); out=~/phase3-r6; mkdir -p $out
 run() { dotnet run --project test/Tryouts -c "$1" --no-build -- "$2" --seed $seed --minutes "$3" --dir "$out/$2" > "$out/$2.log" 2>&1; echo "$2 exit=$?" | tee -a $out/summary.txt; }
-run Debug d-page-integrity 15; run Debug d-drain-hammer 15; run Release d-avalanche 3; run Debug d-flusher-liveness 10
+run Debug d-page-integrity 15; run Release d-avalanche 3; run Debug d-flusher-liveness 10   # d-drain-hammer: see the table
 run Debug b-recycle-kill 15; run Debug b-shared-kill 15; run Release b-tail-shapes 5; run Release b-prewarm-race 15
 run Debug a-fault-matrix 15; run Debug a-order-fuzz 15; run Release c-reader-soak 15; run Release c-flush-race 15
 ```
