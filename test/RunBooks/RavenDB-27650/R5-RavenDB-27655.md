@@ -32,5 +32,13 @@ Retest of the RavenDB-24503 restart scenarios. No tool, a server and a stopwatch
 - The restart row: punching starts 5 idle minutes after the database loaded again.
 - Linux: the space comes back after the next syncs.
 - No data loss: document counts and index entries unchanged across restarts.
+- Compare the space that came back with the free pages (`GET /databases/HP/debug/storage/environment/free-space-snapshot`,
+  FreeSpaceSize), not with the storage report's FreeSpaceInBytes: that one also counts the never-used end of the data file
+  (allocated when the file grew, never punched by design). On Windows that end was 0.98 GB of an 8 GB file.
+- Known bug RavenDB-27662: pages written and freed within one flush are punched only after the database loads again. Once
+  the size stops shrinking, restart the database once without writes (`POST /databases/HP/admin/restart`) and record how much
+  more comes back 5 minutes after the load (Windows: 0.67 GB). Repro test: `dotnet test test/SlowTests/SlowTests.csproj -c Release
+  --filter "FullyQualifiedName~SparseRegionsFreedInSameFlush"` - today the `flushBetween: False` cases fail, on Linux too if the
+  bug is there.
 
 Open hole-punching tickets (RavenDB-24497, 24500, 24502, 26872) need the idle delay in their Windows expectations.

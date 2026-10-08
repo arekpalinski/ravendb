@@ -116,6 +116,7 @@ public static unsafe class JournalTools
         var bytes = File.ReadAllBytes(journalPath);
         var total4Kb = bytes.Length / Block;
         var incarnation = Guid.Empty; // a pre-8.0 journal has no header record
+        var incarnationPending = false; // an encrypted header record keeps the incarnation inside its ciphertext
 
         fixed (byte* basePtr = bytes)
         {
@@ -144,12 +145,26 @@ public static unsafe class JournalTools
                 var entry = new TxEntry { ByteOffset = offset, SizeIn4Kb = size4Kb, Header = *header };
                 if (entry.IsHeaderRecord)
                 {
-                    incarnation = *(Guid*)(basePtr + offset + TransactionHeader.SizeOf);
                     entry.Owner = "<header-record>";
-                    entry.HashValid = hash == header->Hash;
+                    if (entry.IsEncrypted)
+                    {
+                        incarnationPending = true;
+                        entry.HashValid = header->Hash == 0;
+                    }
+                    else
+                    {
+                        incarnation = *(Guid*)(basePtr + offset + TransactionHeader.SizeOf);
+                        entry.HashValid = hash == header->Hash;
+                    }
                 }
                 else
                 {
+                    if (incarnationPending && entry.IsEncrypted && TryDeriveIncarnation(header, envs, out var derived))
+                    {
+                        incarnation = derived;
+                        incarnationPending = false;
+                    }
+
                     // entries carry JournalId XOR incarnation, and their hash is XORed with the incarnation tag
                     var tag = TransactionHeader.IncarnationTag(incarnation);
                     entry.EffectiveJournalId = header->JournalId.Xor(incarnation);
@@ -163,6 +178,21 @@ public static unsafe class JournalTools
             }
         }
         return result;
+    }
+
+    // an encrypted entry's Hash is IncarnationTag(incarnation) and its JournalId is the owner's id XOR incarnation,
+    // so the incarnation is JournalId XOR owner for the one known owner whose tag matches
+    private static bool TryDeriveIncarnation(TransactionHeader* header, List<EnvInfo> envs, out Guid incarnation)
+    {
+        foreach (Guid owner in (envs ?? []).Select(e => e.JournalId).Append(WriteAheadJournal.LinkedJournalsRecord.LinkedJournalId))
+        {
+            incarnation = header->JournalId.Xor(owner);
+            if (TransactionHeader.IncarnationTag(incarnation) == header->Hash)
+                return true;
+        }
+
+        incarnation = Guid.Empty;
+        return false;
     }
 
     private static string ResolveOwner(Guid journalId, List<EnvInfo> envs)
