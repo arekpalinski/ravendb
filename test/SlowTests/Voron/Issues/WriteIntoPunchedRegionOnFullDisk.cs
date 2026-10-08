@@ -25,12 +25,15 @@ namespace SlowTests.Voron.Issues;
 // the journals and temp files stay on the regular disk:
 //   unshare -Urm sh -c 'mkdir -p /tmp/rvn-small && mount -t tmpfs -o size=64m tmpfs /tmp/rvn-small &&
 //     RAVEN_TEST_SMALL_TMPFS=/tmp/rvn-small dotnet test test/SlowTests -c Release --filter "FullyQualifiedName~WriteIntoPunchedRegionOnFullDisk"'
+// Windows: point RAVEN_TEST_SMALL_TMPFS at a folder on a small NTFS volume, the test fills that volume. Results on Windows 11:
+// IoRing (and Auto) and FileIo pass; Mmap kills the test process with 0xC0000006 (STATUS_IN_PAGE_ERROR), so again run Mmap
+// with the fillDisk: True case on its own and clean the filler files it leaves behind.
 public class WriteIntoPunchedRegionOnFullDisk(ITestOutputHelper output) : RavenTestBase(output)
 {
     private const int ValueSize = 4 * Constants.Size.Megabyte;
 
     // fillDisk: false is the control - the same steps with free space pass
-    [RavenMultiplatformTheory(RavenTestCategory.Voron, RavenPlatform.Linux)]
+    [RavenMultiplatformTheory(RavenTestCategory.Voron)]
     [InlineData(true)]
     [InlineData(false)]
     public void ValueWrittenIntoAPunchedRegionSurvivesARestart(bool fillDisk)
@@ -121,6 +124,32 @@ public class WriteIntoPunchedRegionOnFullDisk(ITestOutputHelper output) : RavenT
     // takes every free block of the small disk, big chunks first, then single pages
     private static void FillDisk(string dir, List<string> fillers)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            // NTFS gives back the unused allocation of an empty file when its handle closes, so here the fillers extend
+            // their end of file instead, which allocates the clusters right away
+            var balloon = new DriveInfo(Path.GetPathRoot(dir)!).AvailableFreeSpace - Constants.Size.Megabyte;
+            foreach (var chunk in new[] { balloon, 64 * Constants.Size.Kilobyte, 4 * Constants.Size.Kilobyte })
+            {
+                while (chunk > 0)
+                {
+                    var path = Path.Combine(dir, $"filler-{fillers.Count}");
+                    try
+                    {
+                        using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write))
+                            file.SetLength(chunk);
+                        fillers.Add(path);
+                    }
+                    catch (IOException)
+                    {
+                        File.Delete(path);
+                        break;
+                    }
+                }
+            }
+            return;
+        }
+
         foreach (var chunk in new long[] { Constants.Size.Megabyte, 4 * Constants.Size.Kilobyte })
         {
             while (true)
