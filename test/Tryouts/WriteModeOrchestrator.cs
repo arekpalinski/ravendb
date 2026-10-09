@@ -446,9 +446,57 @@ public static class WriteModeOrchestrator
 
             using var store = new DocumentStore { Urls = new[] { url }, Database = db }.Initialize();
             long beforeUnload = await CountDocs(url, db); // reads see only durable transactions
-            store.Maintenance.Server.Send(new ToggleDatabasesStateOperation(db, disable: true));
-            store.Maintenance.Server.Send(new ToggleDatabasesStateOperation(db, disable: false));
+            var sw = Stopwatch.StartNew();
+            var clock = Stopwatch.StartNew();
+            // when the database left and re-entered the landlord's cache, against when the toggle calls returned
+            var timeline = new ConcurrentQueue<string>();
+            using var pollCts = new CancellationTokenSource();
+            var poll = Task.Run(async () =>
+            {
+                using var http = new HttpClient();
+                bool? last = null;
+                while (pollCts.IsCancellationRequested == false)
+                {
+                    try
+                    {
+                        var loaded = (await http.GetStringAsync($"{url}/debug/is-loaded?name={db}")).Contains("\"IsLoaded\":true");
+                        if (loaded != last)
+                            timeline.Enqueue($"loaded={loaded} at {clock.Elapsed.TotalSeconds:N1}s");
+                        last = loaded;
+                    }
+                    catch { }
+                    await Task.Delay(100);
+                }
+            });
+            var disable = Task.Run(() => store.Maintenance.Server.Send(new ToggleDatabasesStateOperation(db, disable: true)));
+            if (await Task.WhenAny(disable, Task.Delay(TimeSpan.FromSeconds(4))) != disable)
+                await SaveStacks(url, Path.Combine(dataDir, $"stacks-disable-{i}.json")); // what a slow unload waits on
+            await disable;
+            var disableTook = sw.Elapsed;
+            timeline.Enqueue($"disable returned at {clock.Elapsed.TotalSeconds:N1}s");
+            sw.Restart();
+            string enableNote = "";
+            try
+            {
+                var enable = Task.Run(() => store.Maintenance.Server.Send(new ToggleDatabasesStateOperation(db, disable: false)));
+                if (await Task.WhenAny(enable, Task.Delay(TimeSpan.FromSeconds(3))) != enable)
+                    await SaveStacks(url, Path.Combine(dataDir, $"stacks-enable-{i}.json")); // what a slow load waits on
+                await enable;
+            }
+            catch (Exception e)
+            {
+                // the enable waits 15s for the database to load; stacks now, then the time until it answers tells slow from stuck
+                var stacks = Path.Combine(dataDir, $"stacks-reload-{i}.json");
+                await SaveStacks(url, stacks);
+                await CountDocs(url, db);
+                enableNote = $" (timed out: {e.GetType().Name}; the database answered after {sw.Elapsed.TotalSeconds:N1}s; stacks in {stacks})";
+            }
+            var enableTook = sw.Elapsed;
+            timeline.Enqueue($"enable returned at {clock.Elapsed.TotalSeconds:N1}s");
             await Task.Delay(TimeSpan.FromSeconds(5)); // writes resume on the reloaded database
+            pollCts.Cancel();
+            await poll;
+            var toggles = $"disable {disableTook.TotalSeconds:N1}s, enable {enableTook.TotalSeconds:N1}s{enableNote} [{string.Join(", ", timeline)}]";
             cts.Cancel();
             await SwallowAsync(load);
 
@@ -456,11 +504,17 @@ public static class WriteModeOrchestrator
             var idx = await CheckIndexes(url, db);
             var journals = Path.Combine(dataDir, "Databases", db, "Journals");
             var unrecovered = Directory.Exists(journals) ? Directory.GetFiles(journals, "*.unrecovered") : [];
-            bool ok = after >= beforeUnload && idx.errorIndexes <= 0 && idx.indexErrors <= 0 && unrecovered.Length == 0;
-            Console.WriteLine($"  reload: {beforeUnload:N0} before the unload, {after:N0} after; idxErr={idx.errorIndexes} unrecovered={unrecovered.Length} -> {(ok ? "PASS" : "FAIL")}");
+            bool ok = after >= beforeUnload && idx.errorIndexes <= 0 && idx.indexErrors <= 0 && unrecovered.Length == 0 && enableNote.Length == 0;
+            Console.WriteLine($"  reload: {beforeUnload:N0} before the unload, {after:N0} after; idxErr={idx.errorIndexes} unrecovered={unrecovered.Length}; {toggles} -> {(ok ? "PASS" : "FAIL")}");
             return ok;
         }
         finally { srv.Kill(); }
+    }
+
+    private static async Task SaveStacks(string url, string path)
+    {
+        using var http = new HttpClient();
+        await File.WriteAllTextAsync(path, await http.GetStringAsync($"{url}/admin/debug/threads/stack-trace"));
     }
 
     // batch = documents per SaveChanges; small batches with moderate concurrency are what lets the journal writes be pipelined

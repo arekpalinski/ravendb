@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.MemoryMappedFiles;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Sparrow;
@@ -42,6 +43,7 @@ public static unsafe class JournalTools
         public Guid EffectiveJournalId;
         public string Owner;
         public bool HashValid;
+        public bool FromEarlierLife;
 
         public long PayloadOffset => ByteOffset + TransactionHeader.SizeOf;
         public long PayloadSize => Header.CompressedSize != -1 ? Header.CompressedSize : Header.UncompressedSize;
@@ -54,7 +56,7 @@ public static unsafe class JournalTools
         public override string ToString()
         {
             return $"@{ByteOffset,12:N0} ({SizeIn4Kb,4} x4KB) txId={Header.TransactionId,-12} owner={Owner,-35} " +
-                   $"payload={PayloadSize,10:N0} delta={Header.DurableTxIdDeltaAtSubmit} hash={(HashValid ? "valid" : "INVALID")}" +
+                   $"payload={PayloadSize,10:N0} delta={Header.DurableTxIdDeltaAtSubmit} hash={(HashValid ? "valid" : FromEarlierLife ? "earlier-life" : "INVALID")}" +
                    $"{(IsLinkRecord ? " [LINK-RECORD]" : "")}";
         }
     }
@@ -113,12 +115,21 @@ public static unsafe class JournalTools
     public static List<TxEntry> Parse(string journalPath, List<EnvInfo> envs = null)
     {
         var result = new List<TxEntry>();
-        var bytes = File.ReadAllBytes(journalPath);
-        var total4Kb = bytes.Length / Block;
+        var length = new FileInfo(journalPath).Length;
+        if (length == 0)
+            return result;
+
+        var total4Kb = length / Block;
         var incarnation = Guid.Empty; // a pre-8.0 journal has no header record
         var incarnationPending = false; // an encrypted header record keeps the incarnation inside its ciphertext
 
-        fixed (byte* basePtr = bytes)
+        // a journal can reach 2 GB (Storage.MaxJournalFileSizeInMb), more than a byte[] holds
+        using var file = MemoryMappedFile.CreateFromFile(journalPath, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
+        using var view = file.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
+        byte* basePtr = null;
+        view.SafeMemoryMappedViewHandle.AcquirePointer(ref basePtr);
+        basePtr += view.PointerOffset;
+        try
         {
             for (long pos4Kb = 0; pos4Kb < total4Kb;)
             {
@@ -132,7 +143,7 @@ public static unsafe class JournalTools
 
                 var payloadSize = header->CompressedSize != -1 ? header->CompressedSize : header->UncompressedSize;
                 var actualSize = TransactionHeader.SizeOf + payloadSize;
-                if (payloadSize < 0 || offset + actualSize > bytes.Length)
+                if (payloadSize < 0 || offset + actualSize > length)
                 {
                     // header claims more data than the file holds - treat like the recovery loop does
                     pos4Kb++;
@@ -169,13 +180,19 @@ public static unsafe class JournalTools
                     var tag = TransactionHeader.IncarnationTag(incarnation);
                     entry.EffectiveJournalId = header->JournalId.Xor(incarnation);
                     entry.Owner = ResolveOwner(entry.EffectiveJournalId, envs);
-                    entry.HashValid = entry.IsEncrypted ? header->Hash == tag : (hash ^ header->Hash) == tag;
+                    var storedTag = entry.IsEncrypted ? header->Hash : hash ^ header->Hash;
+                    entry.HashValid = storedTag == tag;
+                    entry.FromEarlierLife = entry.HashValid == false && MatchesOwnIncarnation(header->JournalId, storedTag, envs);
                 }
 
                 result.Add(entry);
 
                 pos4Kb += size4Kb;
             }
+        }
+        finally
+        {
+            view.SafeMemoryMappedViewHandle.ReleasePointer();
         }
         return result;
     }
@@ -192,6 +209,18 @@ public static unsafe class JournalTools
         }
 
         incarnation = Guid.Empty;
+        return false;
+    }
+
+    // an entry left from the file's earlier life fails the current incarnation but is intact under its own one (JournalId XOR its owner's id)
+    private static bool MatchesOwnIncarnation(Guid journalId, ulong storedTag, List<EnvInfo> envs)
+    {
+        foreach (Guid owner in (envs ?? []).Select(e => e.JournalId))
+        {
+            if (TransactionHeader.IncarnationTag(journalId.Xor(owner)) == storedTag)
+                return true;
+        }
+
         return false;
     }
 
@@ -219,8 +248,11 @@ public static unsafe class JournalTools
             var txs = entries.Where(e => e.IsHeaderRecord == false && e.IsLinkRecord == false).ToList();
             var inFlight = txs.Count(t => t.Header.DurableTxIdDeltaAtSubmit >= 2);
             pipelined += inFlight;
-            Console.WriteLine($"[stats] {Path.GetRelativePath(dir, file)}: header record={entries.Any(e => e.IsHeaderRecord)}, " +
-                              $"transactions={txs.Count}, invalid hash={txs.Count(t => t.HashValid == false)}, " +
+            var earlierLife = txs.Where(t => t.FromEarlierLife).ToList();
+            var lastCurrent = txs.LastOrDefault(t => t.HashValid)?.ByteOffset ?? -1;
+            Console.WriteLine($"[stats] {Path.GetRelativePath(dir, file)}: size={new FileInfo(file).Length / Constants.Size.Megabyte:N0} MB, header record={entries.Any(e => e.IsHeaderRecord)}, " +
+                              $"transactions={txs.Count}, invalid hash={txs.Count(t => t.HashValid == false)} " +
+                              $"(left from the file's earlier life={earlierLife.Count}, of them before the last valid entry={earlierLife.Count(t => t.ByteOffset < lastCurrent)}), " +
                               $"submitted while an earlier one was in flight={inFlight}, " +
                               $"max delta={(txs.Count == 0 ? 0 : txs.Max(t => t.Header.DurableTxIdDeltaAtSubmit))}");
         }
