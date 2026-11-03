@@ -15,7 +15,7 @@ using Voron.Logging;
 
 namespace Voron.Impl.Journal
 {
-    public sealed unsafe class JournalFile : IDisposable
+    public sealed unsafe partial class JournalFile : IDisposable
     {
         private readonly StorageEnvironment _env;
         private IJournalWriter _journalWriter;
@@ -177,7 +177,12 @@ namespace Voron.Impl.Journal
 
             try
             {
+                AssertEntryBelongsToTransaction(tx, pages.Base);
+
                 Write(cur4KbPos, pages.Base, pages.NumberOf4Kbs);
+
+                if (StorageEnvironmentOptions.VerifyJournalWrites)
+                    AssertEntryOnDiskBelongsToTransaction(tx, cur4KbPos);
             }
             catch (Exception e)
             {

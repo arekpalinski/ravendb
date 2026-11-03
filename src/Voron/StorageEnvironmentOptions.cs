@@ -38,6 +38,8 @@ namespace Voron
 {
     public abstract class StorageEnvironmentOptions : IDisposable
     {
+        internal static readonly bool VerifyJournalWrites = string.Equals(Environment.GetEnvironmentVariable("RAVEN_DIAGNOSTICS_VERIFY_JOURNAL_WRITES"), "true", StringComparison.OrdinalIgnoreCase);
+
         public const string RecyclableJournalFileNamePrefix = "recyclable-journal";
 
         private ExceptionDispatchInfo _catastrophicFailure;
